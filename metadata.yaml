@@ -14,7 +14,7 @@ support_platforms:
   - aiocqhttp
 repo: "https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone"
 homepage: "https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone"
-icon: "assets/icon.svg"
+icon: "logo.png"
 tags:
   - tts
   - mimo

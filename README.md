@@ -159,7 +159,8 @@ voice_id = plugin.resolve_voice_id("温柔旁白", user_id="123", group_id="456"
 | 作者简介 | AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、Pages 管理体验与实用型机器人扩展 |
 | AstrBot 版本 | `>=4.16.0,<5` |
 | 支持平台 | `aiocqhttp` |
-| 图标 | `assets/icon.svg` |
+| WebUI 图标 | `logo.png` |
+| README 图标 | `assets/icon.svg` |
 | 许可证 | `MIT` |
 
 ## 开发与验证

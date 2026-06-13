@@ -11,7 +11,7 @@
     <header class="topbar">
       <div>
         <h1>MiMo TTS 音色克隆</h1>
-        <p>管理参考音频、默认音色和官方 API 配置。</p>
+        <p>管理参考音频、情绪音色路由、风格控制和官方 API 配置。</p>
       </div>
       <button id="save-config" class="primary">保存配置</button>
     </header>
@@ -26,7 +26,18 @@
         <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
         <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
       </div>
-      <label class="wide">默认风格指令<textarea id="default-context" rows="2"></textarea></label>
+      <label class="wide">默认风格指令<textarea id="default-context" rows="2" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
+    </section>
+
+    <section class="panel">
+      <h2>情绪与分段</h2>
+      <div class="grid">
+        <label class="check"><input id="emotion-routing-enabled" type="checkbox" /> 启用自动情绪路由</label>
+        <label class="check"><input id="segment-enabled" type="checkbox" /> 启用长文本分段</label>
+        <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
+        <label>最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
+      </div>
+      <div id="emotion-defaults" class="emotion-grid"></div>
     </section>
 
     <section class="panel">
@@ -38,6 +49,11 @@
         <input id="voice-file" type="file" accept=".mp3,.wav,audio/mpeg,audio/wav" />
         <input id="voice-name" type="text" placeholder="音色名称" />
         <input id="voice-desc" type="text" placeholder="说明" />
+        <select id="voice-emotion">
+          <option value="">建议情绪</option>
+        </select>
+        <input id="voice-style-tags" type="text" placeholder="MiMo 标签，如 [whisper]" />
+        <input id="voice-style-context" type="text" placeholder="音色风格指令" />
         <label class="check"><input id="voice-consent" type="checkbox" /> 已获授权</label>
         <button id="upload-voice">上传音色</button>
       </div>
@@ -48,9 +64,11 @@
       <h2>试听</h2>
       <div class="preview-row">
         <select id="preview-voice"></select>
+        <select id="preview-emotion"></select>
         <input id="preview-text" type="text" placeholder="输入试听文本" />
         <button id="preview-btn">试听</button>
       </div>
+      <label class="wide">临时风格指令<textarea id="preview-context" rows="2"></textarea></label>
       <audio id="preview-audio" controls></audio>
     </section>
   </main>

@@ -8,7 +8,7 @@ const bridge = window.AstrBotPluginPage || {
   upload: async () => ({ success: false, error: 'AstrBot Pages bridge unavailable' }),
 };
 
-let state = { config: {}, voices: [], defaults: {} };
+let state = { config: {}, voices: [], defaults: {}, emotions: ['happy', 'sad', 'angry', 'neutral'] };
 
 function toast(message, type = 'ok') {
   const el = $('toast');
@@ -17,6 +17,14 @@ function toast(message, type = 'ok') {
   el.style.display = 'block';
   clearTimeout(el._timer);
   el._timer = setTimeout(() => { el.style.display = 'none'; }, 2800);
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function configPayload() {
@@ -28,13 +36,35 @@ function configPayload() {
     max_text_chars: Number($('max-text-chars').value || 500),
     max_concurrency: Number($('max-concurrency').value || 1),
     max_voice_file_mb: Number($('max-voice-file-mb').value || 10),
+    emotion_routing_enabled: $('emotion-routing-enabled').checked,
+    segment_enabled: $('segment-enabled').checked,
+    segment_threshold_chars: Number($('segment-threshold-chars').value || 180),
+    segment_max_segments: Number($('segment-max-segments').value || 6),
   };
+}
+
+function fillEmotionSelect(select, includeAuto = false) {
+  select.innerHTML = '';
+  if (includeAuto) {
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = '自动';
+    select.appendChild(auto);
+  }
+  state.emotions.forEach(emotion => {
+    const option = document.createElement('option');
+    option.value = emotion;
+    option.textContent = emotion;
+    select.appendChild(option);
+  });
 }
 
 function applyState(payload) {
   state.config = payload.config || {};
   state.voices = payload.voices || [];
   state.defaults = payload.defaults || {};
+  state.emotions = payload.emotions || state.emotions;
+
   $('api-key').value = state.config.api_key || '';
   $('base-url').value = state.config.base_url || 'https://api.xiaomimimo.com/v1';
   $('model').value = state.config.model || 'mimo-v2.5-tts-voiceclone';
@@ -42,7 +72,36 @@ function applyState(payload) {
   $('max-text-chars').value = state.config.max_text_chars || 500;
   $('max-concurrency').value = state.config.max_concurrency || 1;
   $('max-voice-file-mb').value = state.config.max_voice_file_mb || 10;
+  $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
+  $('segment-enabled').checked = state.config.segment_enabled !== false;
+  $('segment-threshold-chars').value = state.config.segment_threshold_chars || 180;
+  $('segment-max-segments').value = state.config.segment_max_segments || 6;
+
+  fillEmotionSelect($('voice-emotion'), true);
+  fillEmotionSelect($('preview-emotion'), true);
+  renderEmotionDefaults();
   renderVoices();
+}
+
+function renderEmotionDefaults() {
+  const wrap = $('emotion-defaults');
+  wrap.innerHTML = '';
+  const defaults = state.defaults.emotion_defaults || {};
+  state.emotions.forEach(emotion => {
+    const card = document.createElement('div');
+    card.className = 'emotion-card';
+    const selected = defaults[emotion] || '';
+    const options = ['<option value="">未设置</option>'].concat(
+      state.voices.map(voice => (
+        `<option value="${voice.id}" ${voice.id === selected ? 'selected' : ''}>${escapeHtml(voice.name)}</option>`
+      ))
+    ).join('');
+    card.innerHTML = `
+      <strong>${emotion}</strong>
+      <select data-emotion="${emotion}">${options}</select>
+    `;
+    wrap.appendChild(card);
+  });
 }
 
 function renderVoices() {
@@ -51,20 +110,28 @@ function renderVoices() {
   const select = $('preview-voice');
   list.innerHTML = '';
   select.innerHTML = '';
+
   if (!state.voices.length) {
     list.innerHTML = '<div class="muted">暂无音色，请上传 mp3 或 wav 参考音频。</div>';
     select.innerHTML = '<option value="">暂无音色</option>';
+    renderEmotionDefaults();
     return;
   }
+
   state.voices.forEach(voice => {
     const isDefault = voice.id === state.defaults.global_default_voice_id;
     const disabled = !voice.enabled;
+    const emotionDefaults = Object.entries(state.defaults.emotion_defaults || {})
+      .filter(([, voiceId]) => voiceId === voice.id)
+      .map(([emotion]) => emotion);
     const card = document.createElement('div');
     card.className = 'voice-card';
     card.innerHTML = `
       <div>
         <div class="voice-title">${escapeHtml(voice.name)}${isDefault ? ' · 全局默认' : ''}${disabled ? ' · 已禁用' : ''}</div>
         <div class="voice-meta">${escapeHtml(voice.description || '无说明')} · ${escapeHtml(voice.id)}</div>
+        <div class="voice-meta">建议情绪：${escapeHtml(voice.emotion || '未设置')} · 情绪默认：${escapeHtml(emotionDefaults.join(', ') || '无')}</div>
+        <div class="voice-meta">风格：${escapeHtml(voice.style_context || '无')} ${voice.style_tags ? `· 标签：${escapeHtml(voice.style_tags)}` : ''}</div>
       </div>
       <div class="voice-actions">
         <button data-action="default" data-id="${voice.id}">设为默认</button>
@@ -72,19 +139,12 @@ function renderVoices() {
         <button class="danger" data-action="delete" data-id="${voice.id}">删除</button>
       </div>`;
     list.appendChild(card);
+
     const option = document.createElement('option');
     option.value = voice.id;
     option.textContent = voice.name;
     select.appendChild(option);
   });
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 async function refresh() {
@@ -104,20 +164,21 @@ async function uploadVoice() {
   const file = $('voice-file').files[0];
   if (!file) throw new Error('请选择音频文件');
   if (!$('voice-consent').checked) throw new Error('请先确认已获得声音使用授权');
+
   const res = await bridge.upload('upload_voice_sample', file);
   if (!res.success || !res.voice) throw new Error(res.error || '上传失败');
-  const name = $('voice-name').value.trim();
-  const description = $('voice-desc').value.trim();
-  if (name || description) {
-    await bridge.apiPost('update_voice', {
-      voice_id: res.voice.id,
-      name: name || res.voice.name,
-      description,
-    });
-  }
-  $('voice-file').value = '';
-  $('voice-name').value = '';
-  $('voice-desc').value = '';
+
+  await bridge.apiPost('update_voice', {
+    voice_id: res.voice.id,
+    name: $('voice-name').value.trim() || res.voice.name,
+    description: $('voice-desc').value.trim(),
+    emotion: $('voice-emotion').value,
+    style_tags: $('voice-style-tags').value.trim(),
+    style_context: $('voice-style-context').value.trim(),
+  });
+
+  ['voice-file', 'voice-name', 'voice-desc', 'voice-style-tags', 'voice-style-context'].forEach(id => { $(id).value = ''; });
+  $('voice-emotion').value = '';
   $('voice-consent').checked = false;
   await refresh();
   toast('音色已上传');
@@ -140,6 +201,13 @@ async function voiceAction(action, id) {
   await refresh();
 }
 
+async function setEmotionDefault(emotion, voiceId) {
+  const res = await bridge.apiPost('set_emotion_voice', { emotion, voice_id: voiceId });
+  if (!res.success) throw new Error(res.error || '设置情绪默认音色失败');
+  await refresh();
+  toast(voiceId ? `${emotion} 默认音色已更新` : `${emotion} 默认音色已清空`);
+}
+
 async function preview() {
   const text = $('preview-text').value.trim();
   const voiceId = $('preview-voice').value;
@@ -148,11 +216,13 @@ async function preview() {
   const res = await bridge.apiPost('synthesize_preview', {
     text,
     voice_id: voiceId,
-    context: $('default-context').value,
+    emotion: $('preview-emotion').value,
+    context: $('preview-context').value,
   });
   if (!res.success || !res.audio_data) throw new Error(res.error || '试听失败');
   $('preview-audio').src = res.audio_data;
   $('preview-audio').play().catch(() => {});
+  toast(`试听生成成功，情绪：${res.emotion || 'neutral'}`);
 }
 
 function bind(id, handler) {
@@ -175,6 +245,15 @@ async function init() {
     if (!button) return;
     try {
       await voiceAction(button.dataset.action, button.dataset.id);
+    } catch (error) {
+      toast(String(error.message || error), 'err');
+    }
+  });
+  $('emotion-defaults').addEventListener('change', async event => {
+    const select = event.target.closest('select[data-emotion]');
+    if (!select) return;
+    try {
+      await setEmotionDefault(select.dataset.emotion, select.value);
     } catch (error) {
       toast(String(error.message || error), 'err');
     }

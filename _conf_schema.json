@@ -2,7 +2,7 @@
   "api_key": {
     "type": "string",
     "description": "MiMo API Key",
-    "hint": "可在 MiMo 官方平台获取。也可以在插件 Pages 页面中填写。",
+    "hint": "可在 MiMo 官方平台获取，也可以在插件 Pages 页面填写。",
     "default": ""
   },
   "base_url": {
@@ -24,12 +24,38 @@
   "default_context": {
     "type": "string",
     "description": "默认风格指令",
-    "hint": "例如：温柔、自然地朗读。可在命令中用 -c 临时覆盖。",
+    "hint": "会作为 user 消息传给 MiMo，用于控制语气和风格；待朗读文本仍放在 assistant 消息。",
     "default": ""
+  },
+  "emotion_routing_enabled": {
+    "type": "bool",
+    "description": "启用自动情绪路由",
+    "default": true
+  },
+  "emotion_contexts": {
+    "type": "object",
+    "description": "情绪风格指令映射",
+    "hint": "例如 {\"happy\":\"明亮轻快\", \"sad\":\"低沉克制\"}",
+    "default": {}
+  },
+  "segment_enabled": {
+    "type": "bool",
+    "description": "启用长文本分段合成",
+    "default": true
+  },
+  "segment_threshold_chars": {
+    "type": "int",
+    "description": "分段阈值字符数",
+    "default": 180
+  },
+  "segment_max_segments": {
+    "type": "int",
+    "description": "最大分段数",
+    "default": 6
   },
   "max_text_chars": {
     "type": "int",
-    "description": "单次最大文本长度",
+    "description": "单次 MiMo 请求最大文本长度",
     "default": 500
   },
   "max_voice_file_mb": {

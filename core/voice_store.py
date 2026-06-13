@@ -18,6 +18,9 @@ class VoiceProfile:
     created_at: str
     enabled: bool
     consent_confirmed: bool
+    style_context: str = ""
+    style_tags: str = ""
+    emotion: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "VoiceProfile":
@@ -30,6 +33,9 @@ class VoiceProfile:
             created_at=str(data.get("created_at") or ""),
             enabled=bool(data.get("enabled", True)),
             consent_confirmed=bool(data.get("consent_confirmed", False)),
+            style_context=str(data.get("style_context") or ""),
+            style_tags=str(data.get("style_tags") or ""),
+            emotion=str(data.get("emotion") or ""),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,6 +56,7 @@ class VoiceStore:
                 "global_default_voice_id": "",
                 "user_defaults": {},
                 "group_defaults": {},
+                "emotion_defaults": {},
             }
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -60,6 +67,7 @@ class VoiceStore:
             "global_default_voice_id": str(raw.get("global_default_voice_id") or ""),
             "user_defaults": dict(raw.get("user_defaults") or {}),
             "group_defaults": dict(raw.get("group_defaults") or {}),
+            "emotion_defaults": dict(raw.get("emotion_defaults") or {}),
         }
 
     def save(self) -> None:
@@ -101,6 +109,10 @@ class VoiceStore:
         description: str,
         created_by: str,
         consent_confirmed: bool,
+        *,
+        style_context: str = "",
+        style_tags: str = "",
+        emotion: str = "",
     ) -> VoiceProfile:
         voice_id = f"voice_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         voice = VoiceProfile(
@@ -112,6 +124,9 @@ class VoiceStore:
             created_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             enabled=True,
             consent_confirmed=bool(consent_confirmed),
+            style_context=str(style_context or ""),
+            style_tags=str(style_tags or ""),
+            emotion=str(emotion or ""),
         )
         self._state["voices"].append(voice.to_dict())
         if not self._state.get("global_default_voice_id"):
@@ -123,7 +138,7 @@ class VoiceStore:
         for item in self._state["voices"]:
             if item.get("id") != voice_id:
                 continue
-            for key in ("name", "description", "enabled"):
+            for key in ("name", "description", "enabled", "style_context", "style_tags", "emotion"):
                 if key in changes:
                     item[key] = changes[key]
             self.save()
@@ -149,6 +164,11 @@ class VoiceStore:
                 for key, value in self._state["group_defaults"].items()
                 if value != voice_id
             }
+            self._state["emotion_defaults"] = {
+                key: value
+                for key, value in self._state["emotion_defaults"].items()
+                if value != voice_id
+            }
             self.save()
         return deleted
 
@@ -164,11 +184,22 @@ class VoiceStore:
         self._state["group_defaults"][str(group_id)] = voice_id
         self.save()
 
+    def set_emotion_default(self, emotion: str, voice_id: str) -> None:
+        key = str(emotion or "").strip().lower()
+        if not key:
+            return
+        if not voice_id:
+            self._state["emotion_defaults"].pop(key, None)
+        else:
+            self._state["emotion_defaults"][key] = voice_id
+        self.save()
+
     def defaults(self) -> dict[str, Any]:
         return {
             "global_default_voice_id": self._state.get("global_default_voice_id", ""),
             "user_defaults": dict(self._state.get("user_defaults") or {}),
             "group_defaults": dict(self._state.get("group_defaults") or {}),
+            "emotion_defaults": dict(self._state.get("emotion_defaults") or {}),
         }
 
     def resolve_voice_id(
@@ -176,12 +207,17 @@ class VoiceStore:
         requested_voice: str | None,
         user_id: str | None,
         group_id: str | None,
+        *,
+        emotion: str | None = None,
     ) -> str | None:
         requested = self.find_voice(requested_voice)
         if requested is not None:
             return requested.id
 
         candidates = []
+        emotion_key = str(emotion or "").strip().lower()
+        if emotion_key:
+            candidates.append(self._state["emotion_defaults"].get(emotion_key))
         if user_id:
             candidates.append(self._state["user_defaults"].get(str(user_id)))
         if group_id:

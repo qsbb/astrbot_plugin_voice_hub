@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
-import re
 import shlex
 import time
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.message_components import File
+from astrbot.api.star import Context, Star, StarTools, register
 
 try:
     from astrbot.api.message_components import Record
@@ -19,7 +18,9 @@ except Exception:  # pragma: no cover - AstrBot versions differ here.
 
 from .core.audio_codec import encode_voice_file_data_url
 from .core.config import build_plugin_config, normalize_config
+from .core.emotion import EmotionRouter, SUPPORTED_EMOTIONS, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
+from .core.text_processing import clean_tts_text, split_tts_text
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
@@ -28,7 +29,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆与多音色切换",
-    "0.1.0",
+    "0.2.0",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     def __init__(self, context: Context, config: dict):
@@ -38,6 +39,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self._native_config = config if hasattr(config, "save_config") else None
         self.config = normalize_config(dict(config) if isinstance(config, dict) else {})
         self.plugin_config = build_plugin_config(self.config)
+        self.emotion_router = EmotionRouter(emotion_contexts=self.plugin_config.emotion_contexts)
         self.data_dir = StarTools.get_data_dir("astrbot_plugin_mimo_tts_clone")
         pathlib.Path(self.data_dir).mkdir(parents=True, exist_ok=True)
         self.voice_store = VoiceStore(self.data_dir)
@@ -51,6 +53,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 merged[key] = changes[key]
         self.config = normalize_config(merged)
         self.plugin_config = build_plugin_config(self.config)
+        self.emotion_router = EmotionRouter(emotion_contexts=self.plugin_config.emotion_contexts)
         self._tts_sem = asyncio.Semaphore(self.plugin_config.max_concurrency)
         if self._native_config is not None:
             try:
@@ -76,8 +79,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         *,
         context: str = "",
     ) -> pathlib.Path:
-        if len(text) > self.plugin_config.max_text_chars:
-            raise RuntimeError(f"文本过长，最多 {self.plugin_config.max_text_chars} 字")
+        assistant_text = text.strip()
+        if voice.style_tags.strip():
+            assistant_text = f"{voice.style_tags.strip()} {assistant_text}".strip()
+        if len(assistant_text) > self.plugin_config.max_text_chars:
+            raise RuntimeError(f"文本过长，最大 {self.plugin_config.max_text_chars} 字")
+
         voice_data_url = await asyncio.to_thread(
             encode_voice_file_data_url,
             pathlib.Path(voice.audio_path),
@@ -87,7 +94,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         output_path = output_dir / f"mimo_tts_{time.time_ns()}.wav"
         async with self._tts_sem:
             return await self._client().synthesize_to_file(
-                text=text,
+                text=assistant_text,
                 voice_data_url=voice_data_url,
                 output_path=output_path,
                 context=context or self.plugin_config.default_context,
@@ -105,7 +112,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     @staticmethod
     def _tail(message: str, command: str) -> str:
         text = str(message or "").strip()
-        for prefix in ("/", "!", "！", ".", "。", "．"):
+        for prefix in ("/", "!", "！", ".", "。"):
             token = f"{prefix}{command}"
             if text.startswith(token):
                 return text[len(token) :].strip()
@@ -121,8 +128,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         return text
 
     @staticmethod
-    def _parse_tts_args(raw: str) -> tuple[str | None, str, str]:
+    def _parse_tts_args(raw: str) -> tuple[str | None, str | None, str, str]:
         voice = None
+        emotion = None
         context = ""
         try:
             parts = shlex.split(raw)
@@ -136,17 +144,45 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 voice = parts[i + 1]
                 i += 2
                 continue
+            if item in {"-e", "--emotion"} and i + 1 < len(parts):
+                emotion = parts[i + 1]
+                i += 2
+                continue
             if item in {"-c", "--context"} and i + 1 < len(parts):
                 context = parts[i + 1]
                 i += 2
                 continue
             text_parts.append(item)
             i += 1
-        return voice, " ".join(text_parts).strip(), context
+        return voice, emotion, " ".join(text_parts).strip(), context
 
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         user_id = str(event.get_sender_id() or "").strip()
         return user_id in set(self.plugin_config.admin_users)
+
+    def _resolve_emotion(self, text: str, requested: str | None) -> str:
+        if not self.plugin_config.emotion_routing_enabled:
+            return normalize_emotion(requested) or "neutral"
+        return self.emotion_router.resolve(text, requested=requested)
+
+    def _build_tts_context(self, voice: VoiceProfile, emotion: str, command_context: str) -> str:
+        return self.emotion_router.build_context(
+            base_context=self.plugin_config.default_context,
+            emotion=emotion,
+            voice_context=voice.style_context,
+            command_context=command_context,
+        )
+
+    def _split_for_tts(self, text: str) -> list[str]:
+        if not self.plugin_config.segment_enabled:
+            return [text]
+        if len(text) < self.plugin_config.segment_threshold_chars:
+            return [text]
+        return split_tts_text(
+            text,
+            max_chars=self.plugin_config.segment_threshold_chars,
+            max_segments=self.plugin_config.segment_max_segments,
+        )
 
     async def _send_audio_result(self, event: AstrMessageEvent, audio_path: pathlib.Path) -> None:
         if Record is not None:
@@ -160,39 +196,62 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     @filter.command("tts", alias={"朗读", "语音"})
     async def tts_command(self, event: AstrMessageEvent):
         raw = self._tail_any(event.message_str, ("tts", "朗读", "语音"))
-        voice_name, text, context = self._parse_tts_args(raw)
+        voice_name, requested_emotion, text, command_context = self._parse_tts_args(raw)
+        text = clean_tts_text(text)
         if not text:
-            yield event.plain_result("用法：/tts [-v 音色名] [-c 风格指令] 文本")
+            yield event.plain_result(
+                "用法：/tts [-v 音色名] [-e happy|sad|angry|neutral] [-c 风格指令] 文本"
+            )
             return
+
         user_id = str(event.get_sender_id() or "").strip()
         group_id = self._conversation_id(event)
-        voice_id = self.voice_store.resolve_voice_id(voice_name, user_id, group_id)
+        emotion = self._resolve_emotion(text, requested_emotion)
+        voice_id = self.voice_store.resolve_voice_id(
+            voice_name,
+            user_id,
+            group_id,
+            emotion=emotion,
+        )
         if not voice_id:
-            yield event.plain_result("暂无可用音色，请先在插件 Pages 上传参考音频。")
+            yield event.plain_result("暂无可用音色，请先在插件 Pages 中上传参考音频。")
             return
+
         voice = self.voice_store.get_voice(voice_id)
         if voice is None:
             yield event.plain_result("音色不存在或已被禁用。")
             return
+
+        tts_context = self._build_tts_context(voice, emotion, command_context)
+        segments = self._split_for_tts(text)
         try:
-            output = await self._synthesize_text_to_file(text, voice, context=context)
+            outputs = [
+                await self._synthesize_text_to_file(segment, voice, context=tts_context)
+                for segment in segments
+            ]
         except Exception as exc:
             yield event.plain_result(f"语音生成失败：{exc}")
             return
-        await self._send_audio_result(event, output)
+
+        for output in outputs:
+            await self._send_audio_result(event, output)
 
     @filter.command("tts音色列表", alias={"音色列表"})
     async def list_voices_command(self, event: AstrMessageEvent):
         voices = self.voice_store.list_voices(include_disabled=False)
         if not voices:
-            yield event.plain_result("暂无可用音色，请先在插件 Pages 上传参考音频。")
+            yield event.plain_result("暂无可用音色，请先在插件 Pages 中上传参考音频。")
             return
+
         defaults = self.voice_store.defaults()
+        emotion_defaults = defaults.get("emotion_defaults") or {}
         lines = ["可用音色："]
         for voice in voices:
             marker = " *" if voice.id == defaults.get("global_default_voice_id") else ""
+            emotions = [key for key, value in emotion_defaults.items() if value == voice.id]
+            emotion_note = f" [{','.join(emotions)}]" if emotions else ""
             desc = f" - {voice.description}" if voice.description else ""
-            lines.append(f"{voice.name}{marker} ({voice.id}){desc}")
+            lines.append(f"{voice.name}{marker}{emotion_note} ({voice.id}){desc}")
         yield event.plain_result("\n".join(lines))
 
     @filter.command("tts设置音色", alias={"设置音色"})
@@ -234,6 +293,40 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return
         self.voice_store.set_group_default(group_id, voice.id)
         yield event.plain_result(f"已将本会话默认音色设为：{voice.name}")
+
+    @filter.command("tts情绪音色", alias={"情绪音色"})
+    async def set_emotion_voice_command(self, event: AstrMessageEvent):
+        if not self._is_admin(event):
+            yield event.plain_result("只有插件管理员可以设置情绪默认音色。")
+            return
+        raw = self._tail_any(event.message_str, ("tts情绪音色", "情绪音色"))
+        parts = raw.split(maxsplit=1)
+        if len(parts) != 2:
+            yield event.plain_result("用法：/tts情绪音色 <happy|sad|angry|neutral> <音色名>")
+            return
+        emotion = normalize_emotion(parts[0])
+        if emotion not in SUPPORTED_EMOTIONS:
+            yield event.plain_result("情绪只支持：happy, sad, angry, neutral")
+            return
+        voice = self.voice_store.find_voice(parts[1])
+        if voice is None:
+            yield event.plain_result("找不到该音色，可发送 /tts音色列表 查看。")
+            return
+        self.voice_store.set_emotion_default(emotion, voice.id)
+        yield event.plain_result(f"已将 {emotion} 情绪默认音色设为：{voice.name}")
+
+    @filter.command("tts状态", alias={"tts狀態"})
+    async def status_command(self, event: AstrMessageEvent):
+        defaults = self.voice_store.defaults()
+        lines = [
+            "MiMo TTS 状态",
+            f"model: {self.plugin_config.model}",
+            f"voices: {len(self.voice_store.list_voices(include_disabled=False))}",
+            f"emotion_routing: {self.plugin_config.emotion_routing_enabled}",
+            f"segment: {self.plugin_config.segment_enabled}, threshold={self.plugin_config.segment_threshold_chars}",
+            f"emotion_defaults: {defaults.get('emotion_defaults') or {}}",
+        ]
+        yield event.plain_result("\n".join(lines))
 
     async def terminate(self):
         pass

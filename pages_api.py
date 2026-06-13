@@ -34,6 +34,7 @@ class PagesAPIMixin:
             ("set_default_voice", self._pages_set_default_voice, ["POST"], "设置默认音色"),
             ("set_emotion_voice", self._pages_set_emotion_voice, ["POST"], "设置情绪默认音色"),
             ("synthesize_preview", self._pages_synthesize_preview, ["POST"], "试听音色"),
+            ("test_connection", self._pages_test_connection, ["POST"], "测试 MiMo TTS 连接"),
         ]
         for name, handler, methods, desc in routes:
             register_web_api(f"/{plugin_id}/{name}", handler, methods, desc)
@@ -234,5 +235,49 @@ class PagesAPIMixin:
                 "audio_data": "data:audio/wav;base64," + base64.b64encode(raw).decode("utf-8"),
                 "voice": voice.to_dict(),
                 "emotion": emotion,
+            }
+        )
+
+    async def _pages_test_connection(self):
+        data = await request.get_json(force=True) or {}
+        text = clean_tts_text(str(data.get("text") or "连接测试，声音工作正常。"))
+        voice_selector = str(data.get("voice_id") or data.get("voice") or "").strip()
+        if not self.plugin_config.api_key:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "MiMo API Key 未配置，请先保存配置。",
+                }
+            ), 400
+        if not self.voice_store.list_voices(include_disabled=False):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "暂无可用音色，请先上传参考音频。",
+                }
+            ), 400
+        started = asyncio.get_running_loop().time()
+        try:
+            outputs = await self.synthesize_text(
+                text,
+                voice_id=voice_selector or None,
+                split=False,
+            )
+        except Exception as exc:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"连接测试失败：{exc}",
+                    "detail": str(exc),
+                }
+            ), 502
+        elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
+        for output in outputs:
+            pathlib.Path(output).unlink(missing_ok=True)
+        return jsonify(
+            {
+                "success": True,
+                "message": "连接测试成功，MiMo 已返回音频。",
+                "elapsed_ms": elapsed_ms,
             }
         )

@@ -69,6 +69,33 @@ output: non-streaming wav</code></pre>
     <section class="studio-card">
       <div class="section-head">
         <div>
+          <span class="section-kicker">DELIVERY</span>
+          <h2>发送策略</h2>
+        </div>
+        <button id="test-connection" class="secondary">诊断连接</button>
+      </div>
+      <div class="form-grid">
+        <label>回复模式
+          <select id="reply-mode">
+            <option value="audio_only">只发音频</option>
+            <option value="text_and_audio">文字 + 音频</option>
+            <option value="text_only">只发文字</option>
+          </select>
+        </label>
+        <label>自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
+        <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
+        <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
+      </div>
+      <div class="switch-grid">
+        <label class="studio-switch"><input id="auto-tts-enabled" type="checkbox" /><span>启用普通 LLM 回复自动语音化</span></label>
+        <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
+      </div>
+      <p id="test-hint" class="field-hint">诊断会用当前默认音色生成一段短音频，仅用于检查 Key、模型、音色和网络。</p>
+    </section>
+
+    <section class="studio-card">
+      <div class="section-head">
+        <div>
           <span class="section-kicker">ROUTER</span>
           <h2>情绪与分段</h2>
         </div>

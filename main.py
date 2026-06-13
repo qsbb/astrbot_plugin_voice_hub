@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import random
 import shlex
 import time
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import File
+from astrbot.api.message_components import File, Plain
 from astrbot.api.star import Context, Star, StarTools, register
 
 try:
@@ -150,12 +151,98 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         output_dir = pathlib.Path(self.data_dir) / "outputs"
         output_path = output_dir / f"mimo_tts_{time.time_ns()}.wav"
         async with self._tts_sem:
-            return await self._client().synthesize_to_file(
+            result = await self._client().synthesize_to_file(
                 text=assistant_text,
                 voice_data_url=voice_data_url,
                 output_path=output_path,
                 context=context or self.plugin_config.default_context,
             )
+        await asyncio.to_thread(self._cleanup_outputs)
+        return result
+
+    def _cleanup_outputs(self) -> None:
+        output_dir = pathlib.Path(self.data_dir) / "outputs"
+        if not output_dir.is_dir():
+            return
+        files = [path for path in output_dir.glob("mimo_tts_*") if path.is_file()]
+        now = time.time()
+        retention_days = self.plugin_config.output_retention_days
+        if retention_days > 0:
+            cutoff = now - retention_days * 86400
+            for path in files:
+                try:
+                    if path.stat().st_mtime < cutoff:
+                        path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            files = [path for path in files if path.exists()]
+        max_files = self.plugin_config.output_max_files
+        if max_files > 0 and len(files) > max_files:
+            files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+            for path in files[max_files:]:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def list_available_voices(self, *, include_disabled: bool = False) -> list[dict[str, Any]]:
+        """Public service helper for other plugins that need voice metadata."""
+        return [
+            voice.to_dict()
+            for voice in self.voice_store.list_voices(include_disabled=include_disabled)
+        ]
+
+    def resolve_voice_id(
+        self,
+        voice_selector: str | None = None,
+        *,
+        user_id: str = "",
+        group_id: str = "",
+        emotion: str | None = None,
+    ) -> str | None:
+        """Resolve the effective voice id using the same priority as chat commands."""
+        return self.voice_store.resolve_voice_id(
+            voice_selector,
+            user_id,
+            group_id,
+            emotion=emotion,
+        )
+
+    async def synthesize_text(
+        self,
+        text: str,
+        *,
+        voice_id: str | None = None,
+        voice_name: str | None = None,
+        emotion: str | None = None,
+        context: str = "",
+        user_id: str = "",
+        group_id: str = "",
+        split: bool = True,
+    ) -> list[pathlib.Path]:
+        """Public service helper for commands, Pages, and other plugins."""
+        cleaned = clean_tts_text(text)
+        if not cleaned:
+            raise RuntimeError("请输入要合成的文本")
+        resolved_emotion = self._resolve_emotion(cleaned, emotion)
+        selector = voice_id or voice_name
+        resolved_voice_id = self.resolve_voice_id(
+            selector,
+            user_id=user_id,
+            group_id=group_id,
+            emotion=resolved_emotion,
+        )
+        voice = self.voice_store.find_voice(selector or "") if selector else None
+        if voice is None and resolved_voice_id:
+            voice = self.voice_store.get_voice(resolved_voice_id)
+        if voice is None:
+            raise RuntimeError("暂无可用音色，请先在插件 Pages 中上传参考音频。")
+        tts_context = self._build_tts_context(voice, resolved_emotion, context)
+        segments = self._split_for_tts(cleaned) if split else [cleaned]
+        return [
+            await self._synthesize_text_to_file(segment, voice, context=tts_context)
+            for segment in segments
+        ]
 
     @staticmethod
     def _conversation_id(event: AstrMessageEvent) -> str:
@@ -241,6 +328,13 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             max_segments=self.plugin_config.segment_max_segments,
         )
 
+    def _audio_component(self, audio_path: pathlib.Path):
+        if Record is not None:
+            return Record(file=str(audio_path))
+        if self.plugin_config.file_fallback_enabled:
+            return File(name=audio_path.name, file=str(audio_path))
+        return None
+
     async def _send_audio_result(self, event: AstrMessageEvent, audio_path: pathlib.Path) -> None:
         if Record is not None:
             try:
@@ -248,7 +342,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
             except Exception as exc:
                 self.logger.warning("[mimo-tts] Record send failed, fallback to file: %s", exc)
-        await event.send(event.chain_result([File(name=audio_path.name, file=str(audio_path))]))
+        if self.plugin_config.file_fallback_enabled:
+            await event.send(event.chain_result([File(name=audio_path.name, file=str(audio_path))]))
 
     @filter.command("tts", alias={"朗读", "语音"})
     async def tts_command(self, event: AstrMessageEvent):
@@ -261,31 +356,20 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             )
             return
 
-        user_id = str(event.get_sender_id() or "").strip()
-        group_id = self._conversation_id(event)
-        emotion = self._resolve_emotion(text, requested_emotion)
-        voice_id = self.voice_store.resolve_voice_id(
-            voice_name,
-            user_id,
-            group_id,
-            emotion=emotion,
-        )
-        if not voice_id:
-            yield event.plain_result("暂无可用音色，请先在插件 Pages 中上传参考音频。")
+        if self.plugin_config.reply_mode in {"text_only", "text_and_audio"}:
+            yield event.plain_result(text)
+        if self.plugin_config.reply_mode == "text_only":
             return
 
-        voice = self.voice_store.get_voice(voice_id)
-        if voice is None:
-            yield event.plain_result("音色不存在或已被禁用。")
-            return
-
-        tts_context = self._build_tts_context(voice, emotion, command_context)
-        segments = self._split_for_tts(text)
         try:
-            outputs = [
-                await self._synthesize_text_to_file(segment, voice, context=tts_context)
-                for segment in segments
-            ]
+            outputs = await self.synthesize_text(
+                text,
+                voice_name=voice_name,
+                emotion=requested_emotion,
+                context=command_context,
+                user_id=str(event.get_sender_id() or "").strip(),
+                group_id=self._conversation_id(event),
+            )
         except Exception as exc:
             yield event.plain_result(f"语音生成失败：{exc}")
             return
@@ -310,6 +394,44 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             desc = f" - {voice.description}" if voice.description else ""
             lines.append(f"{voice.name}{marker}{emotion_note} ({voice.id}){desc}")
         yield event.plain_result("\n".join(lines))
+
+    @filter.on_decorating_result()
+    async def auto_tts_reply(self, event: AstrMessageEvent):
+        if not self.plugin_config.auto_tts_enabled:
+            return
+        if self.plugin_config.reply_mode == "text_only":
+            return
+        if random.random() > self.plugin_config.auto_tts_probability:
+            return
+        result = event.get_result()
+        if result is None or not getattr(result, "chain", None):
+            return
+        is_llm_result = getattr(result, "is_llm_result", None)
+        if callable(is_llm_result) and not is_llm_result():
+            return
+        text = clean_tts_text(result.get_plain_text())
+        if not text:
+            return
+        try:
+            outputs = await self.synthesize_text(
+                text,
+                user_id=str(event.get_sender_id() or "").strip(),
+                group_id=self._conversation_id(event),
+            )
+        except Exception as exc:
+            self.logger.warning("[mimo-tts] auto tts failed: %s", exc)
+            return
+
+        audio_components = [
+            component
+            for component in (self._audio_component(output) for output in outputs)
+            if component is not None
+        ]
+        if not audio_components:
+            return
+        if self.plugin_config.reply_mode == "audio_only":
+            result.chain = [comp for comp in result.chain if not isinstance(comp, Plain)]
+        result.chain.extend(audio_components)
 
     @filter.command("tts设置音色", alias={"设置音色"})
     async def set_user_voice_command(self, event: AstrMessageEvent):
@@ -381,6 +503,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             f"voices: {len(self.voice_store.list_voices(include_disabled=False))}",
             f"emotion_routing: {self.plugin_config.emotion_routing_enabled}",
             f"segment: {self.plugin_config.segment_enabled}, threshold={self.plugin_config.segment_threshold_chars}",
+            f"reply_mode: {self.plugin_config.reply_mode}",
+            f"auto_tts: {self.plugin_config.auto_tts_enabled}, probability={self.plugin_config.auto_tts_probability}",
+            f"file_fallback: {self.plugin_config.file_fallback_enabled}",
+            f"output_cleanup: days={self.plugin_config.output_retention_days}, max_files={self.plugin_config.output_max_files}",
             f"emotion_defaults: {defaults.get('emotion_defaults') or {}}",
         ]
         yield event.plain_result("\n".join(lines))

@@ -15,6 +15,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_voice_file_mb": 10,
     "max_concurrency": 1,
     "send_as_file_fallback": True,
+    "reply_mode": "audio_only",
+    "auto_tts_enabled": False,
+    "auto_tts_probability": 0.0,
+    "file_fallback_enabled": True,
+    "output_retention_days": 7,
+    "output_max_files": 100,
     "emotion_routing_enabled": True,
     "emotion_contexts": {},
     "segment_enabled": True,
@@ -35,6 +41,12 @@ class PluginConfig:
     max_voice_file_mb: int
     max_concurrency: int
     send_as_file_fallback: bool
+    reply_mode: str
+    auto_tts_enabled: bool
+    auto_tts_probability: float
+    file_fallback_enabled: bool
+    output_retention_days: int
+    output_max_files: int
     emotion_routing_enabled: bool
     emotion_contexts: dict[str, str]
     segment_enabled: bool
@@ -63,6 +75,21 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["max_voice_file_mb"] = max(1, int(cfg.get("max_voice_file_mb") or 10))
     cfg["max_concurrency"] = max(1, int(cfg.get("max_concurrency") or 1))
     cfg["send_as_file_fallback"] = bool(cfg.get("send_as_file_fallback", True))
+    reply_mode = str(cfg.get("reply_mode") or "audio_only").strip().lower()
+    if reply_mode not in {"audio_only", "text_and_audio", "text_only"}:
+        reply_mode = "audio_only"
+    cfg["reply_mode"] = reply_mode
+    cfg["auto_tts_enabled"] = bool(cfg.get("auto_tts_enabled", False))
+    try:
+        probability = float(cfg.get("auto_tts_probability") or 0.0)
+    except (TypeError, ValueError):
+        probability = 0.0
+    cfg["auto_tts_probability"] = min(1.0, max(0.0, probability))
+    cfg["file_fallback_enabled"] = bool(
+        cfg.get("file_fallback_enabled", cfg.get("send_as_file_fallback", True))
+    )
+    cfg["output_retention_days"] = max(0, int(cfg.get("output_retention_days") or 0))
+    cfg["output_max_files"] = max(0, int(cfg.get("output_max_files") or 0))
     cfg["emotion_routing_enabled"] = bool(cfg.get("emotion_routing_enabled", True))
     raw_contexts = cfg.get("emotion_contexts") or {}
     if not isinstance(raw_contexts, dict):

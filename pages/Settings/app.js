@@ -134,6 +134,12 @@ function configPayload() {
     max_text_chars: Number($('max-text-chars').value || 500),
     max_concurrency: Number($('max-concurrency').value || 1),
     max_voice_file_mb: Number($('max-voice-file-mb').value || 10),
+    reply_mode: $('reply-mode').value,
+    auto_tts_enabled: $('auto-tts-enabled').checked,
+    auto_tts_probability: Number($('auto-tts-probability').value || 0),
+    file_fallback_enabled: $('file-fallback-enabled').checked,
+    output_retention_days: Number($('output-retention-days').value || 0),
+    output_max_files: Number($('output-max-files').value || 0),
     emotion_routing_enabled: $('emotion-routing-enabled').checked,
     segment_enabled: $('segment-enabled').checked,
     segment_threshold_chars: Number($('segment-threshold-chars').value || 180),
@@ -197,6 +203,12 @@ function applyState(payload) {
   $('max-text-chars').value = state.config.max_text_chars || 500;
   $('max-concurrency').value = state.config.max_concurrency || 1;
   $('max-voice-file-mb').value = state.config.max_voice_file_mb || 10;
+  $('reply-mode').value = state.config.reply_mode || 'audio_only';
+  $('auto-tts-enabled').checked = state.config.auto_tts_enabled === true;
+  $('auto-tts-probability').value = state.config.auto_tts_probability ?? 0;
+  $('file-fallback-enabled').checked = state.config.file_fallback_enabled !== false;
+  $('output-retention-days').value = state.config.output_retention_days ?? 7;
+  $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
   $('segment-enabled').checked = state.config.segment_enabled !== false;
   $('segment-threshold-chars').value = state.config.segment_threshold_chars || 180;
@@ -450,6 +462,17 @@ async function preview() {
   toast(`试听生成成功，情绪：${res.emotion || 'neutral'}`);
 }
 
+async function testConnection() {
+  const res = await bridge.apiPost('test_connection', {
+    voice_id: $('preview-voice').value,
+    text: '连接测试，声音工作正常。',
+  });
+  if (!res.success) throw new Error(res.error || '连接诊断失败');
+  $('test-hint').textContent = `${res.message || '连接测试成功'} 耗时 ${res.elapsed_ms || 0}ms。`;
+  $('test-hint').className = 'field-hint ok';
+  toast('连接诊断通过');
+}
+
 function bind(id, handler, busyText = '处理中...') {
   $(id).addEventListener('click', event => {
     runAction(event.currentTarget, busyText, handler);
@@ -465,6 +488,12 @@ function bindConfigDirtyState() {
     'max-text-chars',
     'max-concurrency',
     'max-voice-file-mb',
+    'reply-mode',
+    'auto-tts-enabled',
+    'auto-tts-probability',
+    'file-fallback-enabled',
+    'output-retention-days',
+    'output-max-files',
     'emotion-routing-enabled',
     'segment-enabled',
     'segment-threshold-chars',
@@ -496,6 +525,7 @@ async function init() {
   bind('save-config', saveConfig, '保存中...');
   bind('upload-voice', uploadVoice, '上传中...');
   bind('preview-btn', preview, '生成中...');
+  bind('test-connection', testConnection, '诊断中...');
   bindConfigDirtyState();
   bindActionAvailability();
   updateActionAvailability();

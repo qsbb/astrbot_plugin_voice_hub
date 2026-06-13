@@ -9,6 +9,10 @@
 - 支持全局、群、用户、情绪四类默认音色。
 - 支持每个音色配置风格指令和 MiMo assistant 文本标签。
 - `/tts` 命令支持 `-v` 指定音色、`-e` 指定情绪、`-c` 临时风格指令。
+- 支持回复模式切换：只发音频、文字+音频、只发文字。
+- 支持普通 LLM 回复按概率自动语音化。
+- 支持输出文件按天数/数量自动清理，避免长期运行占用磁盘。
+- 提供 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 等公开方法，方便其他插件复用。
 - 生成前自动清理 URL、代码块和控制杂质，保留 MiMo 可用风格标签。
 - 长文本可按标点自动分段，逐段合成发送。
 
@@ -54,6 +58,7 @@ pip install -r requirements.txt
 3. 在插件配置或 Pages 管理页填写 MiMo API Key。
 4. 在 Pages 上传已获授权的 `mp3` 或 `wav` 声音样本。
 5. 可选：为 `happy`、`sad`、`angry`、`neutral` 分别设置默认音色。
+6. 可选：在 Pages 的“发送策略”中配置回复模式、自动语音化概率、文件 fallback 和输出清理。
 
 ## 验证
 

@@ -309,6 +309,12 @@ button.primary {
   box-shadow: 0 14px 34px rgba(204, 126, 15, .28);
 }
 
+button.secondary {
+  border: 1px solid rgba(247, 183, 49, .38);
+  background: rgba(255, 245, 218, .78);
+  color: #6b501e;
+}
+
 button.danger {
   background: #f5d8d2;
   color: var(--studio-red);

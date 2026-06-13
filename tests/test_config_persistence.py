@@ -1,5 +1,6 @@
 import importlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -57,10 +58,14 @@ def _install_astrbot_stubs():
 
     event = types.ModuleType("astrbot.api.event")
     event.AstrMessageEvent = object
-    event.filter = types.SimpleNamespace(command=_command_decorator)
+    event.filter = types.SimpleNamespace(
+        command=_command_decorator,
+        on_decorating_result=_command_decorator,
+    )
 
     message_components = types.ModuleType("astrbot.api.message_components")
     message_components.File = object
+    message_components.Plain = type("Plain", (), {})
     message_components.Record = object
 
     star = types.ModuleType("astrbot.api.star")
@@ -132,6 +137,51 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(plugin_cls._tail_any("/tts 晚上好", ("tts", "朗读", "语音")), "晚上好")
         self.assertEqual(plugin_cls._tail_any("tts 晚上好", ("tts", "朗读", "语音")), "晚上好")
         self.assertEqual(plugin_cls._tail_any("朗读 晚上好", ("tts", "朗读", "语音")), "晚上好")
+
+    def test_runtime_config_normalizes_delivery_options(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        cfg = normalize_config(
+            {
+                "reply_mode": "bad",
+                "auto_tts_enabled": True,
+                "auto_tts_probability": 2,
+                "file_fallback_enabled": False,
+                "output_retention_days": -1,
+                "output_max_files": -5,
+            }
+        )
+
+        self.assertEqual(cfg["reply_mode"], "audio_only")
+        self.assertTrue(cfg["auto_tts_enabled"])
+        self.assertEqual(cfg["auto_tts_probability"], 1.0)
+        self.assertFalse(cfg["file_fallback_enabled"])
+        self.assertEqual(cfg["output_retention_days"], 0)
+        self.assertEqual(cfg["output_max_files"], 0)
+
+    def test_cleanup_outputs_keeps_newest_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"output_retention_days": 0, "output_max_files": 2},
+            )
+            output_dir = Path(tmp) / "outputs"
+            output_dir.mkdir()
+            old = output_dir / "mimo_tts_old.wav"
+            mid = output_dir / "mimo_tts_mid.wav"
+            new = output_dir / "mimo_tts_new.wav"
+            for index, path in enumerate((old, mid, new), start=1):
+                path.write_bytes(b"RIFF....WAVE")
+                path.touch()
+                path.stat()
+                os.utime(path, (index, index))
+
+            plugin._cleanup_outputs()
+
+            self.assertFalse(old.exists())
+            self.assertTrue(mid.exists())
+            self.assertTrue(new.exists())
 
 
 if __name__ == "__main__":

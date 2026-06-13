@@ -90,6 +90,37 @@
     "description": "最大并发生成数",
     "default": 1
   },
+  "reply_mode": {
+    "type": "string",
+    "description": "回复模式",
+    "options": ["audio_only", "text_and_audio", "text_only"],
+    "default": "audio_only"
+  },
+  "auto_tts_enabled": {
+    "type": "bool",
+    "description": "启用普通 LLM 回复自动语音化",
+    "default": false
+  },
+  "auto_tts_probability": {
+    "type": "string",
+    "description": "普通 LLM 回复自动语音化概率，范围 0-1，例如 0.3",
+    "default": "0.0"
+  },
+  "file_fallback_enabled": {
+    "type": "bool",
+    "description": "语音消息发送失败或当前版本缺少语音组件时，允许回退为文件发送",
+    "default": true
+  },
+  "output_retention_days": {
+    "type": "int",
+    "description": "生成音频文件保留天数，0 表示不按时间清理",
+    "default": 7
+  },
+  "output_max_files": {
+    "type": "int",
+    "description": "生成音频文件最多保留数量，0 表示不按数量清理",
+    "default": 100
+  },
   "admin_users": {
     "type": "list",
     "description": "插件管理员用户 ID",

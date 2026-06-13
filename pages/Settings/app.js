@@ -2,12 +2,52 @@
 
 const $ = id => document.getElementById(id);
 const BRIDGE_UNAVAILABLE_MESSAGE = '请在 AstrBot 插件管理页中打开本页面。普通浏览器预览只能查看 UI，不能上传、保存或试听。';
-const bridge = window.AstrBotPluginPage || {
-  ready: async () => ({}),
-  apiGet: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
-  apiPost: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
-  upload: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
-};
+let bridge = null;
+
+function fallbackBridge() {
+  return {
+    ready: async () => ({}),
+    apiGet: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
+    apiPost: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
+    upload: async () => ({ success: false, error: BRIDGE_UNAVAILABLE_MESSAGE }),
+  };
+}
+
+function getAstrBotBridge() {
+  return window.AstrBotPluginPage || null;
+}
+
+function isUsableBridge(candidate) {
+  return Boolean(
+    candidate &&
+    typeof candidate.apiGet === 'function' &&
+    typeof candidate.apiPost === 'function' &&
+    typeof candidate.upload === 'function'
+  );
+}
+
+async function waitForAstrBotBridge(timeoutMs = 2000, intervalMs = 50) {
+  const startedAt = Date.now();
+  return new Promise(resolve => {
+    const tick = () => {
+      const candidate = getAstrBotBridge();
+      if (isUsableBridge(candidate)) {
+        resolve(candidate);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(null);
+        return;
+      }
+      setTimeout(tick, intervalMs);
+    };
+    tick();
+  });
+}
+
+async function resolveBridge() {
+  return await waitForAstrBotBridge() || fallbackBridge();
+}
 
 let state = { config: {}, voices: [], defaults: {}, emotions: ['happy', 'sad', 'angry', 'neutral'] };
 
@@ -265,6 +305,7 @@ function bind(id, handler) {
 }
 
 async function init() {
+  bridge = await resolveBridge();
   await bridge.ready();
   bind('save-config', saveConfig);
   bind('upload-voice', uploadVoice);

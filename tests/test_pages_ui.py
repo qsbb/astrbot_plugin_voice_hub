@@ -20,6 +20,15 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("voice-upload-actions", html)
         self.assertIn("repeat(auto-fit", css)
 
+    def test_settings_page_loads_astrbot_bridge_before_app(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        bridge_script = '<script src="/api/plugin/page/bridge-sdk.js"></script>'
+        app_script = '<script src="./app.js"></script>'
+
+        self.assertIn(bridge_script, html)
+        self.assertIn(app_script, html)
+        self.assertLess(html.index(bridge_script), html.index(app_script))
+
     def test_settings_frontend_copy_is_not_mojibake(self):
         combined = "\n".join(
             (PAGES_DIR / name).read_text(encoding="utf-8")
@@ -32,3 +41,10 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("未设置", combined)
         self.assertIn("请在 AstrBot 插件管理页中打开", combined)
         self.assertNotIn("AstrBot Pages bridge unavailable", combined)
+
+    def test_settings_app_waits_for_late_bridge_injection(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function resolveBridge", js)
+        self.assertIn("waitForAstrBotBridge", js)
+        self.assertNotIn("const bridge = window.AstrBotPluginPage ||", js)

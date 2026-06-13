@@ -313,10 +313,35 @@ function validateVoiceUpload() {
   return { file, name };
 }
 
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',', 2)[1] : result);
+    };
+    reader.onerror = () => reject(new Error('读取音频文件失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadVoiceSample(file) {
+  try {
+    return await bridge.upload('upload_voice_sample', file);
+  } catch (error) {
+    setUploadHint('常规上传遇到网络错误，正在切换兼容上传...', 'warn');
+    const audioBase64 = await readFileAsBase64(file);
+    return await bridge.apiPost('upload_voice_sample_json', {
+      filename: file.name,
+      audio_base64: audioBase64,
+    });
+  }
+}
+
 async function uploadVoice() {
   const { file, name } = validateVoiceUpload();
 
-  const res = await bridge.upload('upload_voice_sample', file);
+  const res = await uploadVoiceSample(file);
   if (!res.success || !res.voice) throw new Error(res.error || '上传失败');
   lastUploadedVoiceId = res.voice.id;
 

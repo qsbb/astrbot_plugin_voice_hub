@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import inspect
 import pathlib
-import re
-import time
 
 from quart import jsonify, request
 
 from .core.audio_codec import (
     AudioValidationError,
-    SUPPORTED_AUDIO_MIME,
-    estimate_base64_chars,
-    validate_voice_file,
 )
 from .core.emotion import SUPPORTED_EMOTIONS, normalize_emotion
+from .core.pages_upload import store_voice_sample
 from .core.text_processing import clean_tts_text
 
 
@@ -31,6 +28,7 @@ class PagesAPIMixin:
             ("save_config", self._pages_save_config, ["POST"], "保存 MiMo TTS 配置"),
             ("list_voices", self._pages_list_voices, ["GET"], "列出音色"),
             ("upload_voice_sample", self._pages_upload_voice_sample, ["POST"], "上传音色样本"),
+            ("upload_voice_sample_json", self._pages_upload_voice_sample_json, ["POST"], "上传音色样本(JSON)"),
             ("update_voice", self._pages_update_voice, ["POST"], "更新音色"),
             ("delete_voice", self._pages_delete_voice, ["POST"], "删除音色"),
             ("set_default_voice", self._pages_set_default_voice, ["POST"], "设置默认音色"),
@@ -72,53 +70,43 @@ class PagesAPIMixin:
         data = file.read()
         if inspect.isawaitable(data):
             data = await data
-        filename = pathlib.Path(file.filename or "voice.wav").name
-        ext = pathlib.Path(filename).suffix.lower()
-        if ext not in SUPPORTED_AUDIO_MIME:
-            return jsonify({"success": False, "error": "仅支持 mp3 / wav 音频"}), 400
-        if len(data) > self.plugin_config.max_voice_file_bytes:
-            return jsonify({"success": False, "error": "音频文件超过大小限制"}), 400
-
-        if estimate_base64_chars(len(data)) > self.plugin_config.max_voice_file_bytes:
-            return jsonify({"success": False, "error": "音频 Base64 编码后超过大小限制"}), 400
-
-        voice_dir = pathlib.Path(self.data_dir) / "voice_refs"
-        voice_dir.mkdir(parents=True, exist_ok=True)
-        stem = re.sub(r"[^\w.-]+", "_", pathlib.Path(filename).stem).strip("._") or "voice"
-        save_path = voice_dir / f"{time.time_ns()}_{stem[:60]}{ext}"
-        await asyncio.to_thread(save_path.write_bytes, data)
         try:
-            validate_voice_file(
-                save_path,
-                max_bytes=self.plugin_config.max_voice_file_bytes,
-                max_base64_chars=self.plugin_config.max_voice_file_bytes,
+            voice = await store_voice_sample(
+                voice_store=self.voice_store,
+                data_dir=self.data_dir,
+                max_voice_file_bytes=self.plugin_config.max_voice_file_bytes,
+                data=data,
+                filename=file.filename or "voice.wav",
+                metadata=form,
             )
         except AudioValidationError as exc:
-            save_path.unlink(missing_ok=True)
             return jsonify({"success": False, "error": str(exc)}), 400
 
-        name = str(form.get("name") or pathlib.Path(filename).stem or "新音色").strip()
-        description = str(form.get("description") or "").strip()
-        created_by = str(form.get("created_by") or "pages").strip()
-        style_context = str(form.get("style_context") or "").strip()
-        style_tags = str(form.get("style_tags") or "").strip()
-        emotion = normalize_emotion(str(form.get("emotion") or "")) or ""
-        consent = str(form.get("consent_confirmed") or "true").lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        voice = self.voice_store.add_voice(
-            name,
-            save_path,
-            description,
-            created_by,
-            consent,
-            style_context=style_context,
-            style_tags=style_tags,
-            emotion=emotion,
-        )
+        return jsonify({"success": True, "voice": voice.to_dict()})
+
+    async def _pages_upload_voice_sample_json(self):
+        payload = await request.get_json(force=True) or {}
+        filename = str(payload.get("filename") or "voice.wav")
+        encoded = str(payload.get("audio_base64") or "")
+        if "," in encoded and encoded.strip().lower().startswith("data:"):
+            encoded = encoded.split(",", 1)[1]
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            return jsonify({"success": False, "error": "音频 Base64 数据无效"}), 400
+
+        try:
+            voice = await store_voice_sample(
+                voice_store=self.voice_store,
+                data_dir=self.data_dir,
+                max_voice_file_bytes=self.plugin_config.max_voice_file_bytes,
+                data=data,
+                filename=filename,
+                metadata=payload,
+            )
+        except AudioValidationError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+
         return jsonify({"success": True, "voice": voice.to_dict()})
 
     async def _pages_update_voice(self):

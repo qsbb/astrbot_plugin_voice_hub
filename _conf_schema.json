@@ -36,6 +36,28 @@
     "type": "object",
     "description": "情绪风格指令映射",
     "hint": "例如 {\"happy\":\"明亮轻快\", \"sad\":\"低沉克制\"}",
+    "items": {
+      "happy": {
+        "type": "string",
+        "description": "happy 情绪风格指令",
+        "default": ""
+      },
+      "sad": {
+        "type": "string",
+        "description": "sad 情绪风格指令",
+        "default": ""
+      },
+      "angry": {
+        "type": "string",
+        "description": "angry 情绪风格指令",
+        "default": ""
+      },
+      "neutral": {
+        "type": "string",
+        "description": "neutral 情绪风格指令",
+        "default": ""
+      }
+    },
     "default": {}
   },
   "segment_enabled": {
@@ -71,6 +93,9 @@
   "admin_users": {
     "type": "list",
     "description": "插件管理员用户 ID",
+    "items": {
+      "type": "string"
+    },
     "default": []
   }
 }

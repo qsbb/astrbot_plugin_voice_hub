@@ -10,15 +10,16 @@ from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import File, Plain
+from astrbot.api.message_components import File
 from astrbot.api.star import Context, Star, StarTools, register
 
 try:
-    from astrbot.api.message_components import Record
+    from astrbot.api.message_components import Plain, Record
 except Exception:  # pragma: no cover - AstrBot versions differ here.
+    Plain = None
     Record = None
 
-from .core.audio_codec import encode_voice_file_data_url
+from .core.audio_codec import encode_voice_file_data_url, estimate_base64_chars
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, SUPPORTED_EMOTIONS, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
@@ -146,7 +147,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             encode_voice_file_data_url,
             pathlib.Path(voice.audio_path),
             max_bytes=self.plugin_config.max_voice_file_bytes,
-            max_base64_chars=self.plugin_config.max_voice_file_bytes,
+            max_base64_chars=estimate_base64_chars(self.plugin_config.max_voice_file_bytes),
         )
         output_dir = pathlib.Path(self.data_dir) / "outputs"
         output_path = output_dir / f"mimo_tts_{time.time_ns()}.wav"
@@ -208,6 +209,25 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             emotion=emotion,
         )
 
+    def _select_voice(
+        self,
+        voice_selector: str | None = None,
+        *,
+        user_id: str = "",
+        group_id: str = "",
+        emotion: str | None = None,
+    ) -> VoiceProfile | None:
+        voice = self.voice_store.find_voice(voice_selector or "") if voice_selector else None
+        if voice is not None:
+            return voice
+        resolved_voice_id = self.resolve_voice_id(
+            voice_selector,
+            user_id=user_id,
+            group_id=group_id,
+            emotion=emotion,
+        )
+        return self.voice_store.get_voice(resolved_voice_id or "") if resolved_voice_id else None
+
     async def synthesize_text(
         self,
         text: str,
@@ -226,15 +246,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             raise RuntimeError("请输入要合成的文本")
         resolved_emotion = self._resolve_emotion(cleaned, emotion)
         selector = voice_id or voice_name
-        resolved_voice_id = self.resolve_voice_id(
+        voice = self._select_voice(
             selector,
             user_id=user_id,
             group_id=group_id,
             emotion=resolved_emotion,
         )
-        voice = self.voice_store.find_voice(selector or "") if selector else None
-        if voice is None and resolved_voice_id:
-            voice = self.voice_store.get_voice(resolved_voice_id)
         if voice is None:
             raise RuntimeError("暂无可用音色，请先在插件 Pages 中上传参考音频。")
         tts_context = self._build_tts_context(voice, resolved_emotion, context)
@@ -335,6 +352,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return File(name=audio_path.name, file=str(audio_path))
         return None
 
+    @staticmethod
+    def _is_plain_component(component: Any) -> bool:
+        if Plain is not None and isinstance(component, Plain):
+            return True
+        return component.__class__.__name__ == "Plain"
+
     async def _send_audio_result(self, event: AstrMessageEvent, audio_path: pathlib.Path) -> None:
         if Record is not None:
             try:
@@ -430,7 +453,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not audio_components:
             return
         if self.plugin_config.reply_mode == "audio_only":
-            result.chain = [comp for comp in result.chain if not isinstance(comp, Plain)]
+            result.chain = [comp for comp in result.chain if not self._is_plain_component(comp)]
         result.chain.extend(audio_components)
 
     @filter.command("tts设置音色", alias={"设置音色"})

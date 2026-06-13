@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from astrbot_plugin_mimo_tts_clone.core.audio_codec import (
     AudioValidationError,
     encode_voice_file_data_url,
+    estimate_base64_chars,
 )
 
 
@@ -61,3 +62,6 @@ class AudioCodecTests(unittest.TestCase):
 
             with self.assertRaisesRegex(AudioValidationError, "Base64 audio payload too large"):
                 encode_voice_file_data_url(sample, max_bytes=100, max_base64_chars=40)
+
+    def test_base64_limit_can_be_derived_from_byte_limit(self):
+        self.assertEqual(estimate_base64_chars(10), 16)

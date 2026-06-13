@@ -9,88 +9,105 @@
 <body>
   <main class="studio-shell">
     <header class="studio-hero">
-      <div class="hero-copy">
-        <span class="eyebrow"><span class="pulse-dot"></span> MiMo VoiceClone Workspace</span>
+      <section class="hero-copy">
+        <span class="eyebrow"><span class="pulse-dot"></span> MiMo VoiceClone Console</span>
         <h1>MiMo Sound Studio</h1>
-        <p>用官方 voiceclone API 管理授权音色、情绪路由、风格指令和试听工作流。</p>
+        <p>把授权声音样本、发送策略、情绪路由和试听诊断放在同一个清晰工作流里。先保存 Key，再上传音色，最后用诊断确认链路。</p>
         <div class="hero-actions">
-          <button id="save-config" class="primary">保存配置</button>
+          <button id="save-config" class="primary">保存全部配置</button>
+          <button id="test-connection" class="secondary">一键诊断</button>
           <span id="save-state" class="action-state">配置已同步</span>
-          <a class="ghost-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" target="_blank" rel="noreferrer">查看 MiMo 文档</a>
+          <a class="ghost-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" target="_blank" rel="noreferrer">MiMo 文档</a>
         </div>
-      </div>
-      <div class="hero-console" aria-label="MiMo TTS pipeline preview">
-        <div class="console-bar"><span></span><span></span><span></span></div>
-        <pre><code>agent.voice.clone --model mimo-v2.5
-sample: authorized_voice.wav
-route: auto emotion -> selected voice
-output: non-streaming wav</code></pre>
-      </div>
+      </section>
+      <aside class="hero-panel" aria-label="当前工作区概览">
+        <div class="signal-card">
+          <span>模型</span>
+          <strong id="model-status">voiceclone</strong>
+        </div>
+        <div class="signal-card">
+          <span>音色</span>
+          <strong id="hero-voice-count">0</strong>
+        </div>
+        <div class="signal-card">
+          <span>情绪路由</span>
+          <strong id="emotion-status">ON</strong>
+        </div>
+        <div class="signal-card">
+          <span>长文本</span>
+          <strong id="segment-status">ON</strong>
+        </div>
+      </aside>
     </header>
 
-    <section class="status-grid" aria-label="当前工作区状态">
-      <article class="status-card">
-        <span>模型</span>
-        <strong id="model-status">voiceclone</strong>
+    <section class="workflow-strip" aria-label="推荐配置流程">
+      <article>
+        <b>1</b>
+        <span>保存 API Key</span>
+        <small>Base URL 和模型默认即可</small>
       </article>
-      <article class="status-card">
-        <span>情绪路由</span>
-        <strong id="emotion-status">ON</strong>
+      <article>
+        <b>2</b>
+        <span>上传授权音色</span>
+        <small>建议 mp3/wav、干声、低噪</small>
       </article>
-      <article class="status-card">
-        <span>长文本分段</span>
-        <strong id="segment-status">ON</strong>
+      <article>
+        <b>3</b>
+        <span>选择发送策略</span>
+        <small>命令或自动回复均可控制</small>
       </article>
-      <article class="status-card">
-        <span>音色数量</span>
-        <strong id="hero-voice-count">0</strong>
+      <article>
+        <b>4</b>
+        <span>试听与诊断</span>
+        <small>确认 Key、模型和音色都可用</small>
       </article>
     </section>
 
-    <section class="studio-card api-card">
-      <div class="section-head">
-        <div>
-          <span class="section-kicker">API CONFIG</span>
-          <h2>官方 API</h2>
+    <section class="studio-grid">
+      <article class="studio-card api-card span-7">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">API CONFIG</span>
+            <h2>连接配置</h2>
+          </div>
+          <span class="soft-pill">OpenAI-compatible</span>
         </div>
-        <span class="soft-pill">OpenAI-compatible</span>
-      </div>
-      <div class="form-grid">
-        <label>API Key<input id="api-key" type="password" autocomplete="off" /></label>
-        <label>Base URL<input id="base-url" type="text" /></label>
-        <label>模型<input id="model" type="text" /></label>
-        <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
-        <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
-        <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
-      </div>
-      <label class="wide">默认风格指令<textarea id="default-context" rows="2" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
-    </section>
+        <div class="form-grid two-col">
+          <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
+          <label>Base URL<input id="base-url" type="text" /></label>
+          <label>模型<input id="model" type="text" /></label>
+          <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
+          <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
+          <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
+        </div>
+        <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
+      </article>
 
-    <section class="studio-card">
-      <div class="section-head">
-        <div>
-          <span class="section-kicker">DELIVERY</span>
-          <h2>发送策略</h2>
+      <article class="studio-card span-5">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">DELIVERY</span>
+            <h2>发送策略</h2>
+          </div>
         </div>
-        <button id="test-connection" class="secondary">诊断连接</button>
-      </div>
-      <div class="form-grid">
-        <label>回复模式
-          <select id="reply-mode">
-            <option value="audio_only">只发音频</option>
-            <option value="text_and_audio">文字 + 音频</option>
-            <option value="text_only">只发文字</option>
-          </select>
-        </label>
-        <label>自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
-        <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
-        <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
-      </div>
-      <div class="switch-grid">
-        <label class="studio-switch"><input id="auto-tts-enabled" type="checkbox" /><span>启用普通 LLM 回复自动语音化</span></label>
-        <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
-      </div>
-      <p id="test-hint" class="field-hint">诊断会用当前默认音色生成一段短音频，仅用于检查 Key、模型、音色和网络。</p>
+        <div class="form-grid one-col">
+          <label>回复模式
+            <select id="reply-mode">
+              <option value="audio_only">只发音频</option>
+              <option value="text_and_audio">文字 + 音频</option>
+              <option value="text_only">只发文字</option>
+            </select>
+          </label>
+          <label>自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
+          <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
+          <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
+        </div>
+        <div class="switch-stack">
+          <label class="studio-switch"><input id="auto-tts-enabled" type="checkbox" /><span>启用普通 LLM 回复自动语音化</span></label>
+          <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
+        </div>
+        <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
+      </article>
     </section>
 
     <section class="studio-card">
@@ -117,11 +134,15 @@ output: non-streaming wav</code></pre>
         </div>
         <span id="voice-count" class="soft-pill">0 个音色</span>
       </div>
-      <div class="upload-row">
-        <div class="upload-fields">
+      <div class="upload-panel">
+        <div class="drop-zone">
+          <span>上传参考音频</span>
+          <strong>mp3 / wav</strong>
           <input id="voice-file" type="file" accept=".mp3,.wav,audio/mpeg,audio/wav" />
-          <input id="voice-name" type="text" placeholder="音色名称" />
-          <input id="voice-desc" type="text" placeholder="说明" />
+        </div>
+        <div class="upload-fields">
+          <input id="voice-name" type="text" placeholder="音色名称，例如：温柔旁白" />
+          <input id="voice-desc" type="text" placeholder="说明，例如：适合睡前、低语速" />
           <select id="voice-emotion">
             <option value="">建议情绪</option>
           </select>
@@ -147,7 +168,7 @@ output: non-streaming wav</code></pre>
       <div class="preview-row">
         <select id="preview-voice"></select>
         <select id="preview-emotion"></select>
-        <input id="preview-text" type="text" placeholder="输入试听文本" />
+        <input id="preview-text" type="text" placeholder="输入试听文本，例如：晚上好，欢迎回来。" />
         <button id="preview-btn" class="primary">试听</button>
       </div>
       <label class="wide">临时风格指令<textarea id="preview-context" rows="2" placeholder="例如：更轻、更近、像深夜电台。"></textarea></label>

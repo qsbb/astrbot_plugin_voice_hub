@@ -179,11 +179,12 @@ function updateActionAvailability() {
   if (!uploadFile) {
     setUploadHint('先选择一段已授权的 mp3 / wav 参考音频。');
   } else if (!hasName) {
-    setUploadHint('请填写音色名称，方便后续在指令和情绪路由里识别。', 'warn');
+    setUploadHint(`已选择 ${uploadFile.name}，请填写音色名称，方便后续在指令和情绪路由里识别。`, 'warn');
   } else if (!hasConsent) {
-    setUploadHint('请确认已获得声音使用授权后再上传。', 'warn');
+    setUploadHint(`已选择 ${uploadFile.name}，请确认已获得声音使用授权后再上传。`, 'warn');
   } else {
-    setUploadHint('准备就绪，点击上传后会自动加入音色库并选中用于试听。', 'ok');
+    const sizeMb = (uploadFile.size / 1024 / 1024).toFixed(2);
+    setUploadHint(`准备就绪：${uploadFile.name}，${sizeMb}MB。上传后会自动加入音色库并选中用于试听。`, 'ok');
   }
 
   const canPreview = Boolean(state.voices.length && $('preview-text').value.trim() && $('preview-voice').value);
@@ -463,11 +464,22 @@ async function preview() {
 }
 
 async function testConnection() {
-  const res = await bridge.apiPost('test_connection', {
-    voice_id: $('preview-voice').value,
-    text: '连接测试，声音工作正常。',
-  });
-  if (!res.success) throw new Error(res.error || '连接诊断失败');
+  let res;
+  try {
+    res = await bridge.apiPost('test_connection', {
+      voice_id: $('preview-voice').value,
+      text: '连接测试，声音工作正常。',
+    });
+  } catch (error) {
+    $('test-hint').textContent = extractErrorMessage(error, '连接诊断失败');
+    $('test-hint').className = 'field-hint warn';
+    throw error;
+  }
+  if (!res.success) {
+    $('test-hint').textContent = res.error || '连接诊断失败';
+    $('test-hint').className = 'field-hint warn';
+    throw new Error(res.error || '连接诊断失败');
+  }
   $('test-hint').textContent = `${res.message || '连接测试成功'} 耗时 ${res.elapsed_ms || 0}ms。`;
   $('test-hint').className = 'field-hint ok';
   toast('连接诊断通过');

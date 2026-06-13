@@ -144,11 +144,12 @@ class ConfigPersistenceTests(unittest.TestCase):
         cfg = normalize_config(
             {
                 "reply_mode": "bad",
-                "auto_tts_enabled": True,
+                "auto_tts_enabled": "true",
                 "auto_tts_probability": 2,
-                "file_fallback_enabled": False,
+                "file_fallback_enabled": "false",
                 "output_retention_days": -1,
                 "output_max_files": -5,
+                "emotion_routing_enabled": "off",
             }
         )
 
@@ -156,8 +157,17 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertTrue(cfg["auto_tts_enabled"])
         self.assertEqual(cfg["auto_tts_probability"], 1.0)
         self.assertFalse(cfg["file_fallback_enabled"])
+        self.assertFalse(cfg["emotion_routing_enabled"])
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
+
+    def test_runtime_config_migrates_legacy_file_fallback(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        cfg = normalize_config({"send_as_file_fallback": False})
+
+        self.assertFalse(cfg["file_fallback_enabled"])
+        self.assertNotIn("send_as_file_fallback", cfg)
 
     def test_cleanup_outputs_keeps_newest_files(self):
         with tempfile.TemporaryDirectory() as tmp:

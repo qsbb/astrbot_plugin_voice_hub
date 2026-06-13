@@ -17,6 +17,13 @@ from .core.text_processing import clean_tts_text
 
 
 class PagesAPIMixin:
+    @staticmethod
+    def _pages_error(message: str, status: int = 400, detail: str = ""):
+        payload = {"success": False, "error": message}
+        if detail:
+            payload["detail"] = detail
+        return jsonify(payload), status
+
     def _register_pages_web_api(self) -> None:
         register_web_api = getattr(self.context, "register_web_api", None)
         if not callable(register_web_api):
@@ -185,49 +192,30 @@ class PagesAPIMixin:
             return jsonify({"success": False, "error": "请输入试听文本"}), 400
 
         emotion = self._resolve_emotion(text, requested_emotion)
-        voice_id = self.voice_store.resolve_voice_id(None, "", "", emotion=emotion) or ""
-        voice = self.voice_store.find_voice(voice_selector) or self.voice_store.get_voice(voice_id)
+        voice = self._select_voice(voice_selector or None, emotion=emotion)
         if voice is None:
             return jsonify({"success": False, "error": "没有可用音色"}), 400
 
-        tts_context = self._build_tts_context(voice, emotion, command_context)
         try:
-            output_path = await self._synthesize_text_to_file(text, voice, context=tts_context)
+            outputs = await self.synthesize_text(
+                text,
+                voice_id=voice.id,
+                emotion=emotion,
+                context=command_context,
+                split=False,
+            )
         except AudioValidationError as exc:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"参考音频不可用：{exc}",
-                    "detail": str(exc),
-                }
-            ), 400
+            return self._pages_error(f"参考音频不可用：{exc}", 400, str(exc))
         except RuntimeError as exc:
             message = str(exc)
             if "API Key" in message:
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "MiMo API Key 未配置或未成功保存，请先在页面顶部保存配置。",
-                        "detail": message,
-                    }
-                ), 400
+                return self._pages_error("MiMo API Key 未配置或未成功保存，请先在页面顶部保存配置。", 400, message)
             if "文本过长" in message or "鏂囨湰杩囬暱" in message:
-                return jsonify({"success": False, "error": message, "detail": message}), 400
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"MiMo 试听生成失败：{message}",
-                    "detail": message,
-                }
-            ), 502
+                return self._pages_error(message, 400, message)
+            return self._pages_error(f"MiMo 试听生成失败：{message}", 502, message)
         except Exception as exc:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"试听生成异常：{exc}",
-                    "detail": str(exc),
-                }
-            ), 502
+            return self._pages_error(f"试听生成异常：{exc}", 502, str(exc))
+        output_path = outputs[0]
         raw = await asyncio.to_thread(pathlib.Path(output_path).read_bytes)
         return jsonify(
             {
@@ -243,19 +231,9 @@ class PagesAPIMixin:
         text = clean_tts_text(str(data.get("text") or "连接测试，声音工作正常。"))
         voice_selector = str(data.get("voice_id") or data.get("voice") or "").strip()
         if not self.plugin_config.api_key:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "MiMo API Key 未配置，请先保存配置。",
-                }
-            ), 400
+            return self._pages_error("MiMo API Key 未配置，请先保存配置。", 400)
         if not self.voice_store.list_voices(include_disabled=False):
-            return jsonify(
-                {
-                    "success": False,
-                    "error": "暂无可用音色，请先上传参考音频。",
-                }
-            ), 400
+            return self._pages_error("暂无可用音色，请先上传参考音频。", 400)
         started = asyncio.get_running_loop().time()
         try:
             outputs = await self.synthesize_text(
@@ -264,13 +242,7 @@ class PagesAPIMixin:
                 split=False,
             )
         except Exception as exc:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": f"连接测试失败：{exc}",
-                    "detail": str(exc),
-                }
-            ), 502
+            return self._pages_error(f"连接测试失败：{exc}", 502, str(exc))
         elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
         for output in outputs:
             pathlib.Path(output).unlink(missing_ok=True)

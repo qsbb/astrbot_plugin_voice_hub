@@ -14,7 +14,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_text_chars": 500,
     "max_voice_file_mb": 10,
     "max_concurrency": 1,
-    "send_as_file_fallback": True,
     "reply_mode": "audio_only",
     "auto_tts_enabled": False,
     "auto_tts_probability": 0.0,
@@ -40,7 +39,6 @@ class PluginConfig:
     max_text_chars: int
     max_voice_file_mb: int
     max_concurrency: int
-    send_as_file_fallback: bool
     reply_mode: str
     auto_tts_enabled: bool
     auto_tts_probability: float
@@ -61,7 +59,11 @@ class PluginConfig:
 
 def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg = copy.deepcopy(DEFAULT_CONFIG)
+    raw_has_file_fallback = False
+    legacy_file_fallback = DEFAULT_CONFIG["file_fallback_enabled"]
     if isinstance(raw, dict):
+        raw_has_file_fallback = "file_fallback_enabled" in raw
+        legacy_file_fallback = _bool_value(raw.get("send_as_file_fallback", True))
         for key in cfg:
             if key in raw:
                 cfg[key] = raw[key]
@@ -71,26 +73,25 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["model"] = str(cfg.get("model") or DEFAULT_CONFIG["model"]).strip()
     cfg["output_format"] = str(cfg.get("output_format") or "wav").strip().lower()
     cfg["default_context"] = str(cfg.get("default_context") or "")
-    cfg["max_text_chars"] = max(1, int(cfg.get("max_text_chars") or 500))
-    cfg["max_voice_file_mb"] = max(1, int(cfg.get("max_voice_file_mb") or 10))
-    cfg["max_concurrency"] = max(1, int(cfg.get("max_concurrency") or 1))
-    cfg["send_as_file_fallback"] = bool(cfg.get("send_as_file_fallback", True))
+    cfg["max_text_chars"] = _int_at_least(cfg.get("max_text_chars"), 500, 1)
+    cfg["max_voice_file_mb"] = _int_at_least(cfg.get("max_voice_file_mb"), 10, 1)
+    cfg["max_concurrency"] = _int_at_least(cfg.get("max_concurrency"), 1, 1)
     reply_mode = str(cfg.get("reply_mode") or "audio_only").strip().lower()
     if reply_mode not in {"audio_only", "text_and_audio", "text_only"}:
         reply_mode = "audio_only"
     cfg["reply_mode"] = reply_mode
-    cfg["auto_tts_enabled"] = bool(cfg.get("auto_tts_enabled", False))
+    cfg["auto_tts_enabled"] = _bool_value(cfg.get("auto_tts_enabled", False))
     try:
         probability = float(cfg.get("auto_tts_probability") or 0.0)
     except (TypeError, ValueError):
         probability = 0.0
     cfg["auto_tts_probability"] = min(1.0, max(0.0, probability))
-    cfg["file_fallback_enabled"] = bool(
-        cfg.get("file_fallback_enabled", cfg.get("send_as_file_fallback", True))
+    cfg["file_fallback_enabled"] = _bool_value(
+        cfg.get("file_fallback_enabled") if raw_has_file_fallback else legacy_file_fallback
     )
-    cfg["output_retention_days"] = max(0, int(cfg.get("output_retention_days") or 0))
-    cfg["output_max_files"] = max(0, int(cfg.get("output_max_files") or 0))
-    cfg["emotion_routing_enabled"] = bool(cfg.get("emotion_routing_enabled", True))
+    cfg["output_retention_days"] = _int_at_least(cfg.get("output_retention_days"), 7, 0)
+    cfg["output_max_files"] = _int_at_least(cfg.get("output_max_files"), 100, 0)
+    cfg["emotion_routing_enabled"] = _bool_value(cfg.get("emotion_routing_enabled", True))
     raw_contexts = cfg.get("emotion_contexts") or {}
     if not isinstance(raw_contexts, dict):
         raw_contexts = {}
@@ -99,9 +100,9 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         for key, value in dict(raw_contexts).items()
         if str(key).strip() and str(value or "").strip()
     }
-    cfg["segment_enabled"] = bool(cfg.get("segment_enabled", True))
-    cfg["segment_threshold_chars"] = max(1, int(cfg.get("segment_threshold_chars") or 180))
-    cfg["segment_max_segments"] = max(1, int(cfg.get("segment_max_segments") or 6))
+    cfg["segment_enabled"] = _bool_value(cfg.get("segment_enabled", True))
+    cfg["segment_threshold_chars"] = _int_at_least(cfg.get("segment_threshold_chars"), 180, 1)
+    cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)
     admins = cfg.get("admin_users") or []
     cfg["admin_users"] = [str(item).strip() for item in admins if str(item).strip()]
     return cfg
@@ -110,3 +111,17 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
 def build_plugin_config(raw: dict[str, Any] | None) -> PluginConfig:
     cfg = normalize_config(raw)
     return PluginConfig(**cfg)
+
+
+def _int_at_least(value: Any, default: int, minimum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, parsed)
+
+
+def _bool_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off", ""}
+    return bool(value)

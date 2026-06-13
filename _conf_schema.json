@@ -1,0 +1,50 @@
+{
+  "api_key": {
+    "type": "string",
+    "description": "MiMo API Key",
+    "hint": "可在 MiMo 官方平台获取。也可以在插件 Pages 页面中填写。",
+    "default": ""
+  },
+  "base_url": {
+    "type": "string",
+    "description": "MiMo API Base URL",
+    "default": "https://api.xiaomimimo.com/v1"
+  },
+  "model": {
+    "type": "string",
+    "description": "TTS 模型",
+    "default": "mimo-v2.5-tts-voiceclone"
+  },
+  "output_format": {
+    "type": "string",
+    "description": "输出格式",
+    "options": ["wav"],
+    "default": "wav"
+  },
+  "default_context": {
+    "type": "string",
+    "description": "默认风格指令",
+    "hint": "例如：温柔、自然地朗读。可在命令中用 -c 临时覆盖。",
+    "default": ""
+  },
+  "max_text_chars": {
+    "type": "int",
+    "description": "单次最大文本长度",
+    "default": 500
+  },
+  "max_voice_file_mb": {
+    "type": "int",
+    "description": "参考音频最大大小 MB",
+    "default": 10
+  },
+  "max_concurrency": {
+    "type": "int",
+    "description": "最大并发生成数",
+    "default": 1
+  },
+  "admin_users": {
+    "type": "list",
+    "description": "插件管理员用户 ID",
+    "default": []
+  }
+}

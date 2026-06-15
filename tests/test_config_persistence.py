@@ -31,18 +31,36 @@ class _StarTools:
         return _StarTools.data_dir
 
 
+class _Provider:
+    def __init__(self, owner=None, provider_id="provider-a", model="model-a"):
+        self.owner = owner
+        self.provider_config = {"id": provider_id, "type": "openai", "model": model}
+        self.calls = []
+
+    def meta(self):
+        return types.SimpleNamespace(id=self.provider_config["id"], model=self.provider_config["model"])
+
+    async def text_chat(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.owner is not None and self.owner.fail_llm:
+            raise RuntimeError("llm failed")
+        return types.SimpleNamespace(
+            completion_text='{"style_context":"用默认服务商生成的温柔语气。","speech_text":"晚上好，欢迎回来。"}'
+        )
+
+
 class _Context:
     def __init__(self):
         self.routes = []
         self.llm_calls = []
         self.fail_llm = False
-        self.providers = [
-            types.SimpleNamespace(
-                provider_id="provider-a",
-                name="Provider A",
-                model="model-a",
-            )
-        ]
+        self.providers = [_Provider(owner=self)]
+        self.provider_manager = types.SimpleNamespace(
+            curr_provider_inst=self.providers[0],
+            provider_insts=self.providers,
+            inst_map={self.providers[0].provider_config["id"]: self.providers[0]},
+            providers_config=[self.providers[0].provider_config],
+        )
 
     def register_web_api(self, *args):
         self.routes.append(args)
@@ -57,6 +75,9 @@ class _Context:
 
     def get_all_providers(self):
         return list(self.providers)
+
+    def get_using_provider(self, umo=None):
+        return self.provider_manager.curr_provider_inst
 
 
 def _command_decorator(*_args, **_kwargs):
@@ -315,11 +336,12 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("自然清晰", result)
             self.assertIn("平稳", result)
             self.assertIn("靠近一点", result)
-            self.assertIn("夜晚陪伴感", result)
+            self.assertIn("默认服务商生成", result)
             self.assertEqual(speech_text, "晚上好，欢迎回来。")
-            self.assertEqual(len(ctx.llm_calls), 1)
-            self.assertIn("待朗读文本：晚上好，欢迎回来。", ctx.llm_calls[0]["prompt"])
-            self.assertIn("请输出最终 JSON", ctx.llm_calls[0]["prompt"])
+            self.assertEqual(len(ctx.llm_calls), 0)
+            self.assertEqual(len(ctx.providers[0].calls), 1)
+            self.assertIn("待朗读文本：晚上好，欢迎回来。", ctx.providers[0].calls[0]["prompt"])
+            self.assertIn("请输出最终 JSON", ctx.providers[0].calls[0]["prompt"])
 
     def test_ai_style_director_can_fail_hard_when_fallback_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:

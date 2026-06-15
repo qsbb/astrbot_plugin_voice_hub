@@ -90,68 +90,80 @@ class PagesAPIMixin:
         )
 
     def _list_ai_providers(self) -> list[dict[str, str]]:
+        candidates: list[Any] = []
+
         getter = getattr(self.context, "get_all_providers", None)
-        if not callable(getter):
-            return []
-        try:
-            providers = getter() or []
-        except Exception as exc:
-            self.logger.warning("[mimo-tts] failed to list AstrBot AI providers: %s", exc)
-            return []
-        items = []
-        for provider in providers:
-            provider_id = self._provider_attr(
-                provider,
-                "provider_id",
-                "id",
-                "provider",
-                "name",
-            )
-            if not provider_id:
+        if callable(getter):
+            try:
+                candidates.extend(list(getter() or []))
+            except Exception as exc:
+                self.logger.warning("[mimo-tts] failed to list AstrBot AI providers: %s", exc)
+
+        provider_manager = getattr(self.context, "provider_manager", None)
+        if provider_manager is not None:
+            candidates.extend(list(getattr(provider_manager, "provider_insts", []) or []))
+            inst_map = getattr(provider_manager, "inst_map", None)
+            if isinstance(inst_map, dict):
+                candidates.extend(list(inst_map.values()))
+            provider_configs = getattr(provider_manager, "providers_config", None)
+            if isinstance(provider_configs, list):
+                candidates.extend(
+                    cfg
+                    for cfg in provider_configs
+                    if isinstance(cfg, dict)
+                    and str(cfg.get("provider_type") or cfg.get("type") or "").strip() in {"", "chat_completion"}
+                )
+
+        seen: set[tuple[str, str]] = set()
+        items: list[dict[str, str]] = []
+        for provider in candidates:
+            item = self._normalize_ai_provider(provider)
+            if item is None:
                 continue
-            name = self._provider_attr(
-                provider,
-                "display_name",
-                "name",
-                "provider_name",
-                "provider_type",
-            )
-            model = self._provider_attr(provider, "model", "model_name", "curr_model")
-            label = name or provider_id
-            if model and model not in label:
-                label = f"{label} / {model}"
-            items.append(
-                {
-                    "id": provider_id,
-                    "name": name or provider_id,
-                    "model": model,
-                    "label": label,
-                }
-            )
+            key = (item["id"], item["model"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+
+        items.sort(key=lambda item: (item["label"], item["id"]))
         return items
 
     @staticmethod
-    def _provider_attr(provider, *names: str) -> str:
-        for name in names:
-            value = ""
-            if isinstance(provider, dict):
-                value = provider.get(name) or ""
-            else:
-                value = getattr(provider, name, "") or ""
-                if callable(value):
-                    try:
-                        value = value()
-                    except Exception:
-                        value = ""
-            if value:
-                return str(value).strip()
-        meta = getattr(provider, "meta", None)
-        if isinstance(meta, dict):
-            for name in names:
-                value = meta.get(name) or ""
-                if value:
-                    return str(value).strip()
-        return ""
+    def _normalize_ai_provider(provider: Any) -> dict[str, str] | None:
+        if isinstance(provider, dict):
+            provider_id = str(provider.get("id") or "").strip()
+            model = str(provider.get("model") or "").strip()
+            if not provider_id:
+                return None
+            label = provider_id if not model else f"{provider_id} / {model}"
+            return {"id": provider_id, "name": provider_id, "model": model, "label": label}
+
+        meta_fn = getattr(provider, "meta", None)
+        meta = None
+        if callable(meta_fn):
+            try:
+                meta = meta_fn()
+            except Exception:
+                meta = None
+
+        provider_id = ""
+        model = ""
+        if meta is not None:
+            provider_id = str(getattr(meta, "id", "") or "").strip()
+            model = str(getattr(meta, "model", "") or "").strip()
+
+        provider_config = getattr(provider, "provider_config", None)
+        if not provider_id and isinstance(provider_config, dict):
+            provider_id = str(provider_config.get("id") or "").strip()
+        if not model and isinstance(provider_config, dict):
+            model = str(provider_config.get("model") or "").strip()
+
+        if not provider_id:
+            return None
+
+        label = provider_id if not model else f"{provider_id} / {model}"
+        return {"id": provider_id, "name": provider_id, "model": model, "label": label}
 
     async def _pages_upload_voice_sample(self):
         files = await request.files

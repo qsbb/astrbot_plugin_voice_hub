@@ -42,6 +42,11 @@ class _Context:
         return self.provider if provider_id == "director-provider" else None
 
 
+class _DefaultProviderContext(_Context):
+    def get_using_provider(self, umo=None):
+        return self.provider
+
+
 class StyleDirectorTests(unittest.TestCase):
     def test_sanitizes_director_output(self):
         result = sanitize_style_director_output(
@@ -103,6 +108,20 @@ class StyleDirectorTests(unittest.TestCase):
 
         self.assertEqual(result, "用贴近耳边的轻声、慢一点、带一点安慰感。")
         self.assertEqual(context.calls[0]["prompt"].count("晚上好"), 1)
+
+    def test_generate_style_plan_uses_default_provider_when_available(self):
+        context = _DefaultProviderContext()
+
+        result = asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+            )
+        )
+
+        self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
+        self.assertEqual(len(context.calls), 0)
+        self.assertEqual(len(context.provider.calls), 1)
 
 
 if __name__ == "__main__":

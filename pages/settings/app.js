@@ -172,6 +172,7 @@ function fillEmotionSelect(select, includeAuto = false) {
 
 function renderProviderSelect() {
   const select = $('ai-style-director-provider-select');
+  const hint = $('ai-provider-hint');
   const current = $('ai-style-director-provider-id').value.trim();
   select.innerHTML = '<option value="">当前默认 LLM</option>';
   state.providers.forEach(provider => {
@@ -187,6 +188,13 @@ function renderProviderSelect() {
     select.appendChild(custom);
   }
   select.value = current;
+  if (state.providers.length) {
+    hint.textContent = `已读取到 ${state.providers.length} 个 AstrBot AI 服务商；留空则使用当前默认 LLM。`;
+    hint.className = 'field-hint ok';
+  } else {
+    hint.textContent = '未读取到 AstrBot AI 服务商。可先确认 AstrBot 已启用聊天模型，或在右侧手填 provider id。';
+    hint.className = 'field-hint warn';
+  }
 }
 
 function updateStatus() {

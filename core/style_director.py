@@ -151,6 +151,9 @@ async def _call_llm(context: Any, prompt: str, system_prompt: str, *, provider_i
                 provider = provider_getter(provider_id)
             if provider is not None and callable(getattr(provider, "text_chat", None)):
                 return await provider.text_chat(prompt=prompt, context=[], system_prompt=system_prompt)
+    current_provider = _current_chat_provider(context)
+    if current_provider is not None and callable(getattr(current_provider, "text_chat", None)):
+        return await current_provider.text_chat(prompt=prompt, context=[], system_prompt=system_prompt)
     llm_generate = getattr(context, "llm_generate", None)
     if callable(llm_generate):
         kwargs = {
@@ -160,7 +163,7 @@ async def _call_llm(context: Any, prompt: str, system_prompt: str, *, provider_i
         if provider_id:
             kwargs["chat_provider_id"] = provider_id
         return await llm_generate(**kwargs)
-    return ""
+    raise RuntimeError("未找到可用的 AstrBot AI 服务商")
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -198,3 +201,51 @@ def _render_template(template: str, *, max_chars: int) -> str:
         return str(template or "").format(max_chars=max_chars)
     except Exception:
         return str(template or "")
+
+
+def _current_chat_provider(context: Any) -> Any:
+    getter = getattr(context, "get_using_provider", None)
+    if callable(getter):
+        try:
+            provider = getter()
+            if provider is not None:
+                return provider
+        except Exception:
+            pass
+        try:
+            provider = getter(umo=None)
+            if provider is not None:
+                return provider
+        except Exception:
+            pass
+
+    provider_manager = getattr(context, "provider_manager", None)
+    if provider_manager is None:
+        return None
+    current = getattr(provider_manager, "curr_provider_inst", None)
+    if current is not None:
+        return current
+    providers = getattr(provider_manager, "provider_insts", None)
+    if providers:
+        return providers[0]
+    return None
+
+
+def _current_chat_provider_id(context: Any) -> str:
+    provider = _current_chat_provider(context)
+    if provider is None:
+        return ""
+    meta_fn = getattr(provider, "meta", None)
+    if callable(meta_fn):
+        try:
+            meta = meta_fn()
+            return str(getattr(meta, "id", "") or "").strip()
+        except Exception:
+            pass
+    provider_config = getattr(provider, "provider_config", None)
+    if isinstance(provider_config, dict):
+        return str(provider_config.get("id") or "").strip()
+    try:
+        return str(getattr(provider, "provider_id", "") or getattr(provider, "id", "") or "").strip()
+    except Exception:
+        return ""

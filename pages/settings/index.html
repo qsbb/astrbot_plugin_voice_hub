@@ -63,6 +63,14 @@
       </article>
     </section>
 
+    <section class="studio-card status-board" aria-label="工作台状态">
+      <div>
+        <span class="section-kicker">READINESS</span>
+        <h2>工作台状态</h2>
+      </div>
+      <div id="readiness-list" class="readiness-list"></div>
+    </section>
+
     <section class="studio-grid">
       <article class="studio-card api-card span-7">
         <div class="section-head">
@@ -204,6 +212,7 @@
         <button id="preview-btn" class="primary">试听</button>
       </div>
       <label class="wide">临时风格指令<textarea id="preview-context" rows="2" placeholder="例如：更轻、更近、像深夜电台。"></textarea></label>
+      <p id="preview-hint" class="field-hint">选择音色并输入文本后即可试听；开启 AI 导演时，试听也会走同一套导演链路。</p>
       <div class="audio-frame">
         <div class="wave-bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
         <audio id="preview-audio" controls></audio>

@@ -48,12 +48,24 @@ class PagesAPIMixin:
             register_web_api(f"/{plugin_id}/{name}", handler, methods, desc)
 
     def _pages_payload(self) -> dict:
+        voices = self.voice_store.list_voices()
+        enabled_voices = [voice for voice in voices if voice.enabled]
+        providers = self._list_ai_providers()
         return {
             "success": True,
             "config": dict(self.config),
-            "voices": [voice.to_dict() for voice in self.voice_store.list_voices()],
+            "voices": [voice.to_dict() for voice in voices],
             "defaults": self.voice_store.defaults(),
             "emotions": list(SUPPORTED_EMOTIONS),
+            "readiness": {
+                "api_key": bool(self.plugin_config.api_key),
+                "voices": bool(enabled_voices),
+                "ai_director": bool(
+                    self.plugin_config.ai_style_director_enabled
+                    and (providers or self.plugin_config.ai_style_director_provider_id)
+                ),
+                "providers": len(providers),
+            },
         }
 
     async def _pages_get_config(self):

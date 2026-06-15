@@ -183,6 +183,22 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(providers[0]["id"], "provider-a")
             self.assertIn("model-a", providers[0]["label"])
 
+    def test_pages_payload_reports_operator_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"api_key": "mimo-secret", "ai_style_director_enabled": True},
+            )
+            plugin.voice_store.add_voice("旁白", Path(tmp) / "voice.wav", "", "", True)
+
+            payload = plugin._pages_payload()
+
+            self.assertTrue(payload["readiness"]["api_key"])
+            self.assertTrue(payload["readiness"]["voices"])
+            self.assertTrue(payload["readiness"]["ai_director"])
+            self.assertEqual(payload["readiness"]["providers"], 1)
+
     def test_plugin_reads_get_only_native_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
@@ -333,7 +349,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 style_context="靠近一点",
             )
 
-            result, speech_text = asyncio.run(
+            result = asyncio.run(
                 plugin._build_tts_context(
                     voice,
                     "neutral",
@@ -343,11 +359,11 @@ class ConfigPersistenceTests(unittest.TestCase):
                 )
             )
 
-            self.assertIn("自然清晰", result)
-            self.assertIn("平稳", result)
-            self.assertIn("靠近一点", result)
-            self.assertIn("默认服务商生成", result)
-            self.assertEqual(speech_text, "晚上好，欢迎回来。")
+            self.assertIn("自然清晰", result.context)
+            self.assertIn("平稳", result.context)
+            self.assertIn("靠近一点", result.context)
+            self.assertIn("默认服务商生成", result.context)
+            self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
             self.assertEqual(len(ctx.llm_calls), 0)
             self.assertEqual(len(ctx.providers[0].calls), 1)
             self.assertIn("待朗读文本：晚上好，欢迎回来。", ctx.providers[0].calls[0]["prompt"])

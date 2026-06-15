@@ -49,7 +49,14 @@ async function resolveBridge() {
   return await waitForAstrBotBridge() || fallbackBridge();
 }
 
-let state = { config: {}, voices: [], defaults: {}, emotions: ['happy', 'sad', 'angry', 'neutral'], providers: [] };
+let state = {
+  config: {},
+  voices: [],
+  defaults: {},
+  emotions: ['happy', 'sad', 'angry', 'neutral'],
+  providers: [],
+  readiness: {},
+};
 let lastUploadedVoiceId = '';
 
 function toast(message, type = 'ok') {
@@ -85,6 +92,12 @@ function markClean() {
 
 function setUploadHint(message, type = 'info') {
   const el = $('upload-hint');
+  el.textContent = message;
+  el.className = `field-hint ${type}`;
+}
+
+function setPreviewHint(message, type = 'info') {
+  const el = $('preview-hint');
   el.textContent = message;
   el.className = `field-hint ${type}`;
 }
@@ -205,6 +218,54 @@ function updateStatus() {
   $('hero-voice-count').textContent = String(state.voices.length);
 }
 
+function renderReadiness() {
+  const readiness = state.readiness || {};
+  const enabledVoices = state.voices.filter(voice => voice.enabled !== false).length;
+  const hasPreviewText = Boolean($('preview-text').value.trim());
+  const hasPreviewVoice = Boolean($('preview-voice').value);
+  const previewReady = Boolean(enabledVoices && hasPreviewText && hasPreviewVoice);
+  const items = [
+    {
+      title: 'API Key',
+      ok: readiness.api_key,
+      detail: readiness.api_key ? '已保存，可请求 MiMo。' : '未保存，试听和自动语音会失败。',
+    },
+    {
+      title: '音色库',
+      ok: readiness.voices,
+      detail: enabledVoices ? `${enabledVoices} 个可用音色。` : '先上传并启用至少一个授权音色。',
+    },
+    {
+      title: 'AI 导演',
+      ok: !state.config.ai_style_director_enabled || readiness.ai_director,
+      warn: state.config.ai_style_director_enabled && !readiness.ai_director,
+      detail: state.config.ai_style_director_enabled
+        ? (readiness.ai_director ? '已启用，会生成隐藏风格和朗读文本。' : '已启用，但未识别到可用 AI 服务商。')
+        : '未启用，使用情绪/音色风格。',
+    },
+    {
+      title: '试听',
+      ok: previewReady,
+      warn: !previewReady,
+      detail: previewReady ? '已就绪，可以生成预览音频。' : previewDisabledReason(),
+    },
+  ];
+
+  $('readiness-list').innerHTML = items.map(item => `
+    <article class="readiness-item ${item.ok ? 'is-ok' : item.warn ? 'is-warn' : ''}">
+      <strong>${escapeHtml(item.title)}</strong>
+      <span>${escapeHtml(item.detail)}</span>
+    </article>
+  `).join('');
+}
+
+function previewDisabledReason() {
+  if (!state.voices.some(voice => voice.enabled !== false)) return '需要先上传并启用音色。';
+  if (!$('preview-voice').value) return '请选择一个试听音色。';
+  if (!$('preview-text').value.trim()) return '请输入试听文本。';
+  return '准备中，请稍候。';
+}
+
 function updateActionAvailability() {
   const uploadFile = $('voice-file').files[0];
   const hasName = Boolean($('voice-name').value.trim());
@@ -222,8 +283,19 @@ function updateActionAvailability() {
     setUploadHint(`准备就绪：${uploadFile.name}，${sizeMb}MB。上传后会自动加入音色库并选中用于试听。`, 'ok');
   }
 
-  const canPreview = Boolean(state.voices.length && $('preview-text').value.trim() && $('preview-voice').value);
+  const canPreview = Boolean(
+    state.voices.some(voice => voice.enabled !== false) &&
+    $('preview-text').value.trim() &&
+    $('preview-voice').value
+  );
   $('preview-btn').disabled = !canPreview;
+  setPreviewHint(
+    canPreview
+      ? '试听已就绪；开启 AI 导演时，这次试听也会走隐藏导演链路。'
+      : previewDisabledReason(),
+    canPreview ? 'ok' : 'warn'
+  );
+  renderReadiness();
 }
 
 function applyState(payload) {
@@ -231,6 +303,7 @@ function applyState(payload) {
   state.voices = payload.voices || [];
   state.defaults = payload.defaults || {};
   state.emotions = payload.emotions || state.emotions;
+  state.readiness = payload.readiness || {};
 
   $('api-key').value = state.config.api_key || '';
   $('base-url').value = state.config.base_url || 'https://api.xiaomimimo.com/v1';
@@ -264,6 +337,7 @@ function applyState(payload) {
   updateStatus();
   renderEmotionDefaults();
   renderVoices();
+  renderReadiness();
   markClean();
   updateActionAvailability();
 }
@@ -338,10 +412,12 @@ function renderVoices() {
     `;
     list.appendChild(card);
 
-    const option = document.createElement('option');
-    option.value = voice.id;
-    option.textContent = voice.name;
-    select.appendChild(option);
+    if (!disabled) {
+      const option = document.createElement('option');
+      option.value = voice.id;
+      option.textContent = voice.name;
+      select.appendChild(option);
+    }
   });
   if (lastUploadedVoiceId && state.voices.some(voice => voice.id === lastUploadedVoiceId)) {
     select.value = lastUploadedVoiceId;

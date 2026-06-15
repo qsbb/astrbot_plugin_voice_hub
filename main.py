@@ -24,6 +24,12 @@ from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, SUPPORTED_EMOTIONS, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
 from .core.style_director import StyleDirectorInput, generate_style_plan
+from .core.synthesis_context import (
+    TTSContextResult,
+    build_style_director_cache_key,
+    clip_log_text,
+    merge_directed_context,
+)
 from .core.text_processing import clean_tts_text, split_tts_text
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
@@ -51,7 +57,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self.emotion_router = EmotionRouter(emotion_contexts=self.plugin_config.emotion_contexts)
         self.voice_store = VoiceStore(self.data_dir)
         self._tts_sem = asyncio.Semaphore(self.plugin_config.max_concurrency)
-        self._style_director_cache: dict[tuple[str, str, str, bool], tuple[str, str]] = {}
+        self._style_director_cache: dict[Any, TTSContextResult] = {}
         self._register_pages_web_api()
 
     @staticmethod
@@ -258,17 +264,17 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         )
         if voice is None:
             raise RuntimeError("暂无可用音色，请先在插件 Pages 中上传参考音频。")
-        tts_context, tts_text = await self._build_tts_context(
+        tts_result = await self._build_tts_context(
             voice,
             resolved_emotion,
             context,
             text=cleaned,
             style_director_enabled=style_director_enabled,
         )
-        final_text = tts_text or cleaned
+        final_text = tts_result.speech_text or cleaned
         segments = self._split_for_tts(final_text) if split else [final_text]
         return [
-            await self._synthesize_text_to_file(segment, voice, context=tts_context)
+            await self._synthesize_text_to_file(segment, voice, context=tts_result.context)
             for segment in segments
         ]
 
@@ -418,7 +424,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         *,
         text: str = "",
         style_director_enabled: bool | None = None,
-    ) -> tuple[str, str]:
+    ) -> TTSContextResult:
         base_context = self.emotion_router.build_context(
             base_context=self.plugin_config.default_context,
             emotion=emotion,
@@ -431,26 +437,31 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             else bool(style_director_enabled)
         )
         if not use_style_director:
-            return base_context, text
+            return TTSContextResult(context=base_context, speech_text=text)
 
-        cache_key = (
-            str(voice.id or ""),
-            str(emotion or ""),
-            str(text[:128] if text else ""),
-            bool(self.plugin_config.ai_style_director_optimize_text),
+        cache_key = build_style_director_cache_key(
+            voice_id=voice.id,
+            emotion=emotion,
+            text=text,
+            optimize_text=self.plugin_config.ai_style_director_optimize_text,
         )
         cached = self._style_director_cache.get(cache_key)
         if cached:
-            style_context, speech_text = cached
+            result = TTSContextResult(
+                context=self._merge_directed_context(base_context, cached.style_context),
+                speech_text=cached.speech_text or text,
+                style_context=cached.style_context,
+                cached=True,
+            )
             self._log_style_director_plan(
                 voice=voice,
                 emotion=emotion,
                 text=text,
-                style_context=style_context,
-                speech_text=speech_text or text,
+                style_context=result.style_context,
+                speech_text=result.speech_text,
                 cached=True,
             )
-            return self._merge_directed_context(base_context, style_context), speech_text or text
+            return result
 
         directive = ""
         speech_text = text
@@ -479,17 +490,22 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 raise RuntimeError(f"AI 风格导演失败：{exc}") from exc
 
         if directive:
-            self._style_director_cache[cache_key] = (directive, speech_text)
+            result = TTSContextResult(
+                context=self._merge_directed_context(base_context, directive),
+                speech_text=speech_text,
+                style_context=directive,
+            )
+            self._style_director_cache[cache_key] = result
             self._log_style_director_plan(
                 voice=voice,
                 emotion=emotion,
                 text=text,
-                style_context=directive,
-                speech_text=speech_text,
+                style_context=result.style_context,
+                speech_text=result.speech_text,
                 cached=False,
             )
-            return self._merge_directed_context(base_context, directive), speech_text
-        return base_context, speech_text
+            return result
+        return TTSContextResult(context=base_context, speech_text=speech_text)
 
     def _log_style_director_plan(
         self,
@@ -506,25 +522,20 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self.logger.info(
             "[mimo-tts] AI导演 provider=%s voice=%s(%s) emotion=%s cached=%s text=%s style_context=%s speech_text=%s",
             self.plugin_config.ai_style_director_provider_id or "default",
-            self._clip_log_text(voice.name),
-            self._clip_log_text(voice.id),
-            self._clip_log_text(emotion or "neutral"),
+            clip_log_text(voice.name),
+            clip_log_text(voice.id),
+            clip_log_text(emotion or "neutral"),
             str(bool(cached)).lower(),
-            self._clip_log_text(text),
-            self._clip_log_text(style_context),
-            self._clip_log_text(speech_text),
+            clip_log_text(text),
+            clip_log_text(style_context),
+            clip_log_text(speech_text),
         )
 
-    @staticmethod
-    def _clip_log_text(value: Any, limit: int = 160) -> str:
-        text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
-        return text if len(text) <= limit else f"{text[:limit].rstrip()}..."
-
     def _merge_directed_context(self, base_context: str, directive: str) -> str:
-        if self.plugin_config.ai_style_director_mode == "direct":
-            return str(directive or "").strip() or base_context
-        return "\n".join(
-            part for part in (str(base_context or "").strip(), str(directive or "").strip()) if part
+        return merge_directed_context(
+            base_context,
+            directive,
+            self.plugin_config.ai_style_director_mode,
         )
 
     def _split_for_tts(self, text: str) -> list[str]:

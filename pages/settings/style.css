@@ -226,6 +226,59 @@ h1, h2, p { margin: 0; }
   line-height: 1.5;
 }
 
+.status-board {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.readiness-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.readiness-item {
+  display: grid;
+  gap: 7px;
+  min-height: 102px;
+  border: 1px solid rgba(83, 54, 21, .12);
+  border-radius: 22px;
+  padding: 15px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.readiness-item strong {
+  font-size: 14px;
+}
+
+.readiness-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.readiness-item::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #c49b55;
+  box-shadow: 0 0 0 5px rgba(196, 155, 85, .12);
+}
+
+.readiness-item.is-ok::before {
+  background: var(--green);
+  box-shadow: 0 0 0 5px rgba(73, 107, 85, .12);
+}
+
+.readiness-item.is-warn::before {
+  background: var(--amber);
+  box-shadow: 0 0 0 5px rgba(240, 168, 36, .16);
+}
+
 .studio-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -599,6 +652,8 @@ audio { width: 100%; }
 @media (max-width: 1020px) {
   .studio-hero,
   .workflow-strip,
+  .status-board,
+  .readiness-list,
   .studio-grid,
   .upload-panel,
   .preview-row,

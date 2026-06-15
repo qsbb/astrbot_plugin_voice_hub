@@ -110,6 +110,29 @@
       </article>
     </section>
 
+    <section class="studio-card director-card">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">AI STYLE DIRECTOR</span>
+          <h2>AI 风格导演</h2>
+        </div>
+        <span class="soft-pill">隐藏控制提示</span>
+      </div>
+      <div class="switch-grid">
+        <label class="studio-switch"><input id="ai-style-director-enabled" type="checkbox" /><span>启用 AI 生成拟人化风格指令</span></label>
+        <label>导演模式
+          <select id="ai-style-director-mode">
+            <option value="direct">只使用 AI 指令</option>
+            <option value="hybrid">保留基础指令并追加 AI 指令</option>
+          </select>
+        </label>
+        <label>最大指令长度<input id="ai-style-director-max-chars" type="number" min="20" max="300" /></label>
+        <label class="studio-switch"><input id="ai-style-director-fallback" type="checkbox" /><span>AI 失败时回退到情绪/默认风格</span></label>
+      </div>
+      <label class="wide">导演提示词模板<textarea id="ai-style-director-prompt" rows="4" placeholder="留空使用内置模板。可用变量：{max_chars}"></textarea></label>
+      <p class="field-hint">AI 风格导演只生成给 MiMo 的 user 风格控制指令，不会加入最终回复文本，也不会被作为正文朗读。它只影响声音怎么说，不改变文字说什么。</p>
+    </section>
+
     <section class="studio-card">
       <div class="section-head">
         <div>

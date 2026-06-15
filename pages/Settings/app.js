@@ -141,6 +141,11 @@ function configPayload() {
     output_retention_days: Number($('output-retention-days').value || 0),
     output_max_files: Number($('output-max-files').value || 0),
     emotion_routing_enabled: $('emotion-routing-enabled').checked,
+    ai_style_director_enabled: $('ai-style-director-enabled').checked,
+    ai_style_director_prompt: $('ai-style-director-prompt').value,
+    ai_style_director_mode: $('ai-style-director-mode').value,
+    ai_style_director_max_chars: Number($('ai-style-director-max-chars').value || 120),
+    ai_style_director_fallback_to_emotion: $('ai-style-director-fallback').checked,
     segment_enabled: $('segment-enabled').checked,
     segment_threshold_chars: Number($('segment-threshold-chars').value || 180),
     segment_max_segments: Number($('segment-max-segments').value || 6),
@@ -211,6 +216,11 @@ function applyState(payload) {
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
+  $('ai-style-director-enabled').checked = state.config.ai_style_director_enabled === true;
+  $('ai-style-director-prompt').value = state.config.ai_style_director_prompt || '';
+  $('ai-style-director-mode').value = state.config.ai_style_director_mode || 'direct';
+  $('ai-style-director-max-chars').value = state.config.ai_style_director_max_chars || 120;
+  $('ai-style-director-fallback').checked = state.config.ai_style_director_fallback_to_emotion !== false;
   $('segment-enabled').checked = state.config.segment_enabled !== false;
   $('segment-threshold-chars').value = state.config.segment_threshold_chars || 180;
   $('segment-max-segments').value = state.config.segment_max_segments || 6;
@@ -507,6 +517,11 @@ function bindConfigDirtyState() {
     'output-retention-days',
     'output-max-files',
     'emotion-routing-enabled',
+    'ai-style-director-enabled',
+    'ai-style-director-prompt',
+    'ai-style-director-mode',
+    'ai-style-director-max-chars',
+    'ai-style-director-fallback',
     'segment-enabled',
     'segment-threshold-chars',
     'segment-max-segments',

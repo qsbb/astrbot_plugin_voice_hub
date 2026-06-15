@@ -60,6 +60,36 @@
     },
     "default": {}
   },
+  "ai_style_director_enabled": {
+    "type": "bool",
+    "description": "启用 AI 风格导演",
+    "hint": "开启后，会先让当前 AstrBot LLM 根据待朗读文本生成一段 MiMo 自然语言风格控制指令。该指令只作为 MiMo user 消息，不会出现在最终回复文本中。",
+    "default": false
+  },
+  "ai_style_director_prompt": {
+    "type": "string",
+    "description": "AI 风格导演提示词模板",
+    "hint": "留空使用内置模板。可用变量：{max_chars}。请要求模型只输出语气、节奏、场景感等风格描述，不要复述正文。",
+    "default": ""
+  },
+  "ai_style_director_mode": {
+    "type": "string",
+    "description": "AI 风格导演模式",
+    "options": ["direct", "hybrid"],
+    "hint": "direct=仅使用 AI 生成的风格指令；hybrid=保留默认/情绪/音色/临时风格并追加 AI 指令。两者都不会污染最终回复文本。",
+    "default": "direct"
+  },
+  "ai_style_director_max_chars": {
+    "type": "int",
+    "description": "AI 风格指令最大长度",
+    "default": 120
+  },
+  "ai_style_director_fallback_to_emotion": {
+    "type": "bool",
+    "description": "AI 风格导演失败时回退",
+    "hint": "开启后，LLM 生成风格失败时仍使用默认风格、情绪风格和音色风格继续合成；关闭后会中断本次合成并提示错误。",
+    "default": true
+  },
   "segment_enabled": {
     "type": "bool",
     "description": "启用长文本分段合成",

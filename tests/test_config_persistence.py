@@ -34,9 +34,17 @@ class _StarTools:
 class _Context:
     def __init__(self):
         self.routes = []
+        self.llm_calls = []
+        self.fail_llm = False
 
     def register_web_api(self, *args):
         self.routes.append(args)
+
+    async def llm_generate(self, **kwargs):
+        self.llm_calls.append(kwargs)
+        if self.fail_llm:
+            raise RuntimeError("llm failed")
+        return types.SimpleNamespace(completion_text="用轻柔、贴近、带一点夜晚陪伴感的语气。")
 
 
 def _command_decorator(*_args, **_kwargs):
@@ -164,6 +172,25 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
 
+    def test_runtime_config_normalizes_ai_style_director_options(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        cfg = normalize_config(
+            {
+                "ai_style_director_enabled": "true",
+                "ai_style_director_prompt": "  让语音更像真人  ",
+                "ai_style_director_mode": "hybrid",
+                "ai_style_director_max_chars": 12,
+                "ai_style_director_fallback_to_emotion": "off",
+            }
+        )
+
+        self.assertTrue(cfg["ai_style_director_enabled"])
+        self.assertEqual(cfg["ai_style_director_prompt"], "让语音更像真人")
+        self.assertEqual(cfg["ai_style_director_mode"], "hybrid")
+        self.assertEqual(cfg["ai_style_director_max_chars"], 20)
+        self.assertFalse(cfg["ai_style_director_fallback_to_emotion"])
+
     def test_runtime_config_migrates_legacy_file_fallback(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
 
@@ -226,6 +253,76 @@ class ConfigPersistenceTests(unittest.TestCase):
 
         self.assertNotIn("context", params)
         self.assertIn("style", params)
+
+    def test_ai_style_director_adds_hidden_mimo_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            plugin = self.module.MimoTTSClonePlugin(
+                ctx,
+                {
+                    "ai_style_director_enabled": True,
+                    "ai_style_director_mode": "hybrid",
+                    "default_context": "自然清晰",
+                    "emotion_contexts": {"neutral": "平稳"},
+                },
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白",
+                Path(tmp) / "voice.wav",
+                "温柔音色",
+                "test",
+                True,
+                style_context="靠近一点",
+            )
+
+            result = asyncio.run(
+                plugin._build_tts_context(
+                    voice,
+                    "neutral",
+                    "",
+                    text="晚上好，欢迎回来。",
+                    style_director_enabled=True,
+                )
+            )
+
+            self.assertIn("自然清晰", result)
+            self.assertIn("平稳", result)
+            self.assertIn("靠近一点", result)
+            self.assertIn("夜晚陪伴感", result)
+            self.assertEqual(len(ctx.llm_calls), 1)
+            self.assertIn("待朗读文本：晚上好，欢迎回来。", ctx.llm_calls[0]["prompt"])
+
+    def test_ai_style_director_can_fail_hard_when_fallback_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            ctx.fail_llm = True
+            plugin = self.module.MimoTTSClonePlugin(
+                ctx,
+                {
+                    "ai_style_director_enabled": True,
+                    "ai_style_director_fallback_to_emotion": False,
+                },
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白",
+                Path(tmp) / "voice.wav",
+                "温柔音色",
+                "test",
+                True,
+            )
+
+            with self.assertRaises(RuntimeError):
+                asyncio.run(
+                    plugin._build_tts_context(
+                        voice,
+                        "neutral",
+                        "",
+                        text="晚上好",
+                        style_director_enabled=True,
+                    )
+                )
 
 
 if __name__ == "__main__":

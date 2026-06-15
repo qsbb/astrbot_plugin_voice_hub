@@ -22,6 +22,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "output_max_files": 100,
     "emotion_routing_enabled": True,
     "emotion_contexts": {},
+    "ai_style_director_enabled": False,
+    "ai_style_director_prompt": "",
+    "ai_style_director_mode": "direct",
+    "ai_style_director_max_chars": 120,
+    "ai_style_director_fallback_to_emotion": True,
     "segment_enabled": True,
     "segment_threshold_chars": 180,
     "segment_max_segments": 6,
@@ -47,6 +52,11 @@ class PluginConfig:
     output_max_files: int
     emotion_routing_enabled: bool
     emotion_contexts: dict[str, str]
+    ai_style_director_enabled: bool
+    ai_style_director_prompt: str
+    ai_style_director_mode: str
+    ai_style_director_max_chars: int
+    ai_style_director_fallback_to_emotion: bool
     segment_enabled: bool
     segment_threshold_chars: int
     segment_max_segments: int
@@ -100,6 +110,16 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         for key, value in dict(raw_contexts).items()
         if str(key).strip() and str(value or "").strip()
     }
+    cfg["ai_style_director_enabled"] = _bool_value(cfg.get("ai_style_director_enabled", False))
+    cfg["ai_style_director_prompt"] = str(cfg.get("ai_style_director_prompt") or "").strip()
+    style_mode = str(cfg.get("ai_style_director_mode") or "direct").strip().lower()
+    if style_mode not in {"direct", "hybrid"}:
+        style_mode = "direct"
+    cfg["ai_style_director_mode"] = style_mode
+    cfg["ai_style_director_max_chars"] = _int_at_least(cfg.get("ai_style_director_max_chars"), 120, 20)
+    cfg["ai_style_director_fallback_to_emotion"] = _bool_value(
+        cfg.get("ai_style_director_fallback_to_emotion", True)
+    )
     cfg["segment_enabled"] = _bool_value(cfg.get("segment_enabled", True))
     cfg["segment_threshold_chars"] = _int_at_least(cfg.get("segment_threshold_chars"), 180, 1)
     cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)

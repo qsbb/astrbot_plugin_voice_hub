@@ -150,6 +150,10 @@ function configPayload() {
     reply_mode: $('reply-mode').value,
     auto_tts_enabled: $('auto-tts-enabled').checked,
     auto_tts_probability: Number($('auto-tts-probability').value || 0),
+    auto_tts_group_whitelist: $('auto-tts-group-whitelist').value,
+    auto_tts_group_blacklist: $('auto-tts-group-blacklist').value,
+    auto_tts_private_whitelist: $('auto-tts-private-whitelist').value,
+    auto_tts_private_blacklist: $('auto-tts-private-blacklist').value,
     file_fallback_enabled: $('file-fallback-enabled').checked,
     output_retention_days: Number($('output-retention-days').value || 0),
     output_max_files: Number($('output-max-files').value || 0),
@@ -315,6 +319,10 @@ function applyState(payload) {
   $('reply-mode').value = state.config.reply_mode || 'audio_only';
   $('auto-tts-enabled').checked = state.config.auto_tts_enabled === true;
   $('auto-tts-probability').value = state.config.auto_tts_probability ?? 0;
+  $('auto-tts-group-whitelist').value = (state.config.auto_tts_group_whitelist || []).join('\n');
+  $('auto-tts-group-blacklist').value = (state.config.auto_tts_group_blacklist || []).join('\n');
+  $('auto-tts-private-whitelist').value = (state.config.auto_tts_private_whitelist || []).join('\n');
+  $('auto-tts-private-blacklist').value = (state.config.auto_tts_private_blacklist || []).join('\n');
   $('file-fallback-enabled').checked = state.config.file_fallback_enabled !== false;
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
@@ -627,6 +635,10 @@ function bindConfigDirtyState() {
     'reply-mode',
     'auto-tts-enabled',
     'auto-tts-probability',
+    'auto-tts-group-whitelist',
+    'auto-tts-group-blacklist',
+    'auto-tts-private-whitelist',
+    'auto-tts-private-blacklist',
     'file-fallback-enabled',
     'output-retention-days',
     'output-max-files',

@@ -239,6 +239,23 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
 
+    def test_runtime_config_normalizes_auto_tts_scope_lists(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        cfg = normalize_config(
+            {
+                "auto_tts_group_whitelist": "123, 456\n123",
+                "auto_tts_group_blacklist": ["789", " 789 ", ""],
+                "auto_tts_private_whitelist": "alice，bob",
+                "auto_tts_private_blacklist": None,
+            }
+        )
+
+        self.assertEqual(cfg["auto_tts_group_whitelist"], ["123", "456"])
+        self.assertEqual(cfg["auto_tts_group_blacklist"], ["789"])
+        self.assertEqual(cfg["auto_tts_private_whitelist"], ["alice", "bob"])
+        self.assertEqual(cfg["auto_tts_private_blacklist"], [])
+
     def test_runtime_config_normalizes_ai_style_director_options(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
 
@@ -317,6 +334,76 @@ class ConfigPersistenceTests(unittest.TestCase):
             )
 
             self.assertEqual(result, str(Path(tmp) / "voice.wav"))
+
+    def test_auto_tts_scope_whitelist_and_blacklist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "auto_tts_group_whitelist": ["group-a", "aiocqhttp:GroupMessage:group-b"],
+                    "auto_tts_group_blacklist": ["group-x"],
+                    "auto_tts_private_whitelist": ["user-a"],
+                    "auto_tts_private_blacklist": ["user-x"],
+                },
+            )
+
+            def make_event(origin: str, sender: str = "sender"):
+                return types.SimpleNamespace(
+                    unified_msg_origin=origin,
+                    get_extra=lambda key: types.SimpleNamespace(
+                        conversation=types.SimpleNamespace(cid=origin)
+                    )
+                    if key == "provider_request"
+                    else None,
+                    get_sender_id=lambda: sender,
+                )
+
+            self.assertTrue(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-b")))
+            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-x")))
+            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-z")))
+            self.assertTrue(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-a")))
+            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-x")))
+            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-z")))
+
+    def test_auto_tts_scope_allows_admins_even_when_blacklisted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "admin_users": ["admin-1"],
+                    "auto_tts_group_blacklist": ["group-x"],
+                    "auto_tts_private_blacklist": ["user-x"],
+                },
+            )
+
+            def make_event(origin: str, sender: str):
+                return types.SimpleNamespace(
+                    unified_msg_origin=origin,
+                    get_extra=lambda key: types.SimpleNamespace(
+                        conversation=types.SimpleNamespace(cid=origin)
+                    )
+                    if key == "provider_request"
+                    else None,
+                    get_sender_id=lambda: sender,
+                )
+
+            self.assertTrue(
+                plugin._scope_allowed(
+                    make_event("aiocqhttp:GroupMessage:group-x", "admin-1")
+                )
+            )
+            self.assertTrue(
+                plugin._scope_allowed(
+                    make_event("aiocqhttp:FriendMessage:user-x", "admin-1")
+                )
+            )
+            self.assertFalse(
+                plugin._scope_allowed(
+                    make_event("aiocqhttp:GroupMessage:group-x", "normal-user")
+                )
+            )
 
     def test_mimo_tts_speak_llm_tool_is_available_when_supported(self):
         self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))

@@ -154,6 +154,38 @@
     "description": "普通 LLM 回复自动语音化概率，范围 0-1，例如 0.3",
     "default": "0.0"
   },
+  "auto_tts_group_whitelist": {
+    "type": "list",
+    "description": "普通 LLM 自动语音化群聊白名单；留空表示不限制，支持群 ID 或完整会话 ID",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  },
+  "auto_tts_group_blacklist": {
+    "type": "list",
+    "description": "普通 LLM 自动语音化群聊黑名单；黑名单优先于白名单",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  },
+  "auto_tts_private_whitelist": {
+    "type": "list",
+    "description": "普通 LLM 自动语音化私聊白名单；留空表示不限制，支持用户 ID 或完整会话 ID",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  },
+  "auto_tts_private_blacklist": {
+    "type": "list",
+    "description": "普通 LLM 自动语音化私聊黑名单；黑名单优先于白名单",
+    "items": {
+      "type": "string"
+    },
+    "default": []
+  },
   "file_fallback_enabled": {
     "type": "bool",
     "description": "语音消息发送失败或当前版本缺少语音组件时，允许回退为文件发送",

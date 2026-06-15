@@ -361,6 +361,48 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return ""
 
     @staticmethod
+    def _chat_scope(event: AstrMessageEvent) -> tuple[str, str]:
+        conversation_id = MimoTTSClonePlugin._conversation_id(event)
+        origin = str(getattr(event, "unified_msg_origin", "") or "").strip()
+        if "FriendMessage" in origin or "FriendMessage" in conversation_id:
+            return "private", origin or conversation_id
+        if "GroupMessage" in origin or "GroupMessage" in conversation_id:
+            return "group", origin or conversation_id
+        return "unknown", origin or conversation_id
+
+    @staticmethod
+    def _matches_scope(target: str, candidate: str) -> bool:
+        target = str(target or "").strip()
+        candidate = str(candidate or "").strip()
+        if not target or not candidate:
+            return False
+        return target == candidate or target in candidate or candidate in target
+
+    def _scope_allowed(self, event: AstrMessageEvent) -> bool:
+        if self._is_admin(event):
+            return True
+        scope, scope_id = self._chat_scope(event)
+        if scope not in {"group", "private"}:
+            return True
+
+        whitelist = (
+            self.plugin_config.auto_tts_group_whitelist
+            if scope == "group"
+            else self.plugin_config.auto_tts_private_whitelist
+        )
+        blacklist = (
+            self.plugin_config.auto_tts_group_blacklist
+            if scope == "group"
+            else self.plugin_config.auto_tts_private_blacklist
+        )
+
+        if any(self._matches_scope(scope_id, item) for item in blacklist):
+            return False
+        if whitelist:
+            return any(self._matches_scope(scope_id, item) for item in whitelist)
+        return True
+
+    @staticmethod
     def _tail(message: str, command: str) -> str:
         text = str(message or "").strip()
         for prefix in ("", "/", "!", "！", ".", "。"):
@@ -627,6 +669,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not self.plugin_config.auto_tts_enabled:
             return
         if self.plugin_config.reply_mode == "text_only":
+            return
+        if not self._scope_allowed(event):
             return
         if random.random() > self.plugin_config.auto_tts_probability:
             return

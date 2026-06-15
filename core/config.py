@@ -17,6 +17,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "reply_mode": "audio_only",
     "auto_tts_enabled": False,
     "auto_tts_probability": 0.0,
+    "auto_tts_group_whitelist": [],
+    "auto_tts_group_blacklist": [],
+    "auto_tts_private_whitelist": [],
+    "auto_tts_private_blacklist": [],
     "file_fallback_enabled": True,
     "output_retention_days": 7,
     "output_max_files": 100,
@@ -50,6 +54,10 @@ class PluginConfig:
     reply_mode: str
     auto_tts_enabled: bool
     auto_tts_probability: float
+    auto_tts_group_whitelist: list[str]
+    auto_tts_group_blacklist: list[str]
+    auto_tts_private_whitelist: list[str]
+    auto_tts_private_blacklist: list[str]
     file_fallback_enabled: bool
     output_retention_days: int
     output_max_files: int
@@ -102,6 +110,10 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     except (TypeError, ValueError):
         probability = 0.0
     cfg["auto_tts_probability"] = min(1.0, max(0.0, probability))
+    cfg["auto_tts_group_whitelist"] = _string_list(cfg.get("auto_tts_group_whitelist"))
+    cfg["auto_tts_group_blacklist"] = _string_list(cfg.get("auto_tts_group_blacklist"))
+    cfg["auto_tts_private_whitelist"] = _string_list(cfg.get("auto_tts_private_whitelist"))
+    cfg["auto_tts_private_blacklist"] = _string_list(cfg.get("auto_tts_private_blacklist"))
     cfg["file_fallback_enabled"] = _bool_value(
         cfg.get("file_fallback_enabled") if raw_has_file_fallback else legacy_file_fallback
     )
@@ -137,7 +149,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["segment_threshold_chars"] = _int_at_least(cfg.get("segment_threshold_chars"), 180, 1)
     cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)
     admins = cfg.get("admin_users") or []
-    cfg["admin_users"] = [str(item).strip() for item in admins if str(item).strip()]
+    cfg["admin_users"] = _string_list(admins)
     return cfg
 
 
@@ -158,3 +170,19 @@ def _bool_value(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in {"0", "false", "no", "off", ""}
     return bool(value)
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = value.replace("，", ",").replace("\n", ",").split(",")
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result

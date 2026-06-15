@@ -115,6 +115,12 @@
           <label class="studio-switch"><input id="auto-tts-enabled" type="checkbox" /><span>启用普通 LLM 回复自动语音化</span></label>
           <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
         </div>
+        <div class="policy-grid">
+          <label>自动语音群白名单<textarea id="auto-tts-group-whitelist" rows="2" placeholder="可填群 ID，多个用逗号或换行分隔"></textarea></label>
+          <label>自动语音群黑名单<textarea id="auto-tts-group-blacklist" rows="2" placeholder="命中的群将禁用自动语音化"></textarea></label>
+          <label>自动语音私聊白名单<textarea id="auto-tts-private-whitelist" rows="2" placeholder="可填私聊 ID，多个用逗号或换行分隔"></textarea></label>
+          <label>自动语音私聊黑名单<textarea id="auto-tts-private-blacklist" rows="2" placeholder="命中的私聊将禁用自动语音化"></textarea></label>
+        </div>
         <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
       </article>
     </section>

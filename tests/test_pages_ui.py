@@ -70,6 +70,7 @@ class PagesUITests(unittest.TestCase):
     def test_settings_app_guides_user_actions(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
 
         self.assertIn("function markDirty", js)
         self.assertIn("function setBusy", js)
@@ -91,6 +92,8 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("test_connection", js)
         self.assertIn("reply_mode", js)
         self.assertIn("auto_tts_probability", js)
+        self.assertIn("auto_tts_group_whitelist", js)
+        self.assertIn("auto_tts_private_blacklist", js)
         self.assertIn("list_ai_providers", js)
         self.assertIn("function renderProviderSelect", js)
         self.assertIn("function bindProviderSelect", js)
@@ -105,6 +108,9 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("is-dirty", css)
         self.assertIn("field-hint", css)
         self.assertIn("readiness-item", css)
+        self.assertIn("policy-grid", html)
+        self.assertIn("auto-tts-group-whitelist", html)
+        self.assertIn("auto-tts-private-blacklist", html)
 
     def test_settings_css_keeps_large_cards_stable_on_hover(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")

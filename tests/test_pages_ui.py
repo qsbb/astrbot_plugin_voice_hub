@@ -7,17 +7,25 @@ MOJIBAKE_MARKERS = ("闂", "闁", "閻", "濮", "閸", "濞", "缂", "閺")
 
 
 class PagesUITests(unittest.TestCase):
-    def test_settings_page_uses_warm_studio_shell(self):
+    def test_settings_page_uses_firefly_inspired_studio_shell(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("MiMo Sound Studio", html)
+        self.assertIn("Firefly Inspired Voice Console", html)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)
+        self.assertIn("top-gradient-highlight", html)
         self.assertIn("发送策略", html)
         self.assertIn("一键诊断", html)
         self.assertIn("--studio-gold", css)
+        self.assertIn("--hue", css)
+        self.assertIn("--primary", css)
+        self.assertIn("card-rise", css)
+        self.assertIn("wave-breathe", css)
+        self.assertIn("backdrop-filter", css)
+        self.assertIn("prefers-reduced-motion", css)
         self.assertIn("radial-gradient", css)
         self.assertIn("--amber", css)
         self.assertIn("upload-fields", html)

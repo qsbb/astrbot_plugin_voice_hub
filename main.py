@@ -38,8 +38,8 @@ from .pages_api import PagesAPIMixin
 @register(
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
-    "MiMo 官方 TTS 音色克隆与多音色切换",
-    "0.2.0",
+    "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
+    "0.3.0",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     def __init__(self, context: Context, config: dict):

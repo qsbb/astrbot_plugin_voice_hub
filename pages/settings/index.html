@@ -120,7 +120,12 @@
       </div>
       <div class="switch-grid">
         <label class="studio-switch"><input id="ai-style-director-enabled" type="checkbox" /><span>启用 AI 生成拟人化风格指令</span></label>
-        <label>AI 服务商 ID<input id="ai-style-director-provider-id" type="text" placeholder="留空使用当前默认 LLM" /></label>
+        <label>AI 服务商
+          <select id="ai-style-director-provider-select">
+            <option value="">当前默认 LLM</option>
+          </select>
+        </label>
+        <label>服务商 ID<input id="ai-style-director-provider-id" type="text" placeholder="可手填 provider id；留空使用当前默认 LLM" /></label>
         <label>导演模式
           <select id="ai-style-director-mode">
             <option value="direct">只使用 AI 指令</option>

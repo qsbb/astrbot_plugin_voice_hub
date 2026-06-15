@@ -34,6 +34,7 @@ class PagesAPIMixin:
             ("get_config", self._pages_get_config, ["GET"], "获取 MiMo TTS 配置"),
             ("save_config", self._pages_save_config, ["POST"], "保存 MiMo TTS 配置"),
             ("list_voices", self._pages_list_voices, ["GET"], "列出音色"),
+            ("list_ai_providers", self._pages_list_ai_providers, ["GET"], "列出 AstrBot AI 服务商"),
             ("upload_voice_sample", self._pages_upload_voice_sample, ["POST"], "上传音色样本"),
             ("upload_voice_sample_json", self._pages_upload_voice_sample_json, ["POST"], "上传音色样本(JSON)"),
             ("update_voice", self._pages_update_voice, ["POST"], "更新音色"),
@@ -79,6 +80,78 @@ class PagesAPIMixin:
 
     async def _pages_list_voices(self):
         return jsonify(self._pages_payload())
+
+    async def _pages_list_ai_providers(self):
+        return jsonify(
+            {
+                "success": True,
+                "providers": self._list_ai_providers(),
+            }
+        )
+
+    def _list_ai_providers(self) -> list[dict[str, str]]:
+        getter = getattr(self.context, "get_all_providers", None)
+        if not callable(getter):
+            return []
+        try:
+            providers = getter() or []
+        except Exception as exc:
+            self.logger.warning("[mimo-tts] failed to list AstrBot AI providers: %s", exc)
+            return []
+        items = []
+        for provider in providers:
+            provider_id = self._provider_attr(
+                provider,
+                "provider_id",
+                "id",
+                "provider",
+                "name",
+            )
+            if not provider_id:
+                continue
+            name = self._provider_attr(
+                provider,
+                "display_name",
+                "name",
+                "provider_name",
+                "provider_type",
+            )
+            model = self._provider_attr(provider, "model", "model_name", "curr_model")
+            label = name or provider_id
+            if model and model not in label:
+                label = f"{label} / {model}"
+            items.append(
+                {
+                    "id": provider_id,
+                    "name": name or provider_id,
+                    "model": model,
+                    "label": label,
+                }
+            )
+        return items
+
+    @staticmethod
+    def _provider_attr(provider, *names: str) -> str:
+        for name in names:
+            value = ""
+            if isinstance(provider, dict):
+                value = provider.get(name) or ""
+            else:
+                value = getattr(provider, name, "") or ""
+                if callable(value):
+                    try:
+                        value = value()
+                    except Exception:
+                        value = ""
+            if value:
+                return str(value).strip()
+        meta = getattr(provider, "meta", None)
+        if isinstance(meta, dict):
+            for name in names:
+                value = meta.get(name) or ""
+                if value:
+                    return str(value).strip()
+        return ""
 
     async def _pages_upload_voice_sample(self):
         files = await request.files

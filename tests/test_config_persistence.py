@@ -36,6 +36,13 @@ class _Context:
         self.routes = []
         self.llm_calls = []
         self.fail_llm = False
+        self.providers = [
+            types.SimpleNamespace(
+                provider_id="provider-a",
+                name="Provider A",
+                model="model-a",
+            )
+        ]
 
     def register_web_api(self, *args):
         self.routes.append(args)
@@ -47,6 +54,9 @@ class _Context:
         return types.SimpleNamespace(
             completion_text='{"style_context":"用轻柔、贴近、带一点夜晚陪伴感的语气。","speech_text":"晚上好，欢迎回来。"}'
         )
+
+    def get_all_providers(self):
+        return list(self.providers)
 
 
 def _command_decorator(*_args, **_kwargs):
@@ -133,6 +143,16 @@ class ConfigPersistenceTests(unittest.TestCase):
             reloaded = self.module.MimoTTSClonePlugin(_Context(), {})
             self.assertEqual(reloaded.config["api_key"], "mimo-secret")
             self.assertEqual(reloaded.config["max_text_chars"], 321)
+
+    def test_pages_lists_astrbot_ai_providers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            providers = plugin._list_ai_providers()
+
+            self.assertEqual(providers[0]["id"], "provider-a")
+            self.assertIn("model-a", providers[0]["label"])
 
     def test_plugin_reads_get_only_native_config(self):
         with tempfile.TemporaryDirectory() as tmp:

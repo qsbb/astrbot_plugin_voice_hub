@@ -49,7 +49,7 @@ async function resolveBridge() {
   return await waitForAstrBotBridge() || fallbackBridge();
 }
 
-let state = { config: {}, voices: [], defaults: {}, emotions: ['happy', 'sad', 'angry', 'neutral'] };
+let state = { config: {}, voices: [], defaults: {}, emotions: ['happy', 'sad', 'angry', 'neutral'], providers: [] };
 let lastUploadedVoiceId = '';
 
 function toast(message, type = 'ok') {
@@ -170,6 +170,25 @@ function fillEmotionSelect(select, includeAuto = false) {
   });
 }
 
+function renderProviderSelect() {
+  const select = $('ai-style-director-provider-select');
+  const current = $('ai-style-director-provider-id').value.trim();
+  select.innerHTML = '<option value="">当前默认 LLM</option>';
+  state.providers.forEach(provider => {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = provider.label || provider.name || provider.id;
+    select.appendChild(option);
+  });
+  if (current && !state.providers.some(provider => provider.id === current)) {
+    const custom = document.createElement('option');
+    custom.value = current;
+    custom.textContent = `手填：${current}`;
+    select.appendChild(custom);
+  }
+  select.value = current;
+}
+
 function updateStatus() {
   $('model-status').textContent = state.config.model || 'voiceclone';
   $('emotion-status').textContent = state.config.emotion_routing_enabled === false ? 'OFF' : 'ON';
@@ -220,6 +239,7 @@ function applyState(payload) {
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
   $('ai-style-director-enabled').checked = state.config.ai_style_director_enabled === true;
   $('ai-style-director-provider-id').value = state.config.ai_style_director_provider_id || '';
+  renderProviderSelect();
   $('ai-style-director-prompt').value = state.config.ai_style_director_prompt || '';
   $('ai-style-director-mode').value = state.config.ai_style_director_mode || 'direct';
   $('ai-style-director-max-chars').value = state.config.ai_style_director_max_chars || 120;
@@ -321,8 +341,12 @@ function renderVoices() {
 }
 
 async function refresh() {
-  const payload = await bridge.apiGet('get_config');
+  const [payload, providersPayload] = await Promise.all([
+    bridge.apiGet('get_config'),
+    bridge.apiGet('list_ai_providers').catch(() => ({ success: false, providers: [] })),
+  ]);
   if (!payload.success) throw new Error(payload.error || '加载配置失败');
+  state.providers = providersPayload && providersPayload.success ? providersPayload.providers || [] : [];
   applyState(payload);
 }
 
@@ -522,6 +546,7 @@ function bindConfigDirtyState() {
     'output-max-files',
     'emotion-routing-enabled',
     'ai-style-director-enabled',
+    'ai-style-director-provider-select',
     'ai-style-director-provider-id',
     'ai-style-director-prompt',
     'ai-style-director-mode',
@@ -552,6 +577,14 @@ function bindActionAvailability() {
   });
 }
 
+function bindProviderSelect() {
+  $('ai-style-director-provider-select').addEventListener('change', event => {
+    $('ai-style-director-provider-id').value = event.target.value;
+    markDirty();
+  });
+  $('ai-style-director-provider-id').addEventListener('input', renderProviderSelect);
+}
+
 async function init() {
   bridge = await resolveBridge();
   await bridge.ready();
@@ -561,6 +594,7 @@ async function init() {
   bind('test-connection', testConnection, '诊断中...');
   bindConfigDirtyState();
   bindActionAvailability();
+  bindProviderSelect();
   updateActionAvailability();
 
   $('voice-list').addEventListener('click', async event => {

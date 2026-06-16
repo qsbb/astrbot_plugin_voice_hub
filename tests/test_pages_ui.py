@@ -110,9 +110,15 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("readiness-item", css)
         self.assertIn("policy-grid", html)
         self.assertIn("access-card", html)
+        self.assertIn("access-summary", html)
         self.assertIn("admin-users", html)
         self.assertIn("auto-tts-group-whitelist", html)
         self.assertIn("auto-tts-private-blacklist", html)
+        self.assertIn("function renderAccessControl", js)
+        self.assertIn("access_control", js)
+        self.assertIn("access-summary-list", js)
+        self.assertIn("access-summary-core", css)
+        self.assertIn("access-summary-list", css)
 
     def test_settings_css_keeps_large_cards_stable_on_hover(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")

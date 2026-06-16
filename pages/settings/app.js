@@ -56,6 +56,7 @@ let state = {
   emotions: ['happy', 'sad', 'angry', 'neutral'],
   providers: [],
   readiness: {},
+  accessControl: {},
 };
 let lastUploadedVoiceId = '';
 
@@ -264,6 +265,42 @@ function renderReadiness() {
   `).join('');
 }
 
+function renderAccessControl() {
+  const access = state.accessControl || {};
+  const items = [
+    {
+      title: '管理员',
+      detail: (access.admins && access.admins.detail) || '未配置管理员',
+      count: access.admins ? access.admins.count : 0,
+    },
+    {
+      title: '群聊',
+      detail: (access.group && access.group.detail) || '未设置群聊名单，默认放行',
+      count: ((access.group && access.group.whitelist_count) || 0) + ((access.group && access.group.blacklist_count) || 0),
+    },
+    {
+      title: '私聊',
+      detail: (access.private && access.private.detail) || '未设置私聊名单，默认放行',
+      count: ((access.private && access.private.whitelist_count) || 0) + ((access.private && access.private.blacklist_count) || 0),
+    },
+  ];
+
+  $('access-summary').innerHTML = `
+    <div class="access-summary-core">
+      <strong>当前规则预览</strong>
+      <span>${escapeHtml(access.summary || '管理员优先放行；黑名单优先于白名单；白名单留空表示不限制。')}</span>
+    </div>
+    <div class="access-summary-list">
+      ${items.map(item => `
+        <article class="${item.count ? 'is-active' : ''}">
+          <b>${escapeHtml(item.title)}</b>
+          <span>${escapeHtml(item.detail)}</span>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
 function previewDisabledReason() {
   if (!state.voices.some(voice => voice.enabled !== false)) return '需要先上传并启用音色。';
   if (!$('preview-voice').value) return '请选择一个试听音色。';
@@ -309,6 +346,7 @@ function applyState(payload) {
   state.defaults = payload.defaults || {};
   state.emotions = payload.emotions || state.emotions;
   state.readiness = payload.readiness || {};
+  state.accessControl = payload.access_control || {};
 
   $('api-key').value = state.config.api_key || '';
   $('base-url').value = state.config.base_url || 'https://api.xiaomimimo.com/v1';
@@ -348,6 +386,7 @@ function applyState(payload) {
   renderEmotionDefaults();
   renderVoices();
   renderReadiness();
+  renderAccessControl();
   markClean();
   updateActionAvailability();
 }

@@ -57,6 +57,7 @@ class PagesAPIMixin:
             "voices": [voice.to_dict() for voice in voices],
             "defaults": self.voice_store.defaults(),
             "emotions": list(SUPPORTED_EMOTIONS),
+            "access_control": self._auto_tts_access_preview(),
             "readiness": {
                 "api_key": bool(self.plugin_config.api_key),
                 "voices": bool(enabled_voices),

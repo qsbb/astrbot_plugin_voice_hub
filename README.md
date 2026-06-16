@@ -38,7 +38,7 @@
 | 情绪控制 | 支持 `happy`、`sad`、`angry`、`neutral`，可自动轻量识别 |
 | 发送前 AI 导演 | 可指定 AstrBot AI 服务商，为每段文本生成隐藏风格指令，并可优化只用于音频的朗读文本 |
 | 发送策略 | 支持只发音频、文字+音频、只发文字 |
-| 自动语音化 | 普通 LLM 回复可按概率转语音，默认关闭 |
+| 自动语音化 | 普通 LLM 回复可按概率转语音，支持群聊/私聊黑白名单和管理员绕过，默认关闭 |
 | 试听诊断 | Pages 内一键诊断 Key、模型、音色和网络链路 |
 | 输出清理 | 按保留天数和最大文件数自动清理生成音频 |
 | 插件复用 | 暴露 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 方法 |
@@ -140,6 +140,39 @@ pip install -r requirements.txt
 
 建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。
 
+## 自动语音访问控制
+
+访问控制只作用于“普通 LLM 回复自动语音化”，不会拦截 `/tts`、`/朗读`、`/语音` 等显式命令，也不会影响其他插件主动调用 `text_to_speech()`。
+
+规则顺序如下：
+
+- 管理员 ID 永远放行，不受群聊/私聊黑白名单影响。
+- 普通用户先匹配黑名单，命中即跳过自动语音化。
+- 未命中黑名单后，如果对应范围的白名单非空，则必须命中白名单才会自动语音化。
+- 如果对应范围的白名单为空，则该范围默认放行。
+- 群聊白名单/黑名单与私聊白名单/黑名单互相独立；只填群聊白名单不会启用私聊白名单限制。
+- 名单支持纯 ID 或完整 UMO，例如 `123456789`、`aiocqhttp:GroupMessage:123456789`、`aiocqhttp:FriendMessage:3325363511`。
+
+示例配置：
+
+```text
+admin_users:
+3325363511
+
+auto_tts_group_whitelist:
+123456789
+
+auto_tts_group_blacklist:
+aiocqhttp:GroupMessage:987654321
+
+auto_tts_private_whitelist:
+
+auto_tts_private_blacklist:
+10001
+```
+
+Pages 会在“自动语音访问控制”模块显示当前规则预览；AstrBot 日志中也会显示自动语音化被放行、跳过或拦截的原因，便于确认规则是否生效。
+
 ## 给其他插件复用
 
 插件内部提供了面向复用的服务方法：
@@ -174,7 +207,7 @@ audio_path = await plugin.text_to_speech(
 | --- | --- |
 | 插件名 | `astrbot_plugin_mimo_tts_clone` |
 | 展示名 | MiMo TTS 音色克隆 |
-| 当前版本 | `v0.3.0` |
+| 当前版本 | `v0.4.0` |
 | 作者 | Justice-ocr |
 | 作者简介 | AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、Pages 管理体验与实用型机器人扩展 |
 | AstrBot 版本 | `>=4.16.0,<5` |
@@ -190,6 +223,17 @@ python -B -m unittest discover -s tests -v
 python -B -m py_compile main.py pages_api.py core/audio_codec.py core/config.py core/emotion.py core/mimo_official_client.py core/pages_upload.py core/style_director.py core/synthesis_context.py core/text_processing.py core/voice_store.py
 node --check pages/settings/app.js
 ```
+
+真实 AstrBot 环境建议测试清单：
+
+- 群聊白名单命中：普通 LLM 回复可以按概率转语音。
+- 群聊黑名单命中：普通 LLM 回复保持文字，不触发自动语音。
+- 私聊白名单为空：私聊默认不受白名单限制。
+- 私聊白名单非空但未命中：私聊普通 LLM 回复不会自动语音化。
+- 管理员在黑名单命中场景下仍可自动语音化。
+- `/tts 晚上好` 等命令式朗读不受自动语音访问控制影响，且不会把 `/tts` 读进音频。
+- 开启 AI 导演调试日志后，日志能看到 `style_context` / `speech_text` 摘要。
+- 自动语音访问控制日志能看到 allow / skip / denied 的具体原因。
 
 ## 免责声明
 

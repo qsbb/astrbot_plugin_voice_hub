@@ -514,6 +514,60 @@ h2 {
   font-weight: 950;
 }
 
+.access-summary {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 16px;
+}
+
+.access-summary-core {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(97, 74, 34, .12);
+  border-radius: var(--radius-md);
+  padding: 13px 15px;
+  background: linear-gradient(135deg, rgba(255,255,255,.72), rgba(255,245,219,.66));
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.access-summary-core strong {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.access-summary-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.access-summary-list article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(97, 74, 34, .1);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: rgba(255,255,255,.58);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.access-summary-list article.is-active {
+  border-color: rgba(232,189,98,.34);
+  background: rgba(255, 248, 227, .82);
+}
+
+.access-summary-list b {
+  color: var(--ink);
+  font-size: 13px;
+}
+
 label {
   display: grid;
   gap: 8px;

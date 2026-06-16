@@ -39,7 +39,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.3.0",
+    "0.4.0",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     def __init__(self, context: Context, config: dict):
@@ -378,12 +378,63 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return False
         return target == candidate or target in candidate or candidate in target
 
-    def _scope_allowed(self, event: AstrMessageEvent) -> bool:
+    def _auto_tts_access_preview(self) -> dict[str, Any]:
+        group_whitelist = list(self.plugin_config.auto_tts_group_whitelist)
+        group_blacklist = list(self.plugin_config.auto_tts_group_blacklist)
+        private_whitelist = list(self.plugin_config.auto_tts_private_whitelist)
+        private_blacklist = list(self.plugin_config.auto_tts_private_blacklist)
+        admins = list(self.plugin_config.admin_users)
+
+        def describe_scope(whitelist: list[str], blacklist: list[str], scope_name: str) -> str:
+            if whitelist and blacklist:
+                return (
+                    f"白名单 {len(whitelist)} 条，黑名单 {len(blacklist)} 条，"
+                    "黑名单优先拦截，未命中黑名单后需命中白名单才放行"
+                )
+            if whitelist:
+                return f"白名单 {len(whitelist)} 条，未设置黑名单，仅命中后放行"
+            if blacklist:
+                return f"未设置白名单，黑名单 {len(blacklist)} 条，默认放行，命中即拦截"
+            return f"未设置{scope_name}名单，默认放行"
+
+        return {
+            "admins": {
+                "count": len(admins),
+                "detail": f"{len(admins)} 个管理员，始终放行" if admins else "未配置管理员",
+            },
+            "group": {
+                "whitelist_count": len(group_whitelist),
+                "blacklist_count": len(group_blacklist),
+                "detail": describe_scope(group_whitelist, group_blacklist, "群聊"),
+            },
+            "private": {
+                "whitelist_count": len(private_whitelist),
+                "blacklist_count": len(private_blacklist),
+                "detail": describe_scope(private_whitelist, private_blacklist, "私聊"),
+            },
+            "summary": "管理员始终放行；黑名单优先于白名单；白名单留空表示不限制。",
+        }
+
+    def _auto_tts_access_decision(self, event: AstrMessageEvent) -> dict[str, Any]:
+        user_id = str(event.get_sender_id() or "").strip()
         if self._is_admin(event):
-            return True
+            return {
+                "allowed": True,
+                "reason": f"admin bypass: {clip_log_text(user_id)}",
+                "scope": "admin",
+                "scope_id": user_id,
+                "matched_rule": "admin",
+            }
+
         scope, scope_id = self._chat_scope(event)
         if scope not in {"group", "private"}:
-            return True
+            return {
+                "allowed": True,
+                "reason": f"scope bypass: {clip_log_text(scope or 'unknown')}",
+                "scope": scope,
+                "scope_id": scope_id,
+                "matched_rule": "scope",
+            }
 
         whitelist = (
             self.plugin_config.auto_tts_group_whitelist
@@ -396,11 +447,44 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             else self.plugin_config.auto_tts_private_blacklist
         )
 
-        if any(self._matches_scope(scope_id, item) for item in blacklist):
-            return False
+        for item in blacklist:
+            if self._matches_scope(scope_id, item):
+                return {
+                    "allowed": False,
+                    "reason": f"{scope} blacklist matched: {clip_log_text(item)}",
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "matched_rule": item,
+                }
+
         if whitelist:
-            return any(self._matches_scope(scope_id, item) for item in whitelist)
-        return True
+            for item in whitelist:
+                if self._matches_scope(scope_id, item):
+                    return {
+                        "allowed": True,
+                        "reason": f"{scope} whitelist matched: {clip_log_text(item)}",
+                        "scope": scope,
+                        "scope_id": scope_id,
+                        "matched_rule": item,
+                    }
+            return {
+                "allowed": False,
+                "reason": f"{scope} whitelist missed: {clip_log_text(scope_id)}",
+                "scope": scope,
+                "scope_id": scope_id,
+                "matched_rule": "",
+            }
+
+        return {
+            "allowed": True,
+            "reason": f"{scope} unrestricted: {clip_log_text(scope_id)}",
+            "scope": scope,
+            "scope_id": scope_id,
+            "matched_rule": "",
+        }
+
+    def _scope_allowed(self, event: AstrMessageEvent) -> bool:
+        return bool(self._auto_tts_access_decision(event)["allowed"])
 
     @staticmethod
     def _tail(message: str, command: str) -> str:
@@ -667,21 +751,37 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     @filter.on_decorating_result()
     async def auto_tts_reply(self, event: AstrMessageEvent):
         if not self.plugin_config.auto_tts_enabled:
+            self.logger.info("[mimo-tts] auto tts skipped: feature disabled")
             return
         if self.plugin_config.reply_mode == "text_only":
+            self.logger.info("[mimo-tts] auto tts skipped: reply mode text_only")
             return
-        if not self._scope_allowed(event):
+        access_decision = self._auto_tts_access_decision(event)
+        if not access_decision["allowed"]:
+            self.logger.info("[mimo-tts] auto tts skipped: %s", access_decision["reason"])
             return
-        if random.random() > self.plugin_config.auto_tts_probability:
+        self.logger.info("[mimo-tts] auto tts allowed: %s", access_decision["reason"])
+        roll = random.random()
+        if roll > self.plugin_config.auto_tts_probability:
+            self.logger.info(
+                "[mimo-tts] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
+                roll,
+                self.plugin_config.auto_tts_probability,
+                access_decision["scope"],
+                clip_log_text(access_decision["matched_rule"] or "none"),
+            )
             return
         result = event.get_result()
         if result is None or not getattr(result, "chain", None):
+            self.logger.info("[mimo-tts] auto tts skipped: no result chain")
             return
         is_llm_result = getattr(result, "is_llm_result", None)
         if callable(is_llm_result) and not is_llm_result():
+            self.logger.info("[mimo-tts] auto tts skipped: non-LLM result")
             return
         text = clean_tts_text(result.get_plain_text())
         if not text:
+            self.logger.info("[mimo-tts] auto tts skipped: empty plain text")
             return
         try:
             outputs = await self.synthesize_text(
@@ -692,6 +792,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         except Exception as exc:
             self.logger.warning("[mimo-tts] auto tts failed: %s", exc)
             return
+
+        self.logger.info(
+            "[mimo-tts] auto tts generated: scope=%s matched=%s text=%s outputs=%s",
+            access_decision["scope"],
+            clip_log_text(access_decision["matched_rule"] or "none"),
+            clip_log_text(text),
+            len(outputs),
+        )
 
         audio_components = [
             component
@@ -776,6 +884,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             f"segment: {self.plugin_config.segment_enabled}, threshold={self.plugin_config.segment_threshold_chars}",
             f"reply_mode: {self.plugin_config.reply_mode}",
             f"auto_tts: {self.plugin_config.auto_tts_enabled}, probability={self.plugin_config.auto_tts_probability}",
+            f"auto_tts_access: {self._auto_tts_access_preview()['summary']}",
             f"file_fallback: {self.plugin_config.file_fallback_enabled}",
             f"output_cleanup: days={self.plugin_config.output_retention_days}, max_files={self.plugin_config.output_max_files}",
             f"emotion_defaults: {defaults.get('emotion_defaults') or {}}",

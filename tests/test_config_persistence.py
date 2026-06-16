@@ -413,6 +413,72 @@ class ConfigPersistenceTests(unittest.TestCase):
                 )
             )
 
+    def test_auto_tts_access_decision_explains_rules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "admin_users": ["admin-1"],
+                    "auto_tts_group_whitelist": ["group-ok"],
+                    "auto_tts_group_blacklist": ["group-block"],
+                },
+            )
+
+            def make_event(origin: str, sender: str = "normal-user"):
+                return types.SimpleNamespace(
+                    unified_msg_origin=origin,
+                    get_extra=lambda key: types.SimpleNamespace(
+                        conversation=types.SimpleNamespace(cid=origin)
+                    )
+                    if key == "provider_request"
+                    else None,
+                    get_sender_id=lambda: sender,
+                )
+
+            admin = plugin._auto_tts_access_decision(
+                make_event("aiocqhttp:GroupMessage:group-block", "admin-1")
+            )
+            blacklisted = plugin._auto_tts_access_decision(
+                make_event("aiocqhttp:GroupMessage:group-block")
+            )
+            whitelist_miss = plugin._auto_tts_access_decision(
+                make_event("aiocqhttp:GroupMessage:group-miss")
+            )
+            unrestricted_private = plugin._auto_tts_access_decision(
+                make_event("aiocqhttp:FriendMessage:user-free")
+            )
+
+            self.assertTrue(admin["allowed"])
+            self.assertIn("admin bypass", admin["reason"])
+            self.assertFalse(blacklisted["allowed"])
+            self.assertIn("blacklist matched", blacklisted["reason"])
+            self.assertFalse(whitelist_miss["allowed"])
+            self.assertIn("whitelist missed", whitelist_miss["reason"])
+            self.assertTrue(unrestricted_private["allowed"])
+            self.assertIn("unrestricted", unrestricted_private["reason"])
+
+    def test_pages_payload_includes_access_control_preview(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "admin_users": ["admin-1"],
+                    "auto_tts_group_whitelist": ["group-ok"],
+                    "auto_tts_group_blacklist": ["group-block"],
+                },
+            )
+
+            payload = plugin._pages_payload()
+
+            self.assertIn("access_control", payload)
+            preview = payload["access_control"]
+            self.assertEqual(preview["admins"]["count"], 1)
+            self.assertEqual(preview["group"]["whitelist_count"], 1)
+            self.assertEqual(preview["group"]["blacklist_count"], 1)
+            self.assertIn("黑名单", preview["summary"])
+
     def test_mimo_tts_speak_llm_tool_is_available_when_supported(self):
         self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))
 

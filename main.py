@@ -611,9 +611,21 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             directive = plan.style_context
             speech_text = plan.speech_text or text
         except Exception as exc:
-            self.logger.warning("[mimo-tts] style director failed: %s", exc)
+            error_type, error_message = self._style_director_error_summary(exc)
+            fallback_enabled = self.plugin_config.ai_style_director_fallback_to_emotion
+            self.logger.warning(
+                "[mimo-tts] style director failed: provider=%s voice=%s(%s) emotion=%s text=%s error_type=%s error=%s fallback=%s",
+                self.plugin_config.ai_style_director_provider_id or "default",
+                clip_log_text(voice.name),
+                clip_log_text(voice.id),
+                clip_log_text(emotion or "neutral"),
+                clip_log_text(text),
+                error_type,
+                clip_log_text(error_message),
+                str(bool(fallback_enabled)).lower(),
+            )
             if not self.plugin_config.ai_style_director_fallback_to_emotion:
-                raise RuntimeError(f"AI 风格导演失败：{exc}") from exc
+                raise RuntimeError(f"AI 风格导演失败：{error_type}: {error_message}") from exc
 
         if directive:
             result = TTSContextResult(
@@ -656,6 +668,16 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             clip_log_text(style_context),
             clip_log_text(speech_text),
         )
+
+    @staticmethod
+    def _style_director_error_summary(exc: Exception) -> tuple[str, str]:
+        error_type = type(exc).__name__
+        message = str(exc).strip()
+        if not message:
+            message = "empty exception message"
+        if isinstance(exc, TimeoutError):
+            message = "timeout while waiting for AstrBot AI provider"
+        return error_type, message
 
     def _merge_directed_context(self, base_context: str, directive: str) -> str:
         return merge_directed_context(

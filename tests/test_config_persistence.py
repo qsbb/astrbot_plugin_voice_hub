@@ -50,6 +50,8 @@ class _Provider:
     async def text_chat(self, **kwargs):
         self.calls.append(kwargs)
         if self.owner is not None and self.owner.fail_llm:
+            if getattr(self.owner, "fail_llm_empty", False):
+                raise TimeoutError()
             raise RuntimeError("llm failed")
         return types.SimpleNamespace(
             completion_text='{"style_context":"用默认服务商生成的温柔语气。","speech_text":"晚上好，欢迎回来。"}'
@@ -61,6 +63,7 @@ class _Context:
         self.routes = []
         self.llm_calls = []
         self.fail_llm = False
+        self.fail_llm_empty = False
         self.providers = [_Provider(owner=self)]
         self.provider_manager = types.SimpleNamespace(
             curr_provider_inst=self.providers[0],
@@ -542,6 +545,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             _StarTools.data_dir = tmp
             ctx = _Context()
             ctx.fail_llm = True
+            ctx.fail_llm_empty = True
             plugin = self.module.MimoTTSClonePlugin(
                 ctx,
                 {
@@ -557,7 +561,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 True,
             )
 
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RuntimeError) as caught:
                 asyncio.run(
                     plugin._build_tts_context(
                         voice,
@@ -567,6 +571,52 @@ class ConfigPersistenceTests(unittest.TestCase):
                         style_director_enabled=True,
                     )
                 )
+            self.assertIn("TimeoutError", str(caught.exception))
+
+    def test_ai_style_director_failure_log_includes_context_when_fallback_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            ctx.fail_llm = True
+            ctx.fail_llm_empty = True
+            plugin = self.module.MimoTTSClonePlugin(
+                ctx,
+                {
+                    "ai_style_director_enabled": True,
+                    "ai_style_director_provider_id": "openai/deepseek-v4-flash",
+                    "ai_style_director_fallback_to_emotion": True,
+                    "default_context": "base",
+                },
+            )
+            voice = plugin.voice_store.add_voice(
+                "温柔女生",
+                Path(tmp) / "voice.wav",
+                "soft",
+                "test",
+                True,
+            )
+
+            result = asyncio.run(
+                plugin._build_tts_context(
+                    voice,
+                    "neutral",
+                    "",
+                    text="晚上好",
+                    style_director_enabled=True,
+                )
+            )
+
+            self.assertIn("base", result.context)
+            self.assertEqual(result.speech_text, "晚上好")
+            self.assertEqual(len(plugin.logger.warnings), 1)
+            warning_args = plugin.logger.warnings[0]
+            warning_text = warning_args[0] % warning_args[1:]
+            self.assertIn("style director failed", warning_text)
+            self.assertIn("provider=openai/deepseek-v4-flash", warning_text)
+            self.assertIn("voice=温柔女生", warning_text)
+            self.assertIn("emotion=neutral", warning_text)
+            self.assertIn("error_type=TimeoutError", warning_text)
+            self.assertIn("fallback=true", warning_text)
 
 
 if __name__ == "__main__":

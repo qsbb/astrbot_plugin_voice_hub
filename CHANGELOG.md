@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.1 - 2026-07-20
+
+### Fixed
+
+- 修复 AstrBot 热重载后事件钩子 `filter_tts_tool_for_probability_mode` 和 `auto_tts_reply` 因 `functools.partial` 套娃导致 `TypeError: takes N positional arguments but N+1 were given` 的问题。
+- 修复热重载后 LLM 工具 `mimo_tts_speak` 的插件实例引用失效为 `None`，导致 `'NoneType' object has no attribute 'synthesize_text'` 的问题。
+- `terminate()` 现在会主动从 `star_handlers_registry` 移除本插件旧 handler metadata，并清理 `func_tool_manager` 中残留的 LLM 工具，使框架 reload 时重新创建干净的绑定。
+
+### Notes
+
+- 首次升级到本版本后，建议**完全重启 AstrBot 进程一次**以确保 registry 干净；之后的热重载也应能正常工作。
+
 ## v0.4.0 - 2026-06-16
 
 ### Added

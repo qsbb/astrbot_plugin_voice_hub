@@ -1,5 +1,6 @@
 import importlib
 import asyncio
+import functools
 import inspect
 import json
 import os
@@ -18,12 +19,16 @@ class _Logger:
     def __init__(self):
         self.infos = []
         self.warnings = []
+        self.debugs = []
 
     def info(self, *args, **kwargs):
         self.infos.append(args)
 
     def warning(self, *args, **kwargs):
         self.warnings.append(args)
+
+    def debug(self, *args, **kwargs):
+        self.debugs.append(args)
 
 
 class _Star:
@@ -46,7 +51,9 @@ class _Provider:
         self.calls = []
 
     def meta(self):
-        return types.SimpleNamespace(id=self.provider_config["id"], model=self.provider_config["model"])
+        return types.SimpleNamespace(
+            id=self.provider_config["id"], model=self.provider_config["model"]
+        )
 
     async def text_chat(self, **kwargs):
         self.calls.append(kwargs)
@@ -136,6 +143,16 @@ def _install_astrbot_stubs():
     sys.modules["astrbot.api.message_components"] = message_components
     sys.modules["astrbot.api.star"] = star
 
+    # stub star_handlers_registry 用于热重载清理测试
+    registry_mod = types.ModuleType("astrbot.core.star.star_handlers_registry")
+    registry_mod.star_handlers_registry = types.SimpleNamespace(handlers=[])
+    sys.modules.setdefault("astrbot.core", types.ModuleType("astrbot.core"))
+    star_core_mod = sys.modules.setdefault(
+        "astrbot.core.star", types.ModuleType("astrbot.core.star")
+    )
+    star_core_mod.star_handlers_registry = registry_mod.star_handlers_registry
+    sys.modules["astrbot.core.star.star_handlers_registry"] = registry_mod
+
     quart = types.ModuleType("quart")
     quart.jsonify = lambda payload: payload
     quart.request = types.SimpleNamespace()
@@ -160,13 +177,19 @@ class ConfigPersistenceTests(unittest.TestCase):
         _install_astrbot_stubs()
         self.module = importlib.import_module("astrbot_plugin_mimo_tts_clone.main")
         self.module.logger = _Logger()
+        # 重置 registry stub
+        from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+        star_handlers_registry.handlers = []
 
     def test_pages_config_persists_locally_when_native_save_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), _FailingNativeConfig())
 
-            persisted = plugin._update_runtime_config({"api_key": "mimo-secret", "max_text_chars": 321})
+            persisted = plugin._update_runtime_config(
+                {"api_key": "mimo-secret", "max_text_chars": 321}
+            )
 
             self.assertTrue(persisted["local"])
             self.assertFalse(persisted["native"])
@@ -209,7 +232,9 @@ class ConfigPersistenceTests(unittest.TestCase):
     def test_plugin_reads_get_only_native_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
-            config = _GetOnlyConfig({"api_key": "from-native-get", "max_text_chars": 222})
+            config = _GetOnlyConfig(
+                {"api_key": "from-native-get", "max_text_chars": 222}
+            )
 
             plugin = self.module.MimoTTSClonePlugin(_Context(), config)
 
@@ -395,7 +420,10 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin = self.module.MimoTTSClonePlugin(
                 _Context(),
                 {
-                    "auto_tts_group_whitelist": ["group-a", "aiocqhttp:GroupMessage:group-b"],
+                    "auto_tts_group_whitelist": [
+                        "group-a",
+                        "aiocqhttp:GroupMessage:group-b",
+                    ],
                     "auto_tts_group_blacklist": ["group-x"],
                     "auto_tts_private_whitelist": ["user-a"],
                     "auto_tts_private_blacklist": ["user-x"],
@@ -405,20 +433,34 @@ class ConfigPersistenceTests(unittest.TestCase):
             def make_event(origin: str, sender: str = "sender"):
                 return types.SimpleNamespace(
                     unified_msg_origin=origin,
-                    get_extra=lambda key: types.SimpleNamespace(
-                        conversation=types.SimpleNamespace(cid=origin)
-                    )
-                    if key == "provider_request"
-                    else None,
+                    get_extra=lambda key: (
+                        types.SimpleNamespace(
+                            conversation=types.SimpleNamespace(cid=origin)
+                        )
+                        if key == "provider_request"
+                        else None
+                    ),
                     get_sender_id=lambda: sender,
                 )
 
-            self.assertTrue(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-b")))
-            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-x")))
-            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-z")))
-            self.assertTrue(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-a")))
-            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-x")))
-            self.assertFalse(plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-z")))
+            self.assertTrue(
+                plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-b"))
+            )
+            self.assertFalse(
+                plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-x"))
+            )
+            self.assertFalse(
+                plugin._scope_allowed(make_event("aiocqhttp:GroupMessage:group-z"))
+            )
+            self.assertTrue(
+                plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-a"))
+            )
+            self.assertFalse(
+                plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-x"))
+            )
+            self.assertFalse(
+                plugin._scope_allowed(make_event("aiocqhttp:FriendMessage:user-z"))
+            )
 
     def test_auto_tts_scope_allows_admins_even_when_blacklisted(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,11 +477,13 @@ class ConfigPersistenceTests(unittest.TestCase):
             def make_event(origin: str, sender: str):
                 return types.SimpleNamespace(
                     unified_msg_origin=origin,
-                    get_extra=lambda key: types.SimpleNamespace(
-                        conversation=types.SimpleNamespace(cid=origin)
-                    )
-                    if key == "provider_request"
-                    else None,
+                    get_extra=lambda key: (
+                        types.SimpleNamespace(
+                            conversation=types.SimpleNamespace(cid=origin)
+                        )
+                        if key == "provider_request"
+                        else None
+                    ),
                     get_sender_id=lambda: sender,
                 )
 
@@ -474,11 +518,13 @@ class ConfigPersistenceTests(unittest.TestCase):
             def make_event(origin: str, sender: str = "normal-user"):
                 return types.SimpleNamespace(
                     unified_msg_origin=origin,
-                    get_extra=lambda key: types.SimpleNamespace(
-                        conversation=types.SimpleNamespace(cid=origin)
-                    )
-                    if key == "provider_request"
-                    else None,
+                    get_extra=lambda key: (
+                        types.SimpleNamespace(
+                            conversation=types.SimpleNamespace(cid=origin)
+                        )
+                        if key == "provider_request"
+                        else None
+                    ),
                     get_sender_id=lambda: sender,
                 )
 
@@ -528,7 +574,9 @@ class ConfigPersistenceTests(unittest.TestCase):
     def test_probability_mode_filters_only_mimo_tts_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
-            plugin = self.module.MimoTTSClonePlugin(_Context(), {"tts_trigger_mode": "probability"})
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "probability"}
+            )
             request = types.SimpleNamespace(
                 tools=[
                     {"type": "function", "function": {"name": "mimo_tts_speak"}},
@@ -538,12 +586,16 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
 
-            self.assertEqual([tool["function"]["name"] for tool in request.tools], ["web_search"])
+            self.assertEqual(
+                [tool["function"]["name"] for tool in request.tools], ["web_search"]
+            )
 
     def test_llm_decides_mode_preserves_mimo_tts_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
-            plugin = self.module.MimoTTSClonePlugin(_Context(), {"tts_trigger_mode": "llm_decides"})
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "llm_decides"}
+            )
             tools = [{"type": "function", "function": {"name": "mimo_tts_speak"}}]
             request = types.SimpleNamespace(tools=list(tools))
 
@@ -555,7 +607,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))
 
     def test_mimo_tts_speak_avoids_reserved_context_argument(self):
-        params = inspect.signature(self.module.MimoTTSClonePlugin.mimo_tts_speak).parameters
+        params = inspect.signature(
+            self.module.MimoTTSClonePlugin.mimo_tts_speak
+        ).parameters
 
         self.assertNotIn("context", params)
         self.assertIn("style", params)
@@ -564,7 +618,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         docstring = inspect.getdoc(self.module.MimoTTSClonePlugin.mimo_tts_speak)
 
         self.assertIn("Do not call it for an ordinary text reply", docstring)
-        self.assertIn("For long text, decide whether voice delivery is suitable", docstring)
+        self.assertIn(
+            "For long text, decide whether voice delivery is suitable", docstring
+        )
         self.assertIn("Generate `style` directly", docstring)
 
     def test_mimo_tts_speak_marks_event_and_disables_secondary_style_director(self):
@@ -593,7 +649,10 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._send_audio_result = fake_send_audio_result
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "???", style="??")]
+                return [
+                    item
+                    async for item in plugin.mimo_tts_speak(event, "???", style="??")
+                ]
 
             result = asyncio.run(invoke())
 
@@ -702,7 +761,9 @@ class ConfigPersistenceTests(unittest.TestCase):
                     "auto_tts_probability": 1.0,
                 },
             )
-            plugin._run_auto_tts = AsyncMock(side_effect=AssertionError("must not synthesize"))
+            plugin._run_auto_tts = AsyncMock(
+                side_effect=AssertionError("must not synthesize")
+            )
 
             asyncio.run(plugin.auto_tts_reply(object()))
 
@@ -716,7 +777,9 @@ class ConfigPersistenceTests(unittest.TestCase):
                 {"auto_tts_enabled": True, "auto_tts_probability": 1},
             )
             event = types.SimpleNamespace(
-                get_extra=lambda key: True if key == plugin.TTS_HANDLED_EVENT_KEY else None,
+                get_extra=lambda key: (
+                    True if key == plugin.TTS_HANDLED_EVENT_KEY else None
+                ),
             )
 
             asyncio.run(plugin.auto_tts_reply(event))
@@ -763,7 +826,9 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
             self.assertEqual(len(ctx.llm_calls), 0)
             self.assertEqual(len(ctx.providers[0].calls), 1)
-            self.assertIn("待朗读文本：晚上好，欢迎回来。", ctx.providers[0].calls[0]["prompt"])
+            self.assertIn(
+                "待朗读文本：晚上好，欢迎回来。", ctx.providers[0].calls[0]["prompt"]
+            )
             self.assertIn("请输出最终 JSON", ctx.providers[0].calls[0]["prompt"])
             self.assertEqual(len(plugin.logger.infos), 1)
             log_args = plugin.logger.infos[0]
@@ -850,6 +915,74 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("emotion=neutral", warning_text)
             self.assertIn("error_type=TimeoutError", warning_text)
             self.assertIn("fallback=true", warning_text)
+
+    def test_terminate_removes_plugin_handlers_from_registry(self):
+        """terminate() 应从 star_handlers_registry 移除本插件 handler，防止热重载 partial 套娃。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+            our_handler = types.SimpleNamespace(
+                full_name="astrbot_plugin_mimo_tts_clone.main.filter_tts_tool_for_probability_mode",
+                handler=functools.partial(plugin.filter_tts_tool_for_probability_mode),
+            )
+            other_handler = types.SimpleNamespace(
+                full_name="other_plugin.main.some_handler",
+                handler=lambda event: None,
+            )
+            star_handlers_registry.handlers = [our_handler, other_handler]
+
+            asyncio.run(plugin.terminate())
+
+            self.assertEqual(len(star_handlers_registry.handlers), 1)
+            self.assertIs(star_handlers_registry.handlers[0], other_handler)
+
+    def test_terminate_removes_mimo_tts_tool_from_func_tool_manager(self):
+        """terminate() 应从 func_tool_manager 移除 mimo_tts_speak 工具。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            mimo_tool = types.SimpleNamespace(name="mimo_tts_speak", handler=None)
+            other_tool = types.SimpleNamespace(name="web_search", handler=None)
+            ctx._func_tool_manager = types.SimpleNamespace(
+                tools=[mimo_tool, other_tool]
+            )
+            plugin = self.module.MimoTTSClonePlugin(ctx, {})
+
+            asyncio.run(plugin.terminate())
+
+            self.assertEqual(len(ctx._func_tool_manager.tools), 1)
+            self.assertEqual(ctx._func_tool_manager.tools[0].name, "web_search")
+
+    def test_terminate_cleans_via_context_remove_llm_tools(self):
+        """terminate() 优先使用 context.remove_llm_tool 方法清理工具。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            removed = []
+            ctx.remove_llm_tool = lambda name: removed.append(name)
+            plugin = self.module.MimoTTSClonePlugin(ctx, {})
+
+            asyncio.run(plugin.terminate())
+
+            self.assertIn("mimo_tts_speak", removed)
+
+    def test_terminate_silently_skips_when_registry_not_importable(self):
+        """registry 不可导入时 terminate() 应静默跳过，不抛异常。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            # 临时破坏 registry 属性，模拟 handlers 列表不可用
+            reg_mod = sys.modules["astrbot.core.star.star_handlers_registry"]
+            original_obj = reg_mod.star_handlers_registry
+            reg_mod.star_handlers_registry = None
+
+            try:
+                asyncio.run(plugin.terminate())
+            finally:
+                reg_mod.star_handlers_registry = original_obj
 
 
 if __name__ == "__main__":

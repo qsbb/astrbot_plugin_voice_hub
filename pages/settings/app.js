@@ -149,7 +149,7 @@ function configPayload() {
     max_concurrency: Number($('max-concurrency').value || 1),
     max_voice_file_mb: Number($('max-voice-file-mb').value || 10),
     reply_mode: $('reply-mode').value,
-    auto_tts_enabled: $('auto-tts-enabled').checked,
+    tts_trigger_mode: document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || 'probability',
     auto_tts_probability: Number($('auto-tts-probability').value || 0),
     auto_tts_group_whitelist: $('auto-tts-group-whitelist').value,
     auto_tts_group_blacklist: $('auto-tts-group-blacklist').value,
@@ -340,6 +340,13 @@ function updateActionAvailability() {
   renderReadiness();
 }
 
+function updateTriggerModeUI() {
+  const selected = document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || 'probability';
+  const probabilityMode = selected === 'probability';
+  $('auto-tts-probability').disabled = !probabilityMode;
+  $('auto-tts-probability-field').classList.toggle('is-disabled', !probabilityMode);
+}
+
 function applyState(payload) {
   state.config = payload.config || {};
   state.voices = payload.voices || [];
@@ -356,8 +363,12 @@ function applyState(payload) {
   $('max-concurrency').value = state.config.max_concurrency || 1;
   $('max-voice-file-mb').value = state.config.max_voice_file_mb || 10;
   $('reply-mode').value = state.config.reply_mode || 'audio_only';
-  $('auto-tts-enabled').checked = state.config.auto_tts_enabled === true;
+  const triggerMode = ['probability', 'llm_decides'].includes(state.config.tts_trigger_mode)
+    ? state.config.tts_trigger_mode
+    : 'probability';
+  document.querySelector(`input[name="tts-trigger-mode"][value="${triggerMode}"]`).checked = true;
   $('auto-tts-probability').value = state.config.auto_tts_probability ?? 0;
+  updateTriggerModeUI();
   $('auto-tts-group-whitelist').value = (state.config.auto_tts_group_whitelist || []).join('\n');
   $('auto-tts-group-blacklist').value = (state.config.auto_tts_group_blacklist || []).join('\n');
   $('auto-tts-private-whitelist').value = (state.config.auto_tts_private_whitelist || []).join('\n');
@@ -711,7 +722,6 @@ function bindConfigDirtyState() {
     'max-concurrency',
     'max-voice-file-mb',
     'reply-mode',
-    'auto-tts-enabled',
     'auto-tts-probability',
     'auto-tts-group-whitelist',
     'auto-tts-group-blacklist',
@@ -738,6 +748,13 @@ function bindConfigDirtyState() {
     const el = $(id);
     el.addEventListener('input', markDirty);
     el.addEventListener('change', markDirty);
+  });
+
+  document.querySelectorAll('input[name="tts-trigger-mode"]').forEach(input => {
+    input.addEventListener('change', () => {
+      updateTriggerModeUI();
+      markDirty();
+    });
   });
 }
 

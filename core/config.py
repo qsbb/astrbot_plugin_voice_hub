@@ -16,6 +16,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_concurrency": 1,
     "reply_mode": "audio_only",
     "auto_tts_enabled": False,
+    "tts_trigger_mode": "probability",
     "auto_tts_probability": 0.0,
     "auto_tts_group_whitelist": [],
     "auto_tts_group_blacklist": [],
@@ -53,6 +54,7 @@ class PluginConfig:
     max_concurrency: int
     reply_mode: str
     auto_tts_enabled: bool
+    tts_trigger_mode: str
     auto_tts_probability: float
     auto_tts_group_whitelist: list[str]
     auto_tts_group_blacklist: list[str]
@@ -84,10 +86,14 @@ class PluginConfig:
 def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     raw_has_file_fallback = False
+    raw_has_trigger_mode = False
     legacy_file_fallback = DEFAULT_CONFIG["file_fallback_enabled"]
+    legacy_auto_tts_enabled = DEFAULT_CONFIG["auto_tts_enabled"]
     if isinstance(raw, dict):
         raw_has_file_fallback = "file_fallback_enabled" in raw
+        raw_has_trigger_mode = "tts_trigger_mode" in raw
         legacy_file_fallback = _bool_value(raw.get("send_as_file_fallback", True))
+        legacy_auto_tts_enabled = _bool_value(raw.get("auto_tts_enabled", False))
         for key in cfg:
             if key in raw:
                 cfg[key] = raw[key]
@@ -104,7 +110,14 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     if reply_mode not in {"audio_only", "text_and_audio", "text_only"}:
         reply_mode = "audio_only"
     cfg["reply_mode"] = reply_mode
-    cfg["auto_tts_enabled"] = _bool_value(cfg.get("auto_tts_enabled", False))
+    if raw_has_trigger_mode:
+        trigger_mode = str(cfg.get("tts_trigger_mode") or "probability").strip().lower()
+        if trigger_mode not in {"probability", "llm_decides"}:
+            trigger_mode = "probability"
+    else:
+        trigger_mode = "probability" if legacy_auto_tts_enabled else "llm_decides"
+    cfg["tts_trigger_mode"] = trigger_mode
+    cfg["auto_tts_enabled"] = trigger_mode == "probability"
     try:
         probability = float(cfg.get("auto_tts_probability") or 0.0)
     except (TypeError, ValueError):

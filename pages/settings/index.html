@@ -107,12 +107,17 @@
               <option value="text_only">只发文字</option>
             </select>
           </label>
-          <label>自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
+          <fieldset class="trigger-mode-fieldset">
+            <legend>TTS 触发方式</legend>
+            <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="probability" /><span><strong>概率触发</strong><small>不向 LLM 提供语音工具，普通回复按下方概率自动转语音。</small></span></label>
+            <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="llm_decides" /><span><strong>LLM 自主决定</strong><small>只允许 LLM 调用语音工具，不执行概率自动 TTS。</small></span></label>
+          </fieldset>
+          <p class="field-hint">触发方式是唯一开关：概率触发会执行自动 TTS，LLM 自主决定只开放语音工具。</p>
+          <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
           <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
           <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
         </div>
         <div class="switch-stack">
-          <label class="studio-switch"><input id="auto-tts-enabled" type="checkbox" /><span>启用普通 LLM 回复自动语音化</span></label>
           <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
         </div>
         <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>

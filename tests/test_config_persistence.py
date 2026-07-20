@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import AsyncMock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -114,6 +115,7 @@ def _install_astrbot_stubs():
     event.filter = types.SimpleNamespace(
         command=_command_decorator,
         llm_tool=_command_decorator,
+        on_llm_request=_command_decorator,
         on_decorating_result=_command_decorator,
     )
 
@@ -171,6 +173,8 @@ class ConfigPersistenceTests(unittest.TestCase):
             saved = json.loads((Path(tmp) / "config.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["api_key"], "mimo-secret")
             self.assertEqual(saved["max_text_chars"], 321)
+            self.assertEqual(saved["tts_trigger_mode"], "llm_decides")
+            self.assertFalse(saved["auto_tts_enabled"])
 
             reloaded = self.module.MimoTTSClonePlugin(_Context(), {})
             self.assertEqual(reloaded.config["api_key"], "mimo-secret")
@@ -212,12 +216,19 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(plugin.config["api_key"], "from-native-get")
             self.assertEqual(plugin.config["max_text_chars"], 222)
 
-    def test_tts_tail_strips_prefixed_and_bare_command_names(self):
+    def test_tts_chat_commands_and_parsers_are_removed(self):
         plugin_cls = self.module.MimoTTSClonePlugin
 
-        self.assertEqual(plugin_cls._tail_any("/tts 晚上好", ("tts", "朗读", "语音")), "晚上好")
-        self.assertEqual(plugin_cls._tail_any("tts 晚上好", ("tts", "朗读", "语音")), "晚上好")
-        self.assertEqual(plugin_cls._tail_any("朗读 晚上好", ("tts", "朗读", "语音")), "晚上好")
+        self.assertFalse(hasattr(plugin_cls, "tts_command"))
+        self.assertFalse(hasattr(plugin_cls, "list_voices_command"))
+        self.assertFalse(hasattr(plugin_cls, "set_user_voice_command"))
+        self.assertFalse(hasattr(plugin_cls, "set_global_voice_command"))
+        self.assertFalse(hasattr(plugin_cls, "set_group_voice_command"))
+        self.assertFalse(hasattr(plugin_cls, "set_emotion_voice_command"))
+        self.assertFalse(hasattr(plugin_cls, "status_command"))
+        self.assertFalse(hasattr(plugin_cls, "_tail"))
+        self.assertFalse(hasattr(plugin_cls, "_tail_any"))
+        self.assertFalse(hasattr(plugin_cls, "_parse_tts_args"))
 
     def test_runtime_config_normalizes_delivery_options(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
@@ -235,12 +246,44 @@ class ConfigPersistenceTests(unittest.TestCase):
         )
 
         self.assertEqual(cfg["reply_mode"], "audio_only")
+        self.assertEqual(cfg["tts_trigger_mode"], "probability")
         self.assertTrue(cfg["auto_tts_enabled"])
         self.assertEqual(cfg["auto_tts_probability"], 1.0)
         self.assertFalse(cfg["file_fallback_enabled"])
         self.assertFalse(cfg["emotion_routing_enabled"])
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
+
+    def test_runtime_config_migrates_legacy_auto_tts_enabled_to_trigger_mode(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        enabled = normalize_config({"auto_tts_enabled": True})
+        disabled = normalize_config({"auto_tts_enabled": False})
+
+        self.assertEqual(enabled["tts_trigger_mode"], "probability")
+        self.assertTrue(enabled["auto_tts_enabled"])
+        self.assertEqual(disabled["tts_trigger_mode"], "llm_decides")
+        self.assertFalse(disabled["auto_tts_enabled"])
+
+    def test_runtime_config_trigger_mode_is_authoritative_and_syncs_legacy_field(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        llm_decides = normalize_config(
+            {"tts_trigger_mode": " LLM_DECIDES ", "auto_tts_enabled": True}
+        )
+        probability = normalize_config(
+            {"tts_trigger_mode": "probability", "auto_tts_enabled": False}
+        )
+        unsupported = normalize_config(
+            {"tts_trigger_mode": "unsupported", "auto_tts_enabled": False}
+        )
+
+        self.assertEqual(llm_decides["tts_trigger_mode"], "llm_decides")
+        self.assertFalse(llm_decides["auto_tts_enabled"])
+        self.assertEqual(probability["tts_trigger_mode"], "probability")
+        self.assertTrue(probability["auto_tts_enabled"])
+        self.assertEqual(unsupported["tts_trigger_mode"], "probability")
+        self.assertTrue(unsupported["auto_tts_enabled"])
 
     def test_runtime_config_normalizes_auto_tts_scope_lists(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
@@ -482,6 +525,32 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(preview["group"]["blacklist_count"], 1)
             self.assertIn("黑名单", preview["summary"])
 
+    def test_probability_mode_filters_only_mimo_tts_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {"tts_trigger_mode": "probability"})
+            request = types.SimpleNamespace(
+                tools=[
+                    {"type": "function", "function": {"name": "mimo_tts_speak"}},
+                    {"type": "function", "function": {"name": "web_search"}},
+                ]
+            )
+
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
+
+            self.assertEqual([tool["function"]["name"] for tool in request.tools], ["web_search"])
+
+    def test_llm_decides_mode_preserves_mimo_tts_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {"tts_trigger_mode": "llm_decides"})
+            tools = [{"type": "function", "function": {"name": "mimo_tts_speak"}}]
+            request = types.SimpleNamespace(tools=list(tools))
+
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
+
+            self.assertEqual(request.tools, tools)
+
     def test_mimo_tts_speak_llm_tool_is_available_when_supported(self):
         self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))
 
@@ -490,6 +559,170 @@ class ConfigPersistenceTests(unittest.TestCase):
 
         self.assertNotIn("context", params)
         self.assertIn("style", params)
+
+    def test_mimo_tts_speak_docstring_defines_llm_calling_boundaries(self):
+        docstring = inspect.getdoc(self.module.MimoTTSClonePlugin.mimo_tts_speak)
+
+        self.assertIn("Do not call it for an ordinary text reply", docstring)
+        self.assertIn("For long text, decide whether voice delivery is suitable", docstring)
+        self.assertIn("Generate `style` directly", docstring)
+
+    def test_mimo_tts_speak_marks_event_and_disables_secondary_style_director(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            calls = []
+            sent = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: None,
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                calls.append((text, kwargs))
+                return [Path(tmp) / "voice.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append((current_event, output))
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "???", style="??")]
+
+            result = asyncio.run(invoke())
+
+            self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
+            self.assertEqual(calls[0][0], "???")
+            self.assertEqual(calls[0][1]["context"], "??")
+            self.assertFalse(calls[0][1]["style_director_enabled"])
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(result, [str(Path(tmp) / "voice.wav")])
+
+    def test_mimo_tts_speak_does_not_mark_event_when_first_audio_send_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [Path(tmp) / "voice.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                raise RuntimeError("send failed")
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "测试")]
+
+            with self.assertRaisesRegex(RuntimeError, "send failed"):
+                asyncio.run(invoke())
+
+            self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
+
+    def test_mimo_tts_speak_does_not_mark_event_when_no_audio_is_generated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                return []
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "测试")]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual(result, ["sent 0 audio"])
+            self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
+
+    def test_mimo_tts_speak_keeps_event_marked_after_later_audio_send_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            sent = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [Path(tmp) / "voice-1.wav", Path(tmp) / "voice-2.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append(output)
+                if len(sent) == 2:
+                    raise RuntimeError("send failed")
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "长文本")]
+
+            with self.assertRaisesRegex(RuntimeError, "send failed"):
+                asyncio.run(invoke())
+
+            self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
+            self.assertEqual(len(sent), 2)
+
+    def test_llm_decides_mode_skips_probability_auto_tts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "tts_trigger_mode": "llm_decides",
+                    "auto_tts_enabled": True,
+                    "auto_tts_probability": 1.0,
+                },
+            )
+            plugin._run_auto_tts = AsyncMock(side_effect=AssertionError("must not synthesize"))
+
+            asyncio.run(plugin.auto_tts_reply(object()))
+
+            plugin._run_auto_tts.assert_not_awaited()
+
+    def test_auto_tts_skips_event_marked_by_llm_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"auto_tts_enabled": True, "auto_tts_probability": 1},
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: True if key == plugin.TTS_HANDLED_EVENT_KEY else None,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            log_args = plugin.logger.infos[-1]
+            self.assertIn("event already handled", log_args[0] % log_args[1:])
 
     def test_ai_style_director_adds_hidden_mimo_context(self):
         with tempfile.TemporaryDirectory() as tmp:

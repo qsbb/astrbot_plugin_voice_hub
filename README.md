@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone">GitHub 仓库</a>
+  <a href="https://github.com/qsbb/astrbot_plugin_mimo_tts_clone">GitHub 仓库</a>
   ·
   <a href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5">MiMo 官方文档</a>
   ·
@@ -21,11 +21,25 @@
   <img src="./assets/readme-hero.svg" alt="MiMo Sound Studio 插件横幅" />
 </p>
 
+## 项目来源
+
+本版本基于 Justice-ocr 开源的 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone) 修改，沿用原项目的 MiMo v2.5 voiceclone 接入、音色管理、概率自动语音、情绪路由、AI 风格导演、Pages 管理和插件服务能力。
+
+在原项目基础上，当前版本主要调整了聊天触发方式：
+
+- 保留原版概率语音的权限检查、概率抽取、文本清洗、音色与情绪路由、分段合成及回复链处理。
+- 增加“概率触发 / LLM 自主决定”互斥模式；概率模式不向 LLM 提供 TTS 工具，LLM 模式不执行概率自动 TTS。
+- 让主 LLM 在工具模式下直接判断是否适合发送语音，并提供 `emotion`、`voice` 和 `style`。
+- 增加事件级语音处理标记，避免同一轮回复被重复合成。
+- 移除 `/tts`、`/朗读`、`/语音` 及聊天内音色管理命令，统一通过 Pages、LLM 工具或插件服务调用。
+
+原项目版权归原作者所有，本版本继续遵循 [MIT License](./LICENSE)。
+
 ## 适合谁
 
 - 想在 AstrBot 里接入 MiMo 官方 voiceclone TTS 的用户。
 - 想用 Pages 页面管理多个授权音色、默认音色和试听流程的机器人管理员。
-- 想让 `/tts` 命令或普通 LLM 回复按概率转为语音的群聊/私聊场景。
+- 想通过 LLM 工具按需生成语音，或让普通 LLM 回复按概率转为语音的群聊/私聊场景。
 - 想给其他插件复用统一 TTS 服务能力的插件开发者。
 
 ## 功能概览
@@ -38,10 +52,11 @@
 | 情绪控制 | 支持 `happy`、`sad`、`angry`、`neutral`，可自动轻量识别 |
 | 发送前 AI 导演 | 可指定 AstrBot AI 服务商，为每段文本生成隐藏风格指令，并可优化只用于音频的朗读文本 |
 | 发送策略 | 支持只发音频、文字+音频、只发文字 |
-| 自动语音化 | 普通 LLM 回复可按概率转语音，支持群聊/私聊黑白名单和管理员绕过，默认关闭 |
+| TTS 触发方式 | 支持概率触发与 LLM 自主决定，两种模式互斥 |
+| 自动语音化 | 概率模式下普通 LLM 回复可按概率转语音，支持群聊/私聊黑白名单和管理员绕过，默认关闭 |
 | 试听诊断 | Pages 内一键诊断 Key、模型、音色和网络链路 |
 | 输出清理 | 按保留天数和最大文件数自动清理生成音频 |
-| 插件复用 | 暴露 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 方法 |
+| LLM 工具与插件复用 | 保留 `mimo_tts_speak` 工具，并暴露 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 方法 |
 
 ## 界面导览
 
@@ -58,7 +73,7 @@ flowchart LR
 页面重点区域：
 
 - `连接配置`：填写 MiMo API Key、Base URL、模型、并发和文本长度限制。
-- `发送策略`：切换只发音频、文字+音频、只发文字；配置自动语音化概率。
+- `发送策略`：切换只发音频、文字+音频、只发文字；用单选项选择概率触发或 LLM 自主决定。
 - `发送前 AI 导演`：根据文本、情绪和音色生成 MiMo 风格控制指令；可剔除无意义口头填充并加入自然停顿，只影响音频，不改变最终回复文本。
 - `情绪与分段`：控制情绪路由和长文本分段。
 - `音色库`：上传授权音频、设置风格标签和默认音色。
@@ -69,7 +84,7 @@ flowchart LR
 1. 将本仓库放入 AstrBot 插件目录。
 
 ```bash
-git clone https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone.git
+git clone https://github.com/qsbb/astrbot_plugin_mimo_tts_clone.git
 ```
 
 2. 安装依赖。
@@ -86,36 +101,26 @@ pip install -r requirements.txt
 
 6. 点击 `一键诊断` 或在试听工作台测试音色。
 
-## 基础命令
+## 调用方式
 
-```text
-/tts 文本
-/tts -v 音色名 文本
-/tts -e happy 文本
-/tts -v 音色名 -e sad -c "轻声、慢速" 文本
-/tts音色列表
-/tts设置音色 音色名
-/tts默认音色 音色名
-/tts群默认音色 音色名
-/tts情绪音色 happy 音色名
-/tts状态
-```
+插件不注册 TTS 聊天命令，也不解析 `/tts`、`/朗读`、`/语音` 或音色管理命令。语音生成通过概率自动 TTS、`mimo_tts_speak` LLM 工具、Pages 试听工作台或插件服务方法触发。
 
-说明：
+`tts_trigger_mode` 是聊天 TTS 的唯一运行模式，两种模式互斥：
 
-- `/tts`、`/朗读`、`/语音` 都可触发命令朗读。
-- `-v` 用于指定音色名或音色 ID。
-- `-e` 支持 `happy`、`sad`、`angry`、`neutral`。
-- `-c` 可临时追加风格指令，例如“更轻、更近、像深夜电台”。
-- 管理类命令依赖 `admin_users` 配置。
+- `probability`：从当前 LLM 请求中过滤 `mimo_tts_speak`，普通 LLM 回复完成后沿用原版 `auto_tts_probability` 自动语音流程。权限判断、概率抽取、结果识别、文本清洗、音色与情绪路由、分段合成和回复链处理均保持原版逻辑。
+- `llm_decides`：向 LLM 保留 `mimo_tts_speak`，由主 LLM 判断是否适合发送语音，并直接提供文本、情绪、音色和风格；该模式完全跳过概率自动 TTS。
+
+`auto_tts_enabled` 仅作为旧配置兼容字段，不再是独立开关。旧配置缺少 `tts_trigger_mode` 时，`auto_tts_enabled=true` 迁移为 `probability`，`auto_tts_enabled=false` 迁移为 `llm_decides`；新配置保存时会自动同步该兼容字段。
+
+`mimo_tts_speak` 工具参数为 `text`、`emotion`、`voice`、`style`。工具调用直接使用主 LLM 给出的风格并关闭插件的二次 AI 风格导演；至少成功发送一段音频后才标记当前事件，避免自动 TTS 重复处理，同时确保合成或首次发送失败时不会错误阻止后续处理。
 
 ## 推荐配置
 
 | 配置项 | 推荐值 | 说明 |
 | --- | --- | --- |
-| `reply_mode` | `audio_only` | 命令式 TTS 通常只发语音更干净 |
-| `auto_tts_enabled` | `false` | 普通回复自动语音化建议按群逐步开启 |
-| `auto_tts_probability` | `0.1` - `0.3` | 避免群聊中过度刷屏 |
+| `reply_mode` | `audio_only` | 自动语音化时只保留音频输出 |
+| `tts_trigger_mode` | `probability` 或 `llm_decides` | 唯一触发开关；前者沿用原版概率逻辑，后者由 LLM 调用工具 |
+| `auto_tts_probability` | `0.1` - `0.3` | 仅概率模式生效，避免群聊中过度刷屏 |
 | `max_voice_file_mb` | `10` | 越大请求体越大，速度也可能变慢 |
 | `segment_enabled` | `true` | 长文本更稳定 |
 | `output_retention_days` | `7` | 防止长期运行占用磁盘 |
@@ -138,11 +143,11 @@ pip install -r requirements.txt
 
 可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空则使用当前默认 LLM。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
 
-建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。
+建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。`mimo_tts_speak` LLM 工具不会再次调用该导演，避免工具链中的二次风格改写。
 
 ## 自动语音访问控制
 
-访问控制只作用于“普通 LLM 回复自动语音化”，不会拦截 `/tts`、`/朗读`、`/语音` 等显式命令，也不会影响其他插件主动调用 `text_to_speech()`。
+访问控制只作用于“普通 LLM 回复自动语音化”，不会影响 `mimo_tts_speak` LLM 工具或其他插件主动调用 `text_to_speech()`。LLM 工具处理过的事件会被标记，自动语音化会跳过该事件。
 
 规则顺序如下：
 
@@ -198,7 +203,7 @@ audio_path = await plugin.text_to_speech(
 
 如果配合 `astrbot_plugin_daily_sharing` 使用，可以在每日分享 Pages 里选择语音 provider：
 
-- `calibrated_tool`：点击“校准语音”，让每日分享自动命中本插件的 `mimo_tts_speak` LLM 工具。工具参数为 `text`、`emotion`、`voice`、`style`。
+- `calibrated_tool`：点击“校准语音”，让每日分享自动命中本插件的 `mimo_tts_speak` LLM 工具。工具参数为 `text`、`emotion`、`voice`、`style`；工具会关闭二次 AI 风格导演并标记事件，防止自动 TTS 重复处理。
 - `generic_plugin`：手动配置插件名 `astrbot_plugin_mimo_tts_clone`，方法路径 `text_to_speech`，文本参数 `text`，结果字段留空即可。
 
 ## 插件信息
@@ -231,7 +236,8 @@ node --check pages/settings/app.js
 - 私聊白名单为空：私聊默认不受白名单限制。
 - 私聊白名单非空但未命中：私聊普通 LLM 回复不会自动语音化。
 - 管理员在黑名单命中场景下仍可自动语音化。
-- `/tts 晚上好` 等命令式朗读不受自动语音访问控制影响，且不会把 `/tts` 读进音频。
+- `mimo_tts_speak` 工具生成语音时不触发二次 AI 风格导演，并会让自动 TTS 跳过同一事件。
+- `/tts`、`/朗读`、`/语音` 及 TTS 音色管理聊天命令均不会被插件注册或解析。
 - 开启 AI 导演调试日志后，日志能看到 `style_context` / `speech_text` 摘要。
 - 自动语音访问控制日志能看到 allow / skip / denied 的具体原因。
 
@@ -249,6 +255,9 @@ node --check pages/settings/app.js
 
 ## 致谢
 
-- [MiMo Speech Synthesis v2.5 官方文档](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5)
-- AstrBot 插件系统与 Pages 能力
+- 特别感谢 [Justice-ocr](https://github.com/Justice-ocr) 开源原项目 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone)。当前版本基于其代码和设计继续修改，原项目提供了 MiMo voiceclone 接入、概率语音、音色管理、情绪路由、AI 风格导演、Pages 管理及插件复用能力等核心基础。
+- 感谢 [MiMo Speech Synthesis v2.5](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5) 提供语音合成与 voiceclone 服务及官方文档。
+- 感谢 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 提供插件系统、LLM Tool、事件钩子与 Pages 能力。
 - Pages 前端视觉参考了 [Firefly](https://github.com/CuteLeaf/Firefly) 的清新玻璃卡片、柔和主题色与轻动效设计思路；未直接引入其 Astro/Tailwind/Svelte 技术栈。
+
+如果你基于本版本继续分发或修改，请保留原项目版权与 MIT License 声明，并在适当位置注明上游项目来源。

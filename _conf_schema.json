@@ -146,8 +146,16 @@
   },
   "auto_tts_enabled": {
     "type": "bool",
-    "description": "启用普通 LLM 回复自动语音化",
-    "default": false
+    "description": "旧版自动语音开关（兼容字段）",
+    "hint": "由 tts_trigger_mode 自动同步；旧配置缺少触发方式时，true 迁移为 probability，false 迁移为 llm_decides。",
+    "default": true
+  },
+  "tts_trigger_mode": {
+    "type": "string",
+    "description": "TTS 触发方式",
+    "options": ["probability", "llm_decides"],
+    "hint": "probability=过滤 mimo_tts_speak 工具并按概率自动语音化；llm_decides=只允许 LLM 自主调用工具，不执行概率自动 TTS。旧配置未填写时按 probability 处理。",
+    "default": "probability"
   },
   "auto_tts_probability": {
     "type": "string",

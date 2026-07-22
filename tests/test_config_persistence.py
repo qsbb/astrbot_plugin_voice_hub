@@ -622,6 +622,9 @@ class ConfigPersistenceTests(unittest.TestCase):
             "For long text, decide whether voice delivery is suitable", docstring
         )
         self.assertIn("Generate `style` directly", docstring)
+        # 防止 LLM 调用工具后再用 send_message_to_user 重发同一音频
+        self.assertIn("DO NOT call send_message_to_user", docstring)
+        self.assertIn("already in the user's chat", docstring)
 
     def test_mimo_tts_speak_marks_event_and_disables_secondary_style_director(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -661,7 +664,13 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(calls[0][1]["context"], "??")
             self.assertFalse(calls[0][1]["style_director_enabled"])
             self.assertEqual(len(sent), 1)
-            self.assertEqual(result, [str(Path(tmp) / "voice.wav")])
+            # 返回值应是明确的状态陈述而非内部路径，避免 LLM 把路径当成待发送资源
+            self.assertEqual(
+                result,
+                [
+                    "audio already sent to user (1 segment); do not resend it via other tools"
+                ],
+            )
 
     def test_mimo_tts_speak_does_not_mark_event_when_first_audio_send_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -714,7 +723,7 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             result = asyncio.run(invoke())
 
-            self.assertEqual(result, ["sent 0 audio"])
+            self.assertEqual(result, ["no audio generated"])
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
 
     def test_mimo_tts_speak_keeps_event_marked_after_later_audio_send_fails(self):
@@ -1062,7 +1071,12 @@ class ConfigPersistenceTests(unittest.TestCase):
                 return [item async for item in unbound(None, event, "测试")]
 
             result = asyncio.run(invoke())
-            self.assertEqual(result, [str(Path(tmp) / "voice.wav")])
+            self.assertEqual(
+                result,
+                [
+                    "audio already sent to user (1 segment); do not resend it via other tools"
+                ],
+            )
 
     def test_init_unwraps_stale_partials_from_registry(self):
         """__init__ 应将 registry 中已套娃的 handler 重置为原始函数。"""

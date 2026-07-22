@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.3 - 2026-07-22
+
+### Fixed
+
+- 修复 LLM 调用 `mimo_tts_speak` 后误以为只生成不发送，又用 `send_message_to_user` 重发同一音频导致用户收到重复语音的问题。
+- 重写 `mimo_tts_speak` 工具 docstring，明确强调"本工具自动发送音频给用户，禁止再用其他工具重发"。
+- 工具返回值从内部 wav 路径改为明确的状态陈述（如 `audio already sent to user (1 segment); do not resend it via other tools`），避免 LLM 把路径当成待发送资源。
+
 ## v0.4.2 - 2026-07-22
 
 ### Fixed

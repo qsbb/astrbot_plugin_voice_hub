@@ -39,7 +39,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.4.2",
+    "0.4.3",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
@@ -383,7 +383,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             voice: str = "",
             style: str = "",
         ):
-            """Generate and send MiMo TTS audio only when a voice reply is appropriate.
+            """Generate AND automatically send MiMo TTS audio to the user.
+
+            This tool handles the full delivery: it synthesizes speech and directly sends the
+            audio message to the user. After calling it, DO NOT call send_message_to_user (or
+            any other send tool) to resend the same audio — that would produce a duplicate.
+            The audio is already in the user's chat when this tool returns.
 
             Call this tool when the user explicitly requests speech or audio, or when voice
             delivery clearly improves the response. Do not call it for an ordinary text reply.
@@ -398,7 +403,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 style(string): Temporary delivery instruction authored directly by the LLM.
 
             Returns:
-                string: First generated audio path, sent-audio count, or a short failure message.
+                string: A short status line confirming the audio has been sent, e.g.
+                "audio already sent to user (1 segment)". The audio file path is internal
+                and must NOT be re-sent via other tools.
             """
             # AstrBot 热重载后 self 可能是旧实例或 None，重定向到当前实例
             plugin = MimoTTSClonePlugin._current_instance or self
@@ -433,7 +440,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     plugin._mark_tts_handled(event)
             if hasattr(event, "clear_result"):
                 event.clear_result()
-            yield str(outputs[0]) if outputs else f"sent {sent} audio"
+            if sent == 0:
+                yield "no audio generated"
+            else:
+                yield (
+                    f"audio already sent to user ({sent} segment"
+                    + ("s" if sent != 1 else "")
+                    + "); do not resend it via other tools"
+                )
             return
 
     @classmethod

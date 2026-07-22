@@ -5,6 +5,7 @@ import base64
 import binascii
 import inspect
 import pathlib
+from typing import Any
 
 from quart import jsonify, request
 
@@ -34,15 +35,50 @@ class PagesAPIMixin:
             ("get_config", self._pages_get_config, ["GET"], "获取 MiMo TTS 配置"),
             ("save_config", self._pages_save_config, ["POST"], "保存 MiMo TTS 配置"),
             ("list_voices", self._pages_list_voices, ["GET"], "列出音色"),
-            ("list_ai_providers", self._pages_list_ai_providers, ["GET"], "列出 AstrBot AI 服务商"),
-            ("upload_voice_sample", self._pages_upload_voice_sample, ["POST"], "上传音色样本"),
-            ("upload_voice_sample_json", self._pages_upload_voice_sample_json, ["POST"], "上传音色样本(JSON)"),
+            (
+                "list_ai_providers",
+                self._pages_list_ai_providers,
+                ["GET"],
+                "列出 AstrBot AI 服务商",
+            ),
+            (
+                "upload_voice_sample",
+                self._pages_upload_voice_sample,
+                ["POST"],
+                "上传音色样本",
+            ),
+            (
+                "upload_voice_sample_json",
+                self._pages_upload_voice_sample_json,
+                ["POST"],
+                "上传音色样本(JSON)",
+            ),
             ("update_voice", self._pages_update_voice, ["POST"], "更新音色"),
             ("delete_voice", self._pages_delete_voice, ["POST"], "删除音色"),
-            ("set_default_voice", self._pages_set_default_voice, ["POST"], "设置默认音色"),
-            ("set_emotion_voice", self._pages_set_emotion_voice, ["POST"], "设置情绪默认音色"),
-            ("synthesize_preview", self._pages_synthesize_preview, ["POST"], "试听音色"),
-            ("test_connection", self._pages_test_connection, ["POST"], "测试 MiMo TTS 连接"),
+            (
+                "set_default_voice",
+                self._pages_set_default_voice,
+                ["POST"],
+                "设置默认音色",
+            ),
+            (
+                "set_emotion_voice",
+                self._pages_set_emotion_voice,
+                ["POST"],
+                "设置情绪默认音色",
+            ),
+            (
+                "synthesize_preview",
+                self._pages_synthesize_preview,
+                ["POST"],
+                "试听音色",
+            ),
+            (
+                "test_connection",
+                self._pages_test_connection,
+                ["POST"],
+                "测试 MiMo TTS 连接",
+            ),
         ]
         for name, handler, methods, desc in routes:
             register_web_api(f"/{plugin_id}/{name}", handler, methods, desc)
@@ -85,9 +121,15 @@ class PagesAPIMixin:
                     "detail": persisted.get("warning") or "",
                 }
             ), 500
-        response = {"success": True, "config": dict(self.config), "persisted": persisted}
+        response = {
+            "success": True,
+            "config": dict(self.config),
+            "persisted": persisted,
+        }
         if persisted.get("warning"):
-            response["warning"] = "配置已保存到插件本地文件，但 AstrBot 原生配置同步失败。"
+            response["warning"] = (
+                "配置已保存到插件本地文件，但 AstrBot 原生配置同步失败。"
+            )
             response["detail"] = persisted["warning"]
         return jsonify(response)
 
@@ -110,11 +152,15 @@ class PagesAPIMixin:
             try:
                 candidates.extend(list(getter() or []))
             except Exception as exc:
-                self.logger.warning("[mimo-tts] failed to list AstrBot AI providers: %s", exc)
+                self.logger.warning(
+                    "[mimo-tts] failed to list AstrBot AI providers: %s", exc
+                )
 
         provider_manager = getattr(self.context, "provider_manager", None)
         if provider_manager is not None:
-            candidates.extend(list(getattr(provider_manager, "provider_insts", []) or []))
+            candidates.extend(
+                list(getattr(provider_manager, "provider_insts", []) or [])
+            )
             inst_map = getattr(provider_manager, "inst_map", None)
             if isinstance(inst_map, dict):
                 candidates.extend(list(inst_map.values()))
@@ -124,7 +170,8 @@ class PagesAPIMixin:
                     cfg
                     for cfg in provider_configs
                     if isinstance(cfg, dict)
-                    and str(cfg.get("provider_type") or cfg.get("type") or "").strip() in {"", "chat_completion"}
+                    and str(cfg.get("provider_type") or cfg.get("type") or "").strip()
+                    in {"", "chat_completion"}
                 )
 
         seen: set[tuple[str, str]] = set()
@@ -150,7 +197,12 @@ class PagesAPIMixin:
             if not provider_id:
                 return None
             label = provider_id if not model else f"{provider_id} / {model}"
-            return {"id": provider_id, "name": provider_id, "model": model, "label": label}
+            return {
+                "id": provider_id,
+                "name": provider_id,
+                "model": model,
+                "label": label,
+            }
 
         meta_fn = getattr(provider, "meta", None)
         meta = None
@@ -233,7 +285,14 @@ class PagesAPIMixin:
         if not voice_id:
             return jsonify({"success": False, "error": "缺少 voice_id"}), 400
         changes = {}
-        for key in ("name", "description", "enabled", "style_context", "style_tags", "emotion"):
+        for key in (
+            "name",
+            "description",
+            "enabled",
+            "style_context",
+            "style_tags",
+            "emotion",
+        ):
             if key in data:
                 changes[key] = data[key]
         if "emotion" in changes:
@@ -261,7 +320,9 @@ class PagesAPIMixin:
         if scope == "user":
             self.voice_store.set_user_default(str(data.get("user_id") or ""), voice_id)
         elif scope == "group":
-            self.voice_store.set_group_default(str(data.get("group_id") or ""), voice_id)
+            self.voice_store.set_group_default(
+                str(data.get("group_id") or ""), voice_id
+            )
         else:
             self.voice_store.set_global_default(voice_id)
         return jsonify({"success": True, "defaults": self.voice_store.defaults()})
@@ -307,7 +368,11 @@ class PagesAPIMixin:
         except RuntimeError as exc:
             message = str(exc)
             if "API Key" in message:
-                return self._pages_error("MiMo API Key 未配置或未成功保存，请先在页面顶部保存配置。", 400, message)
+                return self._pages_error(
+                    "MiMo API Key 未配置或未成功保存，请先在页面顶部保存配置。",
+                    400,
+                    message,
+                )
             if "文本过长" in message or "鏂囨湰杩囬暱" in message:
                 return self._pages_error(message, 400, message)
             return self._pages_error(f"MiMo 试听生成失败：{message}", 502, message)
@@ -318,7 +383,8 @@ class PagesAPIMixin:
         return jsonify(
             {
                 "success": True,
-                "audio_data": "data:audio/wav;base64," + base64.b64encode(raw).decode("utf-8"),
+                "audio_data": "data:audio/wav;base64,"
+                + base64.b64encode(raw).decode("utf-8"),
                 "voice": voice.to_dict(),
                 "emotion": emotion,
             }

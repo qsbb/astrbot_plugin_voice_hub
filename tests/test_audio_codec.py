@@ -30,7 +30,9 @@ class AudioCodecTests(unittest.TestCase):
             sample = Path(temp_dir) / "voice.ogg"
             sample.write_bytes(b"ogg-data")
 
-            with self.assertRaisesRegex(AudioValidationError, "Unsupported audio format"):
+            with self.assertRaisesRegex(
+                AudioValidationError, "Unsupported audio format"
+            ):
                 encode_voice_file_data_url(sample, max_bytes=100)
 
     def test_encode_voice_file_data_url_rejects_large_file(self):
@@ -50,7 +52,9 @@ class AudioCodecTests(unittest.TestCase):
             sample = Path(temp_dir) / "voice.mp3"
             sample.write_bytes(b"not really an mp3")
 
-            with self.assertRaisesRegex(AudioValidationError, "Invalid mp3 audio header"):
+            with self.assertRaisesRegex(
+                AudioValidationError, "Invalid mp3 audio header"
+            ):
                 encode_voice_file_data_url(sample, max_bytes=100)
 
     def test_encode_voice_file_data_url_rejects_large_base64_payload(self):
@@ -60,7 +64,9 @@ class AudioCodecTests(unittest.TestCase):
             sample = Path(temp_dir) / "voice.wav"
             sample.write_bytes(b"RIFF" + b"0" * 4 + b"WAVE" + b"0" * 20)
 
-            with self.assertRaisesRegex(AudioValidationError, "Base64 audio payload too large"):
+            with self.assertRaisesRegex(
+                AudioValidationError, "Base64 audio payload too large"
+            ):
                 encode_voice_file_data_url(sample, max_bytes=100, max_base64_chars=40)
 
     def test_base64_limit_can_be_derived_from_byte_limit(self):

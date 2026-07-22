@@ -31,8 +31,12 @@ class VoiceStoreTests(unittest.TestCase):
             root = Path(temp_dir)
             store = VoiceStore(root)
             global_voice = store.add_voice("全局", root / "g.wav", "", "admin", True)
-            group_voice = store.add_voice("群默认", root / "group.wav", "", "admin", True)
-            user_voice = store.add_voice("用户默认", root / "user.wav", "", "admin", True)
+            group_voice = store.add_voice(
+                "群默认", root / "group.wav", "", "admin", True
+            )
+            user_voice = store.add_voice(
+                "用户默认", root / "user.wav", "", "admin", True
+            )
             temp_voice = store.add_voice("临时", root / "temp.wav", "", "admin", True)
             store.set_global_default(global_voice.id)
             store.set_group_default("group-1", group_voice.id)

@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.2 - 2026-07-22
+
+### Fixed
+
+- 彻底修复 AstrBot 热重载后 `functools.partial` 套娃导致 `TypeError: takes N positional arguments but N+1 were given` 的问题。
+- 事件钩子 `filter_tts_tool_for_probability_mode` 和 `auto_tts_reply` 改用 `*args` 签名，从参数末尾提取真实 `event`/`request`，无论套娃多少层都能正确工作。
+- LLM 工具 `mimo_tts_speak` 在入口处将 `self` 重定向到 `_current_instance`，修复热重载后 `self=None` 导致 `'NoneType' object has no attribute 'synthesize_text'` 的问题。
+- 新增 `_current_instance` 类变量，始终指向最新的插件实例，确保热重载后使用最新配置。
+- 新增 `_unwrap_stale_partials()`，在 `__init__` 中尝试将 registry 中已套娃的 handler 重置为原始函数，从根源阻止后续套娃。
+
+### Notes
+
+- 本版本不依赖 `terminate()` 清理，而是从方法签名层面兼容任意深度的 partial 套娃。
+- 首次升级后建议完全重启 AstrBot 一次以清理已有的套娃绑定。
+
 ## v0.4.1 - 2026-07-20
 
 ### Fixed

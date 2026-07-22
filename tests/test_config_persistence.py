@@ -984,6 +984,112 @@ class ConfigPersistenceTests(unittest.TestCase):
             finally:
                 reg_mod.star_handlers_registry = original_obj
 
+    def test_handler_survives_partial_stacking(self):
+        """模拟 9 层 partial 套娃，验证 *args 签名能正确提取真实参数。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "probability"}
+            )
+            request = types.SimpleNamespace(
+                tools=[{"type": "function", "function": {"name": "mimo_tts_speak"}}]
+            )
+
+            # 模拟 9 层 partial 套娃（类似生产环境中 11 were given 的情况）
+            stacked = plugin.filter_tts_tool_for_probability_mode
+            for _ in range(9):
+                stacked = functools.partial(stacked, plugin)
+
+            # 框架调用时传入 (event, request)
+            asyncio.run(stacked(object(), request))
+
+            self.assertEqual(len(request.tools), 0)
+
+    def test_auto_tts_reply_survives_partial_stacking(self):
+        """模拟 partial 套娃，验证 auto_tts_reply 能正确提取 event。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "llm_decides"}
+            )
+
+            stacked = plugin.auto_tts_reply
+            for _ in range(5):
+                stacked = functools.partial(stacked, plugin)
+
+            event = types.SimpleNamespace(
+                get_extra=lambda key: (
+                    True if key == plugin.TTS_HANDLED_EVENT_KEY else None
+                ),
+            )
+
+            # 不应抛出 TypeError
+            asyncio.run(stacked(event))
+
+    def test_mimo_tts_speak_redirects_none_self_to_current_instance(self):
+        """self=None 时，LLM 工具应重定向到 _current_instance。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            # 模拟 self=None 的调用（通过 unbound function）
+            unbound = (
+                self.module.MimoTTSClonePlugin.mimo_tts_speak.__wrapped__
+                if hasattr(self.module.MimoTTSClonePlugin.mimo_tts_speak, "__wrapped__")
+                else self.module.MimoTTSClonePlugin.mimo_tts_speak
+            )
+
+            extras = {}
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: None,
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [Path(tmp) / "voice.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                pass
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            # 用 None 作为 self 调用
+            async def invoke():
+                return [item async for item in unbound(None, event, "测试")]
+
+            result = asyncio.run(invoke())
+            self.assertEqual(result, [str(Path(tmp) / "voice.wav")])
+
+    def test_init_unwraps_stale_partials_from_registry(self):
+        """__init__ 应将 registry 中已套娃的 handler 重置为原始函数。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+            # 模拟已套娃的 handler
+            original_func = (
+                self.module.MimoTTSClonePlugin.filter_tts_tool_for_probability_mode
+            )
+            stacked = functools.partial(
+                functools.partial(original_func, "old"), "older"
+            )
+            fake_handler = types.SimpleNamespace(
+                full_name="astrbot_plugin_mimo_tts_clone.main.filter_tts_tool_for_probability_mode",
+                handler=stacked,
+            )
+            star_handlers_registry.handlers = [fake_handler]
+
+            # 创建新插件实例，__init__ 应解包
+            self.module.MimoTTSClonePlugin(_Context(), {})
+
+            # handler 应被重置为原始未绑定函数
+            unwrapped = star_handlers_registry.handlers[0].handler
+            self.assertFalse(isinstance(unwrapped, functools.partial))
+
 
 if __name__ == "__main__":
     unittest.main()

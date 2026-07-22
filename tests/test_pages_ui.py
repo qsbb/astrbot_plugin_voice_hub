@@ -100,7 +100,9 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("function bindProviderSelect", js)
         self.assertIn("ai_style_director_provider_id", js)
         self.assertIn("ai_style_director_debug_log", js)
-        self.assertLess(js.index("updateActionAvailability();"), js.index("await refresh();"))
+        self.assertLess(
+            js.index("updateActionAvailability();"), js.index("await refresh();")
+        )
         self.assertIn("lastUploadedVoiceId", js)
         self.assertIn("请填写音色名称", js)
         self.assertIn("只支持 mp3 / wav 音频", js)
@@ -132,7 +134,9 @@ class PagesUITests(unittest.TestCase):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertNotIn(".workflow-strip article:hover,\n.studio-card:hover", css)
-        self.assertIn('input:not([type="checkbox"]):not([type="radio"]):not([type="file"])', css)
+        self.assertIn(
+            'input:not([type="checkbox"]):not([type="radio"]):not([type="file"])', css
+        )
         self.assertRegex(css, r"\.studio-card\s*\{[^}]*isolation:\s*isolate;")
         self.assertRegex(css, r"\.studio-card::before\s*\{[^}]*z-index:\s*0;")
         self.assertRegex(css, r"\.studio-card > \*\s*\{[^}]*z-index:\s*1;")
@@ -150,16 +154,24 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("function resetDeleteConfirmation", js)
         self.assertIn("button.dataset.confirming", js)
         self.assertIn("setTimeout", js)
-        self.assertIn("voiceAction(button.dataset.action, button.dataset.id, button)", js)
+        self.assertIn(
+            "voiceAction(button.dataset.action, button.dataset.id, button)", js
+        )
         self.assertIn(".voice-actions button.confirming", css)
 
     def test_settings_handles_astrbot_pages_runtime_constraints(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
 
-        save_config = js.split("async function saveConfig()", 1)[1].split("function validateVoiceUpload", 1)[0]
-        preview = js.split("async function preview()", 1)[1].split("async function testConnection", 1)[0]
-        voice_action = js.split("async function voiceAction", 1)[1].split("async function setEmotionDefault", 1)[0]
+        save_config = js.split("async function saveConfig()", 1)[1].split(
+            "function validateVoiceUpload", 1
+        )[0]
+        preview = js.split("async function preview()", 1)[1].split(
+            "async function testConnection", 1
+        )[0]
+        voice_action = js.split("async function voiceAction", 1)[1].split(
+            "async function setEmotionDefault", 1
+        )[0]
 
         self.assertIn("await refresh();", save_config)
         self.assertNotIn('target="_blank"', html)

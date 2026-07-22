@@ -34,7 +34,9 @@ def merge_directed_context(base_context: str, directive: str, mode: str) -> str:
     if str(mode or "").strip().lower() == "direct":
         return str(directive or "").strip() or base_context
     return "\n".join(
-        part for part in (str(base_context or "").strip(), str(directive or "").strip()) if part
+        part
+        for part in (str(base_context or "").strip(), str(directive or "").strip())
+        if part
     )
 
 

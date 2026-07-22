@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import pathlib
 import random
@@ -38,10 +39,11 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.4.1",
+    "0.4.2",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
+    _current_instance: Any = None
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -61,6 +63,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self.voice_store = VoiceStore(self.data_dir)
         self._tts_sem = asyncio.Semaphore(self.plugin_config.max_concurrency)
         self._style_director_cache: dict[Any, TTSContextResult] = {}
+        MimoTTSClonePlugin._current_instance = self
+        self._unwrap_stale_partials()
         self._register_pages_web_api()
 
     @staticmethod
@@ -351,15 +355,20 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     if hasattr(filter, "on_llm_request"):
 
         @filter.on_llm_request()
-        async def filter_tts_tool_for_probability_mode(
-            self, event: AstrMessageEvent, request: Any
-        ):
-            del event
-            if self.plugin_config.tts_trigger_mode != "probability":
+        async def filter_tts_tool_for_probability_mode(self, *args):
+            # AstrBot 热重载时 functools.partial 可能套娃，导致额外实例参数被前置。
+            # 真实参数 (event, request) 始终在 args 末尾，从末尾提取即可。
+            plugin = MimoTTSClonePlugin._current_instance or self
+            if not isinstance(plugin, MimoTTSClonePlugin):
                 return
-            removed = self._filter_tts_llm_tool(request)
+            if len(args) < 2:
+                return
+            request = args[-1]
+            if plugin.plugin_config.tts_trigger_mode != "probability":
+                return
+            removed = plugin._filter_tts_llm_tool(request)
             if removed:
-                self.logger.info(
+                plugin.logger.info(
                     "[mimo-tts] probability mode filtered %s TTS LLM tool(s)", removed
                 )
 
@@ -391,12 +400,17 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             Returns:
                 string: First generated audio path, sent-audio count, or a short failure message.
             """
+            # AstrBot 热重载后 self 可能是旧实例或 None，重定向到当前实例
+            plugin = MimoTTSClonePlugin._current_instance or self
+            if not isinstance(plugin, MimoTTSClonePlugin):
+                yield "tts plugin is initializing, please try again"
+                return
             content = str(text or "").strip()
             if not content:
                 yield "empty text"
                 return
             try:
-                outputs = await self.synthesize_text(
+                outputs = await plugin.synthesize_text(
                     content,
                     voice_name=str(voice or "").strip() or None,
                     emotion=emotion,
@@ -405,7 +419,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                         getattr(event, "get_sender_id", lambda: "")() or ""
                     ).strip(),
                     group_id=str(getattr(event, "unified_msg_origin", "") or "").strip()
-                    or self._conversation_id(event),
+                    or plugin._conversation_id(event),
                     style_director_enabled=False,
                 )
             except Exception as exc:
@@ -413,10 +427,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
             sent = 0
             for output in outputs:
-                await self._send_audio_result(event, output)
+                await plugin._send_audio_result(event, output)
                 sent += 1
                 if sent == 1:
-                    self._mark_tts_handled(event)
+                    plugin._mark_tts_handled(event)
             if hasattr(event, "clear_result"):
                 event.clear_result()
             yield str(outputs[0]) if outputs else f"sent {sent} audio"
@@ -778,56 +792,64 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             )
 
     @filter.on_decorating_result()
-    async def auto_tts_reply(self, event: AstrMessageEvent):
-        if self._is_tts_handled(event):
-            self.logger.info("[mimo-tts] auto tts skipped: event already handled")
+    async def auto_tts_reply(self, *args):
+        # AstrBot 热重载时 functools.partial 可能套娃，额外实例参数被前置。
+        # 真实 event 始终是 args 末尾参数。
+        plugin = MimoTTSClonePlugin._current_instance or self
+        if not isinstance(plugin, MimoTTSClonePlugin):
             return
-        if self.plugin_config.tts_trigger_mode != "probability":
-            self.logger.info("[mimo-tts] auto tts skipped: trigger mode llm_decides")
+        if not args:
             return
-        if self.plugin_config.reply_mode == "text_only":
-            self.logger.info("[mimo-tts] auto tts skipped: reply mode text_only")
+        event = args[-1]
+        if plugin._is_tts_handled(event):
+            plugin.logger.info("[mimo-tts] auto tts skipped: event already handled")
             return
-        access_decision = self._auto_tts_access_decision(event)
+        if plugin.plugin_config.tts_trigger_mode != "probability":
+            plugin.logger.info("[mimo-tts] auto tts skipped: trigger mode llm_decides")
+            return
+        if plugin.plugin_config.reply_mode == "text_only":
+            plugin.logger.info("[mimo-tts] auto tts skipped: reply mode text_only")
+            return
+        access_decision = plugin._auto_tts_access_decision(event)
         if not access_decision["allowed"]:
-            self.logger.info(
+            plugin.logger.info(
                 "[mimo-tts] auto tts skipped: %s", access_decision["reason"]
             )
             return
-        self.logger.info("[mimo-tts] auto tts allowed: %s", access_decision["reason"])
+        plugin.logger.info("[mimo-tts] auto tts allowed: %s", access_decision["reason"])
         roll = random.random()
-        if roll > self.plugin_config.auto_tts_probability:
-            self.logger.info(
+        if roll > plugin.plugin_config.auto_tts_probability:
+            plugin.logger.info(
                 "[mimo-tts] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
                 roll,
-                self.plugin_config.auto_tts_probability,
+                plugin.plugin_config.auto_tts_probability,
                 access_decision["scope"],
                 clip_log_text(access_decision["matched_rule"] or "none"),
             )
             return
         result = event.get_result()
         if result is None or not getattr(result, "chain", None):
-            self.logger.info("[mimo-tts] auto tts skipped: no result chain")
+            plugin.logger.info("[mimo-tts] auto tts skipped: no result chain")
             return
         is_llm_result = getattr(result, "is_llm_result", None)
         if callable(is_llm_result) and not is_llm_result():
-            self.logger.info("[mimo-tts] auto tts skipped: non-LLM result")
+            plugin.logger.info("[mimo-tts] auto tts skipped: non-LLM result")
             return
         text = clean_tts_text(result.get_plain_text())
         if not text:
-            self.logger.info("[mimo-tts] auto tts skipped: empty plain text")
+            plugin.logger.info("[mimo-tts] auto tts skipped: empty plain text")
             return
         try:
-            outputs = await self.synthesize_text(
+            outputs = await plugin.synthesize_text(
                 text,
                 user_id=str(event.get_sender_id() or "").strip(),
-                group_id=self._conversation_id(event),
+                group_id=plugin._conversation_id(event),
             )
         except Exception as exc:
-            self.logger.warning("[mimo-tts] auto tts failed: %s", exc)
+            plugin.logger.warning("[mimo-tts] auto tts failed: %s", exc)
             return
 
-        self.logger.info(
+        plugin.logger.info(
             "[mimo-tts] auto tts generated: scope=%s matched=%s text=%s outputs=%s",
             access_decision["scope"],
             clip_log_text(access_decision["matched_rule"] or "none"),
@@ -837,19 +859,107 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         audio_components = [
             component
-            for component in (self._audio_component(output) for output in outputs)
+            for component in (plugin._audio_component(output) for output in outputs)
             if component is not None
         ]
         if not audio_components:
             return
-        if self.plugin_config.reply_mode == "audio_only":
+        if plugin.plugin_config.reply_mode == "audio_only":
             result.chain = [
-                comp for comp in result.chain if not self._is_plain_component(comp)
+                comp for comp in result.chain if not plugin._is_plain_component(comp)
             ]
         result.chain.extend(audio_components)
 
     async def terminate(self):
         self._cleanup_plugin_handlers()
+
+    def _unwrap_stale_partials(self) -> None:
+        """在 __init__ 中调用：尝试将 registry 中本插件的 handler 重置为原始未绑定函数。
+
+        AstrBot 加载流程：import 模块(装饰器注册) → 实例化(__init__) → 应用 partial 绑定。
+        如果热重载时旧 handler 已被 partial 套娃，在 __init__ 中重置为原始函数，
+        之后 AstrBot 只会应用一层 partial，避免套娃。
+
+        所有操作 best-effort，失败时静默跳过。
+        """
+        try:
+            self._unwrap_registry_handlers()
+            self._unwrap_func_tool_handlers()
+        except Exception as exc:
+            self.logger.debug("[mimo-tts] _unwrap_stale_partials skipped: %s", exc)
+
+    def _unwrap_registry_handlers(self) -> None:
+        registry = None
+        for module_path in (
+            "astrbot.core.star.star_handlers_registry",
+            "astrbot.core.star",
+        ):
+            try:
+                mod = __import__(module_path, fromlist=["star_handlers_registry"])
+                registry = getattr(mod, "star_handlers_registry", None)
+                if registry is not None:
+                    break
+            except Exception:
+                continue
+
+        if registry is None:
+            return
+
+        handlers = getattr(registry, "handlers", None)
+        if not isinstance(handlers, list):
+            return
+
+        unwrapped = 0
+        for handler in handlers:
+            full_name = str(getattr(handler, "full_name", "") or "")
+            if not any(ident in full_name for ident in self._PLUGIN_IDENTIFIERS):
+                continue
+            original = getattr(handler, "handler", None)
+            while isinstance(original, functools.partial):
+                original = original.func
+            if original is not getattr(handler, "handler", None):
+                try:
+                    handler.handler = original
+                    unwrapped += 1
+                except Exception:
+                    pass
+
+        if unwrapped:
+            self.logger.info(
+                "[mimo-tts] unwrapped %d stale partial(s) from registry handlers",
+                unwrapped,
+            )
+
+    def _unwrap_func_tool_handlers(self) -> None:
+        func_tool_manager = getattr(
+            self.context, "_func_tool_manager", None
+        ) or getattr(self.context, "func_tool_manager", None)
+        if func_tool_manager is None:
+            return
+
+        tools = getattr(func_tool_manager, "tools", None)
+        if not isinstance(tools, list):
+            return
+
+        unwrapped = 0
+        for tool in tools:
+            if getattr(tool, "name", "") != "mimo_tts_speak":
+                continue
+            original = getattr(tool, "handler", None)
+            while isinstance(original, functools.partial):
+                original = original.func
+            if original is not getattr(tool, "handler", None):
+                try:
+                    tool.handler = original
+                    unwrapped += 1
+                except Exception:
+                    pass
+
+        if unwrapped:
+            self.logger.info(
+                "[mimo-tts] unwrapped %d stale partial(s) from func_tool_manager",
+                unwrapped,
+            )
 
     _PLUGIN_IDENTIFIERS = (
         "astrbot_plugin_mimo_tts_clone",

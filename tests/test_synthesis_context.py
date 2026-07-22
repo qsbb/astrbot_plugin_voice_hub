@@ -19,9 +19,13 @@ class SynthesisContextTests(unittest.TestCase):
         self.assertEqual(key, ("voice-a", "happy", "x" * 128, True))
 
     def test_merge_directed_context_supports_direct_and_hybrid_modes(self):
-        self.assertEqual(merge_directed_context("base", "director", "direct"), "director")
+        self.assertEqual(
+            merge_directed_context("base", "director", "direct"), "director"
+        )
         self.assertEqual(merge_directed_context("base", "", "direct"), "base")
-        self.assertEqual(merge_directed_context("base", "director", "hybrid"), "base\ndirector")
+        self.assertEqual(
+            merge_directed_context("base", "director", "hybrid"), "base\ndirector"
+        )
 
     def test_clip_log_text_flattens_and_limits_output(self):
         self.assertEqual(clip_log_text("hello\nworld", 20), "hello world")

@@ -138,7 +138,14 @@ class VoiceStore:
         for item in self._state["voices"]:
             if item.get("id") != voice_id:
                 continue
-            for key in ("name", "description", "enabled", "style_context", "style_tags", "emotion"):
+            for key in (
+                "name",
+                "description",
+                "enabled",
+                "style_context",
+                "style_tags",
+                "emotion",
+            ):
                 if key in changes:
                     item[key] = changes[key]
             self.save()

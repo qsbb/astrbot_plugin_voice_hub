@@ -32,12 +32,16 @@ def estimate_base64_chars(byte_count: int) -> int:
 def validate_audio_header(path: Path, mime_type: str) -> None:
     header = path.read_bytes()[:12]
     if mime_type == "audio/wav":
-        if len(header) < 12 or not (header.startswith(b"RIFF") and header[8:12] == b"WAVE"):
+        if len(header) < 12 or not (
+            header.startswith(b"RIFF") and header[8:12] == b"WAVE"
+        ):
             raise AudioValidationError("Invalid wav audio header.")
         return
     if mime_type == "audio/mpeg":
         has_id3 = header.startswith(b"ID3")
-        has_frame_sync = len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0
+        has_frame_sync = (
+            len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0
+        )
         if not (has_id3 or has_frame_sync):
             raise AudioValidationError("Invalid mp3 audio header.")
         return
@@ -60,7 +64,9 @@ def validate_voice_file(
     validate_audio_header(path, mime_type)
     base64_limit = max_base64_chars if max_base64_chars is not None else max_bytes
     if estimate_base64_chars(size) > base64_limit:
-        raise AudioValidationError(f"Base64 audio payload too large (max {base64_limit} chars).")
+        raise AudioValidationError(
+            f"Base64 audio payload too large (max {base64_limit} chars)."
+        )
 
 
 def encode_voice_file_data_url(

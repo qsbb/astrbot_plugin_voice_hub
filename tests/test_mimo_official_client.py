@@ -36,7 +36,6 @@ class MimoOfficialClientTests(unittest.TestCase):
             },
         )
 
-
     def test_build_payload_omits_empty_context(self):
         client = MimoOfficialClient(MimoTTSConfig(api_key="token"))
 
@@ -46,4 +45,6 @@ class MimoOfficialClientTests(unittest.TestCase):
             context="",
         )
 
-        self.assertEqual(payload["messages"], [{"role": "assistant", "content": "测试"}])
+        self.assertEqual(
+            payload["messages"], [{"role": "assistant", "content": "测试"}]
+        )

@@ -53,7 +53,9 @@ class MimoOfficialClient:
         try:
             from openai import AsyncOpenAI
         except ImportError as exc:
-            raise RuntimeError("openai package is required. Install requirements.txt.") from exc
+            raise RuntimeError(
+                "openai package is required. Install requirements.txt."
+            ) from exc
 
         payload = self.build_payload(
             text=text,

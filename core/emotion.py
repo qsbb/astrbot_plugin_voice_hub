@@ -59,8 +59,12 @@ DEFAULT_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 @dataclass(slots=True)
 class EmotionRouter:
-    emotion_contexts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_EMOTION_CONTEXTS))
-    keywords: dict[str, tuple[str, ...]] = field(default_factory=lambda: dict(DEFAULT_KEYWORDS))
+    emotion_contexts: dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_EMOTION_CONTEXTS)
+    )
+    keywords: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: dict(DEFAULT_KEYWORDS)
+    )
 
     def __init__(
         self,
@@ -85,7 +89,9 @@ class EmotionRouter:
                 if isinstance(values, str):
                     values = [values]
                 if values:
-                    merged_keywords[key] = tuple(str(item) for item in values if str(item).strip())
+                    merged_keywords[key] = tuple(
+                        str(item) for item in values if str(item).strip()
+                    )
         self.keywords = merged_keywords
 
     def classify(self, text: str) -> str:
@@ -116,7 +122,9 @@ class EmotionRouter:
     ) -> str:
         parts = [
             str(base_context or "").strip(),
-            self.emotion_contexts.get(normalize_emotion(emotion) or "neutral", "").strip(),
+            self.emotion_contexts.get(
+                normalize_emotion(emotion) or "neutral", ""
+            ).strip(),
             str(voice_context or "").strip(),
             str(command_context or "").strip(),
         ]

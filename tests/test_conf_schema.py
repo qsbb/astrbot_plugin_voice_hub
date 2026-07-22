@@ -22,7 +22,9 @@ class ConfigSchemaTests(unittest.TestCase):
 
         self.assertEqual(schema["reply_mode"]["default"], "audio_only")
         self.assertTrue(schema["auto_tts_enabled"]["default"])
-        self.assertIn("由 tts_trigger_mode 自动同步", schema["auto_tts_enabled"]["hint"])
+        self.assertIn(
+            "由 tts_trigger_mode 自动同步", schema["auto_tts_enabled"]["hint"]
+        )
         self.assertEqual(schema["tts_trigger_mode"]["default"], "probability")
         self.assertEqual(
             schema["tts_trigger_mode"]["options"],

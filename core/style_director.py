@@ -40,9 +40,13 @@ class StyleDirectorPlan:
     speech_text: str = ""
 
 
-def build_style_director_prompt(data: StyleDirectorInput, template: str = "") -> tuple[str, str]:
+def build_style_director_prompt(
+    data: StyleDirectorInput, template: str = ""
+) -> tuple[str, str]:
     max_chars = max(20, int(data.max_chars or 120))
-    system_prompt = _render_template(template or DEFAULT_STYLE_DIRECTOR_PROMPT, max_chars=max_chars)
+    system_prompt = _render_template(
+        template or DEFAULT_STYLE_DIRECTOR_PROMPT, max_chars=max_chars
+    )
     user_prompt = "\n".join(
         part
         for part in (
@@ -50,7 +54,9 @@ def build_style_director_prompt(data: StyleDirectorInput, template: str = "") ->
             f"情绪：{data.emotion or 'neutral'}",
             f"音色名称：{data.voice_name}" if data.voice_name else "",
             f"音色说明：{data.voice_description}" if data.voice_description else "",
-            f"音色已有风格：{data.voice_style_context}" if data.voice_style_context else "",
+            f"音色已有风格：{data.voice_style_context}"
+            if data.voice_style_context
+            else "",
             f"已有风格指令：{data.existing_context}" if data.existing_context else "",
             f"是否允许优化朗读文本：{'是' if data.optimize_speech_text else '否'}",
             f"朗读文本最大长度：{max(20, int(data.max_speech_chars or 500))} 字",
@@ -68,7 +74,9 @@ def sanitize_style_director_output(value: Any, max_chars: int = 120) -> str:
     text = re.sub(r"```.*?```", "", text, flags=re.S)
     text = re.sub(r"^[\s\-\d.、:：]+", "", text)
     text = text.strip().strip("\"'“”‘’`")
-    text = re.sub(r"^(风格指令|风格控制|style_context|输出|建议|语气|风格)\s*[:：]\s*", "", text)
+    text = re.sub(
+        r"^(风格指令|风格控制|style_context|输出|建议|语气|风格)\s*[:：]\s*", "", text
+    )
     text = text.strip().strip("\"'“”‘’`")
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) > max_chars:
@@ -90,7 +98,9 @@ def sanitize_speech_text(value: Any, max_chars: int = 500) -> str:
     return text
 
 
-def parse_style_director_plan(value: Any, *, max_chars: int = 120, max_speech_chars: int = 500) -> StyleDirectorPlan:
+def parse_style_director_plan(
+    value: Any, *, max_chars: int = 120, max_speech_chars: int = 500
+) -> StyleDirectorPlan:
     text = str(value or "").strip()
     if not text:
         return StyleDirectorPlan()
@@ -99,15 +109,21 @@ def parse_style_director_plan(value: Any, *, max_chars: int = 120, max_speech_ch
     if isinstance(payload, dict):
         return StyleDirectorPlan(
             style_context=sanitize_style_director_output(
-                payload.get("style_context") or payload.get("style") or payload.get("context"),
+                payload.get("style_context")
+                or payload.get("style")
+                or payload.get("context"),
                 max_chars,
             ),
             speech_text=sanitize_speech_text(
-                payload.get("speech_text") or payload.get("text") or payload.get("assistant_text"),
+                payload.get("speech_text")
+                or payload.get("text")
+                or payload.get("assistant_text"),
                 max_speech_chars,
             ),
         )
-    return StyleDirectorPlan(style_context=sanitize_style_director_output(text, max_chars))
+    return StyleDirectorPlan(
+        style_context=sanitize_style_director_output(text, max_chars)
+    )
 
 
 async def generate_style_plan(
@@ -137,11 +153,15 @@ async def generate_style_directive(
     template: str = "",
     provider_id: str = "",
 ) -> str:
-    plan = await generate_style_plan(context, data, template=template, provider_id=provider_id)
+    plan = await generate_style_plan(
+        context, data, template=template, provider_id=provider_id
+    )
     return plan.style_context
 
 
-async def _call_llm(context: Any, prompt: str, system_prompt: str, *, provider_id: str = "") -> Any:
+async def _call_llm(
+    context: Any, prompt: str, system_prompt: str, *, provider_id: str = ""
+) -> Any:
     provider_id = str(provider_id or "").strip()
     if provider_id:
         provider_getter = getattr(context, "get_provider_by_id", None)
@@ -150,10 +170,16 @@ async def _call_llm(context: Any, prompt: str, system_prompt: str, *, provider_i
             if provider is None:
                 provider = provider_getter(provider_id)
             if provider is not None and callable(getattr(provider, "text_chat", None)):
-                return await provider.text_chat(prompt=prompt, context=[], system_prompt=system_prompt)
+                return await provider.text_chat(
+                    prompt=prompt, context=[], system_prompt=system_prompt
+                )
     current_provider = _current_chat_provider(context)
-    if current_provider is not None and callable(getattr(current_provider, "text_chat", None)):
-        return await current_provider.text_chat(prompt=prompt, context=[], system_prompt=system_prompt)
+    if current_provider is not None and callable(
+        getattr(current_provider, "text_chat", None)
+    ):
+        return await current_provider.text_chat(
+            prompt=prompt, context=[], system_prompt=system_prompt
+        )
     llm_generate = getattr(context, "llm_generate", None)
     if callable(llm_generate):
         kwargs = {
@@ -246,6 +272,8 @@ def _current_chat_provider_id(context: Any) -> str:
     if isinstance(provider_config, dict):
         return str(provider_config.get("id") or "").strip()
     try:
-        return str(getattr(provider, "provider_id", "") or getattr(provider, "id", "") or "").strip()
+        return str(
+            getattr(provider, "provider_id", "") or getattr(provider, "id", "") or ""
+        ).strip()
     except Exception:
         return ""

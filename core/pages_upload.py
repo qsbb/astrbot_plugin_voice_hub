@@ -20,7 +20,9 @@ def _metadata_get(metadata: Any, key: str, default: str = "") -> str:
     if isinstance(metadata, Mapping):
         value = metadata.get(key, default)
     else:
-        value = getattr(metadata, "get", lambda _key, _default=None: _default)(key, default)
+        value = getattr(metadata, "get", lambda _key, _default=None: _default)(
+            key, default
+        )
     return str(value or default)
 
 
@@ -57,7 +59,9 @@ async def store_voice_sample(
         save_path.unlink(missing_ok=True)
         raise
 
-    name = _metadata_get(metadata, "name", pathlib.Path(filename).stem or "新音色").strip()
+    name = _metadata_get(
+        metadata, "name", pathlib.Path(filename).stem or "新音色"
+    ).strip()
     description = _metadata_get(metadata, "description").strip()
     created_by = _metadata_get(metadata, "created_by", "pages").strip()
     style_context = _metadata_get(metadata, "style_context").strip()

@@ -125,14 +125,22 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["auto_tts_probability"] = min(1.0, max(0.0, probability))
     cfg["auto_tts_group_whitelist"] = _string_list(cfg.get("auto_tts_group_whitelist"))
     cfg["auto_tts_group_blacklist"] = _string_list(cfg.get("auto_tts_group_blacklist"))
-    cfg["auto_tts_private_whitelist"] = _string_list(cfg.get("auto_tts_private_whitelist"))
-    cfg["auto_tts_private_blacklist"] = _string_list(cfg.get("auto_tts_private_blacklist"))
+    cfg["auto_tts_private_whitelist"] = _string_list(
+        cfg.get("auto_tts_private_whitelist")
+    )
+    cfg["auto_tts_private_blacklist"] = _string_list(
+        cfg.get("auto_tts_private_blacklist")
+    )
     cfg["file_fallback_enabled"] = _bool_value(
-        cfg.get("file_fallback_enabled") if raw_has_file_fallback else legacy_file_fallback
+        cfg.get("file_fallback_enabled")
+        if raw_has_file_fallback
+        else legacy_file_fallback
     )
     cfg["output_retention_days"] = _int_at_least(cfg.get("output_retention_days"), 7, 0)
     cfg["output_max_files"] = _int_at_least(cfg.get("output_max_files"), 100, 0)
-    cfg["emotion_routing_enabled"] = _bool_value(cfg.get("emotion_routing_enabled", True))
+    cfg["emotion_routing_enabled"] = _bool_value(
+        cfg.get("emotion_routing_enabled", True)
+    )
     raw_contexts = cfg.get("emotion_contexts") or {}
     if not isinstance(raw_contexts, dict):
         raw_contexts = {}
@@ -141,14 +149,22 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         for key, value in dict(raw_contexts).items()
         if str(key).strip() and str(value or "").strip()
     }
-    cfg["ai_style_director_enabled"] = _bool_value(cfg.get("ai_style_director_enabled", False))
-    cfg["ai_style_director_provider_id"] = str(cfg.get("ai_style_director_provider_id") or "").strip()
-    cfg["ai_style_director_prompt"] = str(cfg.get("ai_style_director_prompt") or "").strip()
+    cfg["ai_style_director_enabled"] = _bool_value(
+        cfg.get("ai_style_director_enabled", False)
+    )
+    cfg["ai_style_director_provider_id"] = str(
+        cfg.get("ai_style_director_provider_id") or ""
+    ).strip()
+    cfg["ai_style_director_prompt"] = str(
+        cfg.get("ai_style_director_prompt") or ""
+    ).strip()
     style_mode = str(cfg.get("ai_style_director_mode") or "direct").strip().lower()
     if style_mode not in {"direct", "hybrid"}:
         style_mode = "direct"
     cfg["ai_style_director_mode"] = style_mode
-    cfg["ai_style_director_max_chars"] = _int_at_least(cfg.get("ai_style_director_max_chars"), 120, 20)
+    cfg["ai_style_director_max_chars"] = _int_at_least(
+        cfg.get("ai_style_director_max_chars"), 120, 20
+    )
     cfg["ai_style_director_optimize_text"] = _bool_value(
         cfg.get("ai_style_director_optimize_text", True)
     )
@@ -159,7 +175,9 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         cfg.get("ai_style_director_debug_log", True)
     )
     cfg["segment_enabled"] = _bool_value(cfg.get("segment_enabled", True))
-    cfg["segment_threshold_chars"] = _int_at_least(cfg.get("segment_threshold_chars"), 180, 1)
+    cfg["segment_threshold_chars"] = _int_at_least(
+        cfg.get("segment_threshold_chars"), 180, 1
+    )
     cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)
     admins = cfg.get("admin_users") or []
     cfg["admin_users"] = _string_list(admins)

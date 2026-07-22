@@ -91,7 +91,9 @@ class StyleDirectorTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result.style_context, "用贴近耳边的轻声、慢一点、带一点安慰感。")
+        self.assertEqual(
+            result.style_context, "用贴近耳边的轻声、慢一点、带一点安慰感。"
+        )
         self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
         self.assertEqual(len(context.calls), 0)
         self.assertEqual(len(context.provider.calls), 1)

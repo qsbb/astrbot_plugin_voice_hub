@@ -267,7 +267,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 "output_retention_days": -1,
                 "output_max_files": -5,
                 "emotion_routing_enabled": "off",
-                "skip_url_tts": "off",
+                "replace_url_in_tts": "off",
             }
         )
 
@@ -279,7 +279,20 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(cfg["emotion_routing_enabled"])
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
-        self.assertFalse(cfg["skip_url_tts"])
+        self.assertFalse(cfg["replace_url_in_tts"])
+
+    def test_runtime_config_migrates_legacy_skip_url_tts_to_replace_url_in_tts(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        # 旧配置 skip_url_tts 应迁移到 replace_url_in_tts
+        migrated_on = normalize_config({"skip_url_tts": True})
+        migrated_off = normalize_config({"skip_url_tts": False})
+        # 新配置直接覆盖，旧字段被忽略
+        new_off = normalize_config({"skip_url_tts": True, "replace_url_in_tts": False})
+
+        self.assertTrue(migrated_on["replace_url_in_tts"])
+        self.assertFalse(migrated_off["replace_url_in_tts"])
+        self.assertFalse(new_off["replace_url_in_tts"])
 
     def test_runtime_config_migrates_legacy_auto_tts_enabled_to_trigger_mode(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
@@ -798,7 +811,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             log_args = plugin.logger.infos[-1]
             self.assertIn("event already handled", log_args[0] % log_args[1:])
 
-    def test_auto_tts_skips_reply_containing_url(self):
+    def test_auto_tts_replaces_url_in_speech_when_replace_url_on(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
@@ -806,49 +819,22 @@ class ConfigPersistenceTests(unittest.TestCase):
                 {
                     "tts_trigger_mode": "probability",
                     "auto_tts_probability": 1.0,
-                    "skip_url_tts": True,
+                    "replace_url_in_tts": True,
                 },
             )
-            plugin.synthesize_text = AsyncMock(
-                side_effect=AssertionError("must not synthesize url reply")
-            )
-            result = types.SimpleNamespace(
-                chain=[type("Plain", (), {})()],
-                is_llm_result=lambda: True,
-                get_plain_text=lambda: "请看 https://example.com",
-            )
-            event = types.SimpleNamespace(
-                get_extra=lambda key: None,
-                set_extra=lambda key, value: None,
-                get_sender_id=lambda: "user-a",
-                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
-                get_result=lambda: result,
-            )
-
-            asyncio.run(plugin.auto_tts_reply(event))
-
-            plugin.synthesize_text.assert_not_awaited()
-            log_args = plugin.logger.infos[-1]
-            self.assertIn("contains url", log_args[0] % log_args[1:])
-
-    def test_auto_tts_proceeds_for_url_when_skip_url_tts_off(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            _StarTools.data_dir = tmp
-            plugin = self.module.MimoTTSClonePlugin(
-                _Context(),
-                {
-                    "tts_trigger_mode": "probability",
-                    "auto_tts_probability": 1.0,
-                    "skip_url_tts": False,
-                },
-            )
+            captured = {}
             plugin._send_audio_result = AsyncMock()
             plugin._audio_component = lambda path: None
-            plugin.synthesize_text = AsyncMock(return_value=[Path(tmp) / "voice.wav"])
+
+            async def fake_synthesize(text, **kwargs):
+                captured["text"] = text
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
             result = types.SimpleNamespace(
                 chain=[type("Plain", (), {})()],
                 is_llm_result=lambda: True,
-                get_plain_text=lambda: "请看 https://example.com",
+                get_plain_text=lambda: "请看 https://example.com 这个网页",
             )
             event = types.SimpleNamespace(
                 get_extra=lambda key: None,
@@ -860,45 +846,63 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             asyncio.run(plugin.auto_tts_reply(event))
 
-            plugin.synthesize_text.assert_awaited_once()
+            # 网址应被替换为占位词，不出现在朗读文本中
+            self.assertIn("这个网址", captured["text"])
+            self.assertNotIn("https://example.com", captured["text"])
+            self.assertIn("这个网页", captured["text"])
 
-    def test_mimo_tts_speak_refuses_url_when_skip_url_tts_on(self):
+    def test_auto_tts_keeps_url_in_speech_when_replace_url_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
                 _Context(),
-                {"skip_url_tts": True},
+                {
+                    "tts_trigger_mode": "probability",
+                    "auto_tts_probability": 1.0,
+                    "replace_url_in_tts": False,
+                },
             )
-            plugin.synthesize_text = AsyncMock(
-                side_effect=AssertionError("must not synthesize url text")
+            captured = {}
+            plugin._send_audio_result = AsyncMock()
+            plugin._audio_component = lambda path: None
+
+            async def fake_synthesize(text, **kwargs):
+                captured["text"] = text
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
+            result = types.SimpleNamespace(
+                chain=[type("Plain", (), {})()],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: "请看 https://example.com 这个网页",
             )
             event = types.SimpleNamespace(
-                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_extra=lambda key: None,
+                set_extra=lambda key, value: None,
                 get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
             )
 
-            async def invoke():
-                return [
-                    item
-                    async for item in plugin.mimo_tts_speak(
-                        event, "请看 https://example.com"
-                    )
-                ]
+            asyncio.run(plugin.auto_tts_reply(event))
 
-            result = asyncio.run(invoke())
+            # clean_tts_text 仍会移除网址，但不应做替换
+            self.assertNotIn("这个网址", captured["text"])
 
-            plugin.synthesize_text.assert_not_awaited()
-            self.assertEqual(len(result), 1)
-            self.assertIn("skipped tts", result[0])
-
-    def test_mimo_tts_speak_allows_url_when_skip_url_tts_off(self):
+    def test_mimo_tts_speak_replaces_url_when_replace_url_on(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
                 _Context(),
-                {"skip_url_tts": False},
+                {"replace_url_in_tts": True},
             )
-            plugin.synthesize_text = AsyncMock(return_value=[Path(tmp) / "voice.wav"])
+            captured = {}
+
+            async def fake_synthesize(text, **kwargs):
+                captured["text"] = text
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
             plugin._send_audio_result = AsyncMock()
             event = types.SimpleNamespace(
                 unified_msg_origin="aiocqhttp:FriendMessage:user-a",
@@ -912,13 +916,51 @@ class ConfigPersistenceTests(unittest.TestCase):
                 return [
                     item
                     async for item in plugin.mimo_tts_speak(
-                        event, "请看 https://example.com"
+                        event, "请看 https://example.com 这个网页"
                     )
                 ]
 
             result = asyncio.run(invoke())
 
-            plugin.synthesize_text.assert_awaited_once()
+            self.assertIn("这个网址", captured["text"])
+            self.assertNotIn("https://example.com", captured["text"])
+            self.assertIn("这个网页", captured["text"])
+            self.assertIn("audio already sent", result[0])
+
+    def test_mimo_tts_speak_keeps_url_when_replace_url_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"replace_url_in_tts": False},
+            )
+            captured = {}
+
+            async def fake_synthesize(text, **kwargs):
+                captured["text"] = text
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
+            plugin._send_audio_result = AsyncMock()
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: None,
+                get_extra=lambda key: None,
+                clear_result=lambda: None,
+            )
+
+            async def invoke():
+                return [
+                    item
+                    async for item in plugin.mimo_tts_speak(
+                        event, "请看 https://example.com 这个网页"
+                    )
+                ]
+
+            result = asyncio.run(invoke())
+
+            self.assertNotIn("这个网址", captured["text"])
             self.assertIn("audio already sent", result[0])
 
     def test_ai_style_director_adds_hidden_mimo_context(self):

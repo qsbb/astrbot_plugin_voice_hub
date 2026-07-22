@@ -36,6 +36,14 @@ def contains_url(text: str) -> bool:
     return bool(_URL_RE.search(str(text or "")))
 
 
+def replace_urls_for_tts(text: str, placeholder: str = "这个网址") -> str:
+    """将文本中的网址替换为占位词，供 TTS 朗读使用。
+
+    文字回复仍保留原始网址，仅朗读文本中的网址被替换。
+    """
+    return _URL_RE.sub(placeholder, str(text or ""))
+
+
 def split_tts_text(
     text: str,
     *,

@@ -157,7 +157,7 @@ function configPayload() {
     auto_tts_private_blacklist: $('auto-tts-private-blacklist').value,
     admin_users: $('admin-users').value,
     file_fallback_enabled: $('file-fallback-enabled').checked,
-    skip_url_tts: $('skip-url-tts').checked,
+    replace_url_in_tts: $('replace-url-in-tts').checked,
     output_retention_days: Number($('output-retention-days').value || 0),
     output_max_files: Number($('output-max-files').value || 0),
     emotion_routing_enabled: $('emotion-routing-enabled').checked,
@@ -376,7 +376,7 @@ function applyState(payload) {
   $('auto-tts-private-blacklist').value = (state.config.auto_tts_private_blacklist || []).join('\n');
   $('admin-users').value = (state.config.admin_users || []).join('\n');
   $('file-fallback-enabled').checked = state.config.file_fallback_enabled !== false;
-  $('skip-url-tts').checked = state.config.skip_url_tts !== false;
+  $('replace-url-in-tts').checked = state.config.replace_url_in_tts !== false;
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;

@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from astrbot_plugin_mimo_tts_clone.core.text_processing import (
     clean_tts_text,
     contains_url,
+    replace_urls_for_tts,
     split_tts_text,
 )
 
@@ -46,3 +47,17 @@ class TextProcessingTests(unittest.TestCase):
         self.assertFalse(contains_url("今天天气不错"))
         self.assertFalse(contains_url(""))
         self.assertFalse(contains_url(None))
+
+    def test_replace_urls_for_tts_substitutes_placeholder(self):
+        self.assertEqual(
+            replace_urls_for_tts("请看 https://example.com 这个网页"),
+            "请看 这个网址 这个网页",
+        )
+        self.assertEqual(
+            replace_urls_for_tts("访问 www.foo.bar 试试"),
+            "访问 这个网址 试试",
+        )
+
+    def test_replace_urls_for_tts_keeps_plain_text(self):
+        self.assertEqual(replace_urls_for_tts("今天天气不错"), "今天天气不错")
+        self.assertEqual(replace_urls_for_tts(""), "")

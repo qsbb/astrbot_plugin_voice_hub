@@ -39,7 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "segment_threshold_chars": 180,
     "segment_max_segments": 6,
     "admin_users": [],
-    "skip_url_tts": True,
+    "replace_url_in_tts": True,
 }
 
 
@@ -78,7 +78,7 @@ class PluginConfig:
     segment_threshold_chars: int
     segment_max_segments: int
     admin_users: list[str]
-    skip_url_tts: bool
+    replace_url_in_tts: bool
 
     @property
     def max_voice_file_bytes(self) -> int:
@@ -183,7 +183,10 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)
     admins = cfg.get("admin_users") or []
     cfg["admin_users"] = _string_list(admins)
-    cfg["skip_url_tts"] = _bool_value(cfg.get("skip_url_tts", True))
+    # 兼容 v0.4.4 的 skip_url_tts 配置项，迁移到 replace_url_in_tts
+    if "replace_url_in_tts" not in raw and "skip_url_tts" in raw:
+        cfg["replace_url_in_tts"] = _bool_value(raw.get("skip_url_tts", True))
+    cfg["replace_url_in_tts"] = _bool_value(cfg.get("replace_url_in_tts", True))
     return cfg
 
 

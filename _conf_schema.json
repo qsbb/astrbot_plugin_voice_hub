@@ -207,10 +207,10 @@
     "description": "语音消息发送失败或当前版本缺少语音组件时，允许回退为文件发送",
     "default": true
   },
-  "skip_url_tts": {
+  "replace_url_in_tts": {
     "type": "bool",
-    "description": "跳过含网址的回复语音化",
-    "hint": "开启后，当 LLM 回复中包含网址时不进行 TTS 朗读（网址只随文字发送，不会出现在语音里）；LLM 工具 mimo_tts_speak 遇到含网址的文本也会拒绝合成。",
+    "description": "朗读时把网址替换为占位词",
+    "hint": "开启后，TTS 朗读文本中的网址会被替换为“这个网址”等占位词（避免读出一长串字母），原始网址仍通过文字回复发送给用户。关闭后网址会原样读出。",
     "default": true
   },
   "output_retention_days": {

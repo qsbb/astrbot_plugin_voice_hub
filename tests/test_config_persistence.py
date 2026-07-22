@@ -175,7 +175,7 @@ class _GetOnlyConfig:
 class ConfigPersistenceTests(unittest.TestCase):
     def setUp(self):
         _install_astrbot_stubs()
-        self.module = importlib.import_module("astrbot_plugin_mimo_tts_clone.main")
+        self.module = importlib.import_module("astrbot_plugin_voice_hub.main")
         self.module.logger = _Logger()
         # 重置 registry stub
         from astrbot.core.star.star_handlers_registry import star_handlers_registry
@@ -256,7 +256,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(hasattr(plugin_cls, "_parse_tts_args"))
 
     def test_runtime_config_normalizes_delivery_options(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config(
             {
@@ -282,7 +282,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(cfg["replace_url_in_tts"])
 
     def test_runtime_config_normalizes_api_server_options(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config(
             {
@@ -303,7 +303,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(defaults["api_server_port"], 9960)
 
     def test_runtime_config_migrates_legacy_skip_url_tts_to_replace_url_in_tts(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         # 旧配置 skip_url_tts 应迁移到 replace_url_in_tts
         migrated_on = normalize_config({"skip_url_tts": True})
@@ -316,7 +316,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(new_off["replace_url_in_tts"])
 
     def test_runtime_config_migrates_legacy_auto_tts_enabled_to_trigger_mode(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         enabled = normalize_config({"auto_tts_enabled": True})
         disabled = normalize_config({"auto_tts_enabled": False})
@@ -327,7 +327,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(disabled["auto_tts_enabled"])
 
     def test_runtime_config_trigger_mode_is_authoritative_and_syncs_legacy_field(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         llm_decides = normalize_config(
             {"tts_trigger_mode": " LLM_DECIDES ", "auto_tts_enabled": True}
@@ -347,7 +347,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertTrue(unsupported["auto_tts_enabled"])
 
     def test_runtime_config_normalizes_auto_tts_scope_lists(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config(
             {
@@ -365,14 +365,14 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["admin_users"], [])
 
     def test_runtime_config_normalizes_admin_users(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config({"admin_users": "admin-1, admin-2\nadmin-1"})
 
         self.assertEqual(cfg["admin_users"], ["admin-1", "admin-2"])
 
     def test_runtime_config_normalizes_ai_style_director_options(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config(
             {
@@ -397,7 +397,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(cfg["ai_style_director_debug_log"])
 
     def test_runtime_config_migrates_legacy_file_fallback(self):
-        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+        from astrbot_plugin_voice_hub.core.config import normalize_config
 
         cfg = normalize_config({"send_as_file_fallback": False})
 
@@ -1030,7 +1030,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(len(plugin.logger.infos), 1)
             log_args = plugin.logger.infos[0]
             log_text = log_args[0] % log_args[1:]
-            self.assertIn("[mimo-tts] AI导演", log_text)
+            self.assertIn("[voice-hub] AI导演", log_text)
             self.assertIn("cached=false", log_text)
             self.assertIn("style_context=", log_text)
             self.assertIn("speech_text=", log_text)
@@ -1121,7 +1121,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             from astrbot.core.star.star_handlers_registry import star_handlers_registry
 
             our_handler = types.SimpleNamespace(
-                full_name="astrbot_plugin_mimo_tts_clone.main.filter_tts_tool_for_probability_mode",
+                full_name="astrbot_plugin_voice_hub.main.filter_tts_tool_for_probability_mode",
                 handler=functools.partial(plugin.filter_tts_tool_for_probability_mode),
             )
             other_handler = types.SimpleNamespace(
@@ -1280,7 +1280,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 functools.partial(original_func, "old"), "older"
             )
             fake_handler = types.SimpleNamespace(
-                full_name="astrbot_plugin_mimo_tts_clone.main.filter_tts_tool_for_probability_mode",
+                full_name="astrbot_plugin_voice_hub.main.filter_tts_tool_for_probability_mode",
                 handler=stacked,
             )
             star_handlers_registry.handlers = [fake_handler]

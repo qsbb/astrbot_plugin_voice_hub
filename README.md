@@ -2,15 +2,15 @@
   <img src="./assets/icon.svg" width="112" alt="MiMo TTS 音色克隆插件图标" />
 </p>
 
-<h1 align="center">MiMo TTS Voice Clone for AstrBot</h1>
+<h1 align="center">astrbot_plugin_voice_hub</h1>
 
 <p align="center">
-  基于 MiMo 官方 <code>mimo-v2.5-tts-voiceclone</code> 的 AstrBot TTS 音色克隆插件。<br />
+  双 TTS 后端语音中枢：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、AI 语音导演、外部 API。<br />
   支持 Pages 可视化管理、多音色切换、情绪路由、自动语音化、试听诊断与输出清理。
 </p>
 
 <p align="center">
-  <a href="https://github.com/qsbb/astrbot_plugin_mimo_tts_clone">GitHub 仓库</a>
+  <a href="https://github.com/qsbb/astrbot_plugin_voice_hub">GitHub 仓库</a>
   ·
   <a href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5">MiMo 官方文档</a>
   ·
@@ -46,6 +46,7 @@
 
 | 模块 | 能力 |
 | --- | --- |
+| 双 TTS 后端切换 | 支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换，可在 Pages 面板选择 |
 | 官方 API 接入 | 支持 MiMo v2.5 voiceclone，OpenAI-compatible 调用方式 |
 | 音色库 | 上传 `mp3` / `wav` 授权样本，本地保存音色元数据 |
 | 多音色路由 | 支持全局、群、用户、情绪四类默认音色 |
@@ -84,7 +85,7 @@ flowchart LR
 1. 将本仓库放入 AstrBot 插件目录。
 
 ```bash
-git clone https://github.com/qsbb/astrbot_plugin_mimo_tts_clone.git
+git clone https://github.com/qsbb/astrbot_plugin_voice_hub.git
 ```
 
 2. 安装依赖。
@@ -204,13 +205,13 @@ audio_path = await plugin.text_to_speech(
 如果配合 `astrbot_plugin_daily_sharing` 使用，可以在每日分享 Pages 里选择语音 provider：
 
 - `calibrated_tool`：点击“校准语音”，让每日分享自动命中本插件的 `mimo_tts_speak` LLM 工具。工具参数为 `text`、`emotion`、`voice`、`style`；工具会关闭二次 AI 风格导演并标记事件，防止自动 TTS 重复处理。
-- `generic_plugin`：手动配置插件名 `astrbot_plugin_mimo_tts_clone`，方法路径 `text_to_speech`，文本参数 `text`，结果字段留空即可。
+- `generic_plugin`：手动配置插件名 `astrbot_plugin_voice_hub`，方法路径 `text_to_speech`，文本参数 `text`，结果字段留空即可。
 
 ## 插件信息
 
 | 项目 | 内容 |
 | --- | --- |
-| 插件名 | `astrbot_plugin_mimo_tts_clone` |
+| 插件名 | `astrbot_plugin_voice_hub` |
 | 展示名 | MiMo TTS 音色克隆 |
 | 当前版本 | `v0.4.0` |
 | 作者 | Justice-ocr |
@@ -255,7 +256,8 @@ node --check pages/settings/app.js
 
 ## 致谢
 
-- 特别感谢 [Justice-ocr](https://github.com/Justice-ocr) 开源原项目 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone)。当前版本基于其代码和设计继续修改，原项目提供了 MiMo voiceclone 接入、概率语音、音色管理、情绪路由、AI 风格导演、Pages 管理及插件复用能力等核心基础。
+- 特别感谢 [Justice-ocr](https://github.com/Justice-ocr) 开源原项目 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone)。本项目基于其代码和设计继续开发，原项目提供了 MiMo voiceclone 接入、概率语音、音色管理、情绪路由、AI 风格导演、Pages 管理及插件复用能力等核心基础。
+- 本项目在原项目基础上新增了双 TTS 后端切换（MiMo + AstrBot 内置 TTS）、OpenAI 兼容外部 API 等功能，并更名为 `astrbot_plugin_voice_hub`。
 - 感谢 [MiMo Speech Synthesis v2.5](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5) 提供语音合成与 voiceclone 服务及官方文档。
 - 感谢 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 提供插件系统、LLM Tool、事件钩子与 Pages 能力。
 - Pages 前端视觉参考了 [Firefly](https://github.com/CuteLeaf/Firefly) 的清新玻璃卡片、柔和主题色与轻动效设计思路；未直接引入其 Astro/Tailwind/Svelte 技术栈。

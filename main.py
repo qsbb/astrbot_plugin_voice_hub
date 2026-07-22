@@ -42,10 +42,10 @@ from .pages_api import PagesAPIMixin
 
 
 @register(
-    "astrbot_plugin_mimo_tts_clone",
+    "astrbot_plugin_voice_hub",
     "Justice-ocr",
-    "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.5.2",
+    "双 TTS 后端语音中枢：MiMo 音色克隆 + AstrBot 内置 TTS、多音色管理、AI 语音导演、外部 API",
+    "0.6.0",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
@@ -57,8 +57,31 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self.context = context
         self.logger = logger
         self._native_config = config if hasattr(config, "save_config") else None
-        self.data_dir = StarTools.get_data_dir("astrbot_plugin_mimo_tts_clone")
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_voice_hub")
         pathlib.Path(self.data_dir).mkdir(parents=True, exist_ok=True)
+        # 从旧插件名迁移数据（如果存在）
+        old_data_dir = (
+            pathlib.Path(self.data_dir).parent / "astrbot_plugin_mimo_tts_clone"
+        )
+        if (
+            old_data_dir.is_dir()
+            and not (pathlib.Path(self.data_dir) / "config.json").exists()
+        ):
+            import shutil
+
+            try:
+                for item in old_data_dir.iterdir():
+                    dest = pathlib.Path(self.data_dir) / item.name
+                    if not dest.exists():
+                        if item.is_dir():
+                            shutil.copytree(item, dest)
+                        else:
+                            shutil.copy2(item, dest)
+                logger.info("[voice-hub] migrated data from %s", old_data_dir)
+            except Exception as exc:
+                logger.warning(
+                    "[voice-hub] failed to migrate data from %s: %s", old_data_dir, exc
+                )
         self._config_file = pathlib.Path(self.data_dir) / "config.json"
         native_config = self._coerce_config(config)
         persisted_config = self._load_persisted_config()
@@ -105,7 +128,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             data = json.loads(self._config_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
         except Exception as exc:
-            self.logger.warning("[mimo-tts] failed to read persisted config: %s", exc)
+            self.logger.warning("[voice-hub] failed to read persisted config: %s", exc)
             return {}
 
     def _persist_local_config(self) -> None:
@@ -135,7 +158,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             persisted["local"] = True
         except Exception as exc:
             persisted["warning"] = f"failed to persist local config: {exc}"
-            self.logger.warning("[mimo-tts] failed to persist local config: %s", exc)
+            self.logger.warning("[voice-hub] failed to persist local config: %s", exc)
         if self._native_config is not None:
             try:
                 self._native_config.update(self.config)
@@ -144,7 +167,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             except Exception as exc:
                 persisted["warning"] = f"failed to persist native config: {exc}"
                 self.logger.warning(
-                    "[mimo-tts] failed to persist native config: %s", exc
+                    "[voice-hub] failed to persist native config: %s", exc
                 )
         self._ensure_api_server()
         return persisted
@@ -286,6 +309,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         cleaned = clean_tts_text(text)
         if not cleaned:
             raise RuntimeError("请输入要合成的文本")
+
+        # 双后端分发：astrbot 模式下走 AstrBot 内置 TTS，跳过 MiMo 链路
+        if self.plugin_config.tts_backend == "astrbot":
+            return await self._synthesize_with_astrbot_tts(cleaned, split=split)
+
         resolved_emotion = self._resolve_emotion(cleaned, emotion)
         selector = voice_id or voice_name
         voice = self._select_voice(
@@ -311,6 +339,63 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             )
             for segment in segments
         ]
+
+    async def _synthesize_with_astrbot_tts(
+        self,
+        text: str,
+        *,
+        split: bool = True,
+    ) -> list[pathlib.Path]:
+        """通过 AstrBot 内置 TTS 提供商合成语音。"""
+        try:
+            from astrbot.core.provider.entities import ProviderType
+        except ImportError as exc:
+            raise RuntimeError("当前 AstrBot 版本不支持 TTS 提供商调用") from exc
+
+        provider = None
+        provider_id = self.plugin_config.astrbot_tts_provider_id.strip()
+        if provider_id:
+            provider = self.context.get_provider_by_id(provider_id)
+            if provider is None:
+                raise RuntimeError(f"未找到 TTS 提供商：{provider_id}")
+        else:
+            provider = self.context.provider_manager.get_using_provider(
+                ProviderType.TEXT_TO_SPEECH
+            )
+            if provider is None:
+                raise RuntimeError(
+                    "AstrBot 未配置默认 TTS 提供商，请在插件设置中指定提供商 ID "
+                    "或在 AstrBot 中启用 TTS"
+                )
+
+        segments = self._split_for_tts(text) if split else [text]
+        results: list[pathlib.Path] = []
+        for segment in segments:
+            audio_path = await provider.get_audio(segment)
+            results.append(pathlib.Path(audio_path))
+        return results
+
+    def list_astrbot_tts_providers(self) -> list[dict[str, str]]:
+        """列出 AstrBot 已配置的 TTS 提供商。"""
+        try:
+            providers = self.context.provider_manager.tts_provider_insts
+        except Exception:
+            return []
+        result: list[dict[str, str]] = []
+        for prov in providers:
+            cfg = getattr(prov, "provider_config", {}) or {}
+            model_config = cfg.get("model_config", {}) if isinstance(cfg, dict) else {}
+            model_value = str(getattr(prov, "model_name", "") or "")
+            if not model_value and isinstance(model_config, dict):
+                model_value = str(model_config.get("model", "") or "")
+            result.append(
+                {
+                    "id": str(cfg.get("id", "") or ""),
+                    "type": str(cfg.get("type", "") or ""),
+                    "model": model_value,
+                }
+            )
+        return result
 
     async def text_to_speech(
         self,
@@ -380,7 +465,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             removed = plugin._filter_tts_llm_tool(request)
             if removed:
                 plugin.logger.info(
-                    "[mimo-tts] probability mode filtered %s TTS LLM tool(s)", removed
+                    "[voice-hub] probability mode filtered %s TTS LLM tool(s)", removed
                 )
 
     if hasattr(filter, "llm_tool"):
@@ -707,7 +792,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             error_type, error_message = self._style_director_error_summary(exc)
             fallback_enabled = self.plugin_config.ai_style_director_fallback_to_emotion
             self.logger.warning(
-                "[mimo-tts] style director failed: provider=%s voice=%s(%s) emotion=%s text=%s error_type=%s error=%s fallback=%s",
+                "[voice-hub] style director failed: provider=%s voice=%s(%s) emotion=%s text=%s error_type=%s error=%s fallback=%s",
                 self.plugin_config.ai_style_director_provider_id or "default",
                 clip_log_text(voice.name),
                 clip_log_text(voice.id),
@@ -753,7 +838,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not self.plugin_config.ai_style_director_debug_log:
             return
         self.logger.info(
-            "[mimo-tts] AI导演 provider=%s voice=%s(%s) emotion=%s cached=%s text=%s style_context=%s speech_text=%s",
+            "[voice-hub] AI导演 provider=%s voice=%s(%s) emotion=%s cached=%s text=%s style_context=%s speech_text=%s",
             self.plugin_config.ai_style_director_provider_id or "default",
             clip_log_text(voice.name),
             clip_log_text(voice.id),
@@ -814,7 +899,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
             except Exception as exc:
                 self.logger.warning(
-                    "[mimo-tts] Record send failed, fallback to file: %s", exc
+                    "[voice-hub] Record send failed, fallback to file: %s", exc
                 )
         if self.plugin_config.file_fallback_enabled:
             await event.send(
@@ -832,25 +917,27 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return
         event = args[-1]
         if plugin._is_tts_handled(event):
-            plugin.logger.info("[mimo-tts] auto tts skipped: event already handled")
+            plugin.logger.info("[voice-hub] auto tts skipped: event already handled")
             return
         if plugin.plugin_config.tts_trigger_mode != "probability":
-            plugin.logger.info("[mimo-tts] auto tts skipped: trigger mode llm_decides")
+            plugin.logger.info("[voice-hub] auto tts skipped: trigger mode llm_decides")
             return
         if plugin.plugin_config.reply_mode == "text_only":
-            plugin.logger.info("[mimo-tts] auto tts skipped: reply mode text_only")
+            plugin.logger.info("[voice-hub] auto tts skipped: reply mode text_only")
             return
         access_decision = plugin._auto_tts_access_decision(event)
         if not access_decision["allowed"]:
             plugin.logger.info(
-                "[mimo-tts] auto tts skipped: %s", access_decision["reason"]
+                "[voice-hub] auto tts skipped: %s", access_decision["reason"]
             )
             return
-        plugin.logger.info("[mimo-tts] auto tts allowed: %s", access_decision["reason"])
+        plugin.logger.info(
+            "[voice-hub] auto tts allowed: %s", access_decision["reason"]
+        )
         roll = random.random()
         if roll > plugin.plugin_config.auto_tts_probability:
             plugin.logger.info(
-                "[mimo-tts] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
+                "[voice-hub] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
                 roll,
                 plugin.plugin_config.auto_tts_probability,
                 access_decision["scope"],
@@ -859,18 +946,18 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return
         result = event.get_result()
         if result is None or not getattr(result, "chain", None):
-            plugin.logger.info("[mimo-tts] auto tts skipped: no result chain")
+            plugin.logger.info("[voice-hub] auto tts skipped: no result chain")
             return
         is_llm_result = getattr(result, "is_llm_result", None)
         if callable(is_llm_result) and not is_llm_result():
-            plugin.logger.info("[mimo-tts] auto tts skipped: non-LLM result")
+            plugin.logger.info("[voice-hub] auto tts skipped: non-LLM result")
             return
         raw_plain_text = result.get_plain_text()
         if plugin.plugin_config.replace_url_in_tts and contains_url(raw_plain_text):
             raw_plain_text = replace_urls_for_tts(raw_plain_text)
         text = clean_tts_text(raw_plain_text)
         if not text:
-            plugin.logger.info("[mimo-tts] auto tts skipped: empty plain text")
+            plugin.logger.info("[voice-hub] auto tts skipped: empty plain text")
             return
         try:
             outputs = await plugin.synthesize_text(
@@ -879,11 +966,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 group_id=plugin._conversation_id(event),
             )
         except Exception as exc:
-            plugin.logger.warning("[mimo-tts] auto tts failed: %s", exc)
+            plugin.logger.warning("[voice-hub] auto tts failed: %s", exc)
             return
 
         plugin.logger.info(
-            "[mimo-tts] auto tts generated: scope=%s matched=%s text=%s outputs=%s",
+            "[voice-hub] auto tts generated: scope=%s matched=%s text=%s outputs=%s",
             access_decision["scope"],
             clip_log_text(access_decision["matched_rule"] or "none"),
             clip_log_text(text),
@@ -919,7 +1006,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         try:
             loop = asyncio.get_event_loop_policy().get_event_loop()
         except RuntimeError:
-            self.logger.warning("[mimo-tts] api server: no event loop available")
+            self.logger.warning("[voice-hub] api server: no event loop available")
             return
 
         # 已在运行且端口/host 未变则不重启
@@ -947,7 +1034,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         asyncio.ensure_future(new_server.start(), loop=loop)
         if not loop.is_running():
             self.logger.info(
-                "[mimo-tts] api server pending: will start when event loop runs"
+                "[voice-hub] api server pending: will start when event loop runs"
             )
 
     async def _stop_api_server(self) -> None:
@@ -956,9 +1043,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if server is not None and server.running:
             try:
                 await server.stop()
-                self.logger.info("[mimo-tts] api server stopped")
+                self.logger.info("[voice-hub] api server stopped")
             except Exception as exc:
-                self.logger.warning("[mimo-tts] api server stop failed: %s", exc)
+                self.logger.warning("[voice-hub] api server stop failed: %s", exc)
 
     def _unwrap_stale_partials(self) -> None:
         """在 __init__ 中调用：尝试将 registry 中本插件的 handler 重置为原始未绑定函数。
@@ -973,7 +1060,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             self._unwrap_registry_handlers()
             self._unwrap_func_tool_handlers()
         except Exception as exc:
-            self.logger.debug("[mimo-tts] _unwrap_stale_partials skipped: %s", exc)
+            self.logger.debug("[voice-hub] _unwrap_stale_partials skipped: %s", exc)
 
     def _unwrap_registry_handlers(self) -> None:
         registry = None
@@ -1013,7 +1100,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         if unwrapped:
             self.logger.info(
-                "[mimo-tts] unwrapped %d stale partial(s) from registry handlers",
+                "[voice-hub] unwrapped %d stale partial(s) from registry handlers",
                 unwrapped,
             )
 
@@ -1044,12 +1131,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         if unwrapped:
             self.logger.info(
-                "[mimo-tts] unwrapped %d stale partial(s) from func_tool_manager",
+                "[voice-hub] unwrapped %d stale partial(s) from func_tool_manager",
                 unwrapped,
             )
 
     _PLUGIN_IDENTIFIERS = (
-        "astrbot_plugin_mimo_tts_clone",
+        "astrbot_plugin_voice_hub",
         "MimoTTSClonePlugin",
     )
 
@@ -1078,14 +1165,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 from astrbot.core.star import star_handlers_registry  # type: ignore[import-not-found]
             except Exception:
                 self.logger.debug(
-                    "[mimo-tts] star_handlers_registry not importable, skip cleanup"
+                    "[voice-hub] star_handlers_registry not importable, skip cleanup"
                 )
                 return
 
         handlers = getattr(star_handlers_registry, "handlers", None)
         if not isinstance(handlers, list):
             self.logger.debug(
-                "[mimo-tts] star_handlers_registry.handlers is not a list, skip cleanup"
+                "[voice-hub] star_handlers_registry.handlers is not a list, skip cleanup"
             )
             return
 
@@ -1104,11 +1191,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 h for h in handlers if not _is_our_handler(h)
             ]
             self.logger.info(
-                "[mimo-tts] cleanup: removed %d stale handler(s) from registry",
+                "[voice-hub] cleanup: removed %d stale handler(s) from registry",
                 len(stale),
             )
         except Exception as exc:
-            self.logger.debug("[mimo-tts] failed to reassign handlers list: %s", exc)
+            self.logger.debug("[voice-hub] failed to reassign handlers list: %s", exc)
 
     def _cleanup_llm_tools(self) -> None:
         tool_names = {"mimo_tts_speak"}
@@ -1125,11 +1212,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 for name in tool_names:
                     method(name)
                 self.logger.info(
-                    "[mimo-tts] cleanup: removed LLM tools via %s", method_name
+                    "[voice-hub] cleanup: removed LLM tools via %s", method_name
                 )
                 return
             except Exception as exc:
-                self.logger.debug("[mimo-tts] %s failed: %s", method_name, exc)
+                self.logger.debug("[voice-hub] %s failed: %s", method_name, exc)
 
         try:
             func_tool_manager = getattr(
@@ -1147,8 +1234,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             after = len(func_tool_manager.tools)
             if before != after:
                 self.logger.info(
-                    "[mimo-tts] cleanup: removed %d stale LLM tool(s) from func_tool_manager",
+                    "[voice-hub] cleanup: removed %d stale LLM tool(s) from func_tool_manager",
                     before - after,
                 )
         except Exception as exc:
-            self.logger.debug("[mimo-tts] func_tool_manager cleanup skipped: %s", exc)
+            self.logger.debug("[voice-hub] func_tool_manager cleanup skipped: %s", exc)

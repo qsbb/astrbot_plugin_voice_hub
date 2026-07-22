@@ -6,8 +6,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from astrbot_plugin_mimo_tts_clone.core.pages_upload import store_voice_sample
-from astrbot_plugin_mimo_tts_clone.core.voice_store import VoiceStore
+from astrbot_plugin_voice_hub.core.pages_upload import store_voice_sample
+from astrbot_plugin_voice_hub.core.voice_store import VoiceStore
 
 
 class PagesUploadAPITests(unittest.TestCase):

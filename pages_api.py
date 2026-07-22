@@ -30,7 +30,7 @@ class PagesAPIMixin:
         if not callable(register_web_api):
             self.logger.warning("[mimo-tts] context.register_web_api unavailable")
             return
-        plugin_id = "astrbot_plugin_mimo_tts_clone"
+        plugin_id = "astrbot_plugin_voice_hub"
         routes = [
             ("get_config", self._pages_get_config, ["GET"], "获取 MiMo TTS 配置"),
             ("save_config", self._pages_save_config, ["POST"], "保存 MiMo TTS 配置"),
@@ -78,6 +78,12 @@ class PagesAPIMixin:
                 self._pages_test_connection,
                 ["POST"],
                 "测试 MiMo TTS 连接",
+            ),
+            (
+                "list_tts_providers",
+                self._pages_list_tts_providers,
+                ["GET"],
+                "列出 AstrBot TTS 提供商",
             ),
         ]
         for name, handler, methods, desc in routes:
@@ -478,3 +484,7 @@ class PagesAPIMixin:
                 "elapsed_ms": elapsed_ms,
                 "error": str(exc),
             }
+
+    async def _pages_list_tts_providers(self):
+        providers = self.list_astrbot_tts_providers()
+        return jsonify({"success": True, "providers": providers})

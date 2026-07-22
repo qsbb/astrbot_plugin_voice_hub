@@ -1,6 +1,6 @@
 import unittest
 
-from astrbot_plugin_mimo_tts_clone.core.synthesis_context import (
+from astrbot_plugin_voice_hub.core.synthesis_context import (
     build_style_director_cache_key,
     clip_log_text,
     merge_directed_context,

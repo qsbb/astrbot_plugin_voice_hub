@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from astrbot_plugin_mimo_tts_clone.core.mimo_official_client import (
+from astrbot_plugin_voice_hub.core.mimo_official_client import (
     MimoOfficialClient,
     MimoTTSConfig,
 )

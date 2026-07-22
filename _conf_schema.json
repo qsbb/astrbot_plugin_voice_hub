@@ -230,6 +230,19 @@
     "description": "外部 API 监听端口",
     "default": 9960
   },
+  "tts_backend": {
+    "type": "string",
+    "description": "TTS 后端",
+    "options": ["mimo", "astrbot"],
+    "hint": "mimo=使用插件自带的 MiMo 音色克隆；astrbot=调用 AstrBot 已配置的 TTS 提供商。",
+    "default": "mimo"
+  },
+  "astrbot_tts_provider_id": {
+    "type": "string",
+    "description": "AstrBot TTS 提供商 ID",
+    "hint": "tts_backend 为 astrbot 时生效。留空使用 AstrBot 默认 TTS 提供商；填写特定提供商 ID 可指定使用。",
+    "default": ""
+  },
   "output_retention_days": {
     "type": "int",
     "description": "生成音频文件保留天数，0 表示不按时间清理",

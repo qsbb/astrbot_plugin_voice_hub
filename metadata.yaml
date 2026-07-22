@@ -1,11 +1,10 @@
-name: astrbot_plugin_mimo_tts_clone
+name: astrbot_plugin_voice_hub
 display_name: MiMo TTS 音色克隆
 short_desc: 基于 MiMo 官方 API 的 TTS 音色克隆、多音色切换、AI 语音导演与情绪路由插件
 desc: >
-  提供 MiMo v2.5 voiceclone 官方接口接入、Pages 音色管理、授权参考音频上传、
-  试听诊断、全局/群/用户/情绪默认音色设置、发送前 AI 语音导演、
-  普通 LLM 回复概率语音化，以及面向其他插件复用的 TTS 服务方法和 LLM 工具。
-version: v0.5.3
+  双 TTS 后端语音中枢：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、
+  AI 语音导演、概率自动语音、OpenAI 兼容外部 API，以及 Pages 可视化管理。
+version: v0.6.0
 author: Justice-ocr
 author_desc: >
   Justice-ocr，AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、
@@ -13,8 +12,8 @@ author_desc: >
 astrbot_version: ">=4.16.0,<5"
 support_platforms:
   - aiocqhttp
-repo: "https://github.com/qsbb/astrbot_plugin_mimo_tts_clone"
-homepage: "https://github.com/qsbb/astrbot_plugin_mimo_tts_clone"
+repo: "https://github.com/qsbb/astrbot_plugin_voice_hub"
+homepage: "https://github.com/qsbb/astrbot_plugin_voice_hub"
 icon: "logo.png"
 tags:
   - tts

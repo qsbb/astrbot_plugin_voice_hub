@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.6.0 - 2026-07-22
+
+### Added
+
+- 新增双 TTS 后端切换：支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换。
+- 新增 `tts_backend` 配置项（`mimo` / `astrbot`），可在 Pages 面板选择。
+- 新增 `astrbot_tts_provider_id` 配置项，可指定使用哪个 AstrBot TTS 提供商。
+- Pages 面板新增 TTS 后端选择器和提供商下拉列表。
+- 项目更名为 `astrbot_plugin_voice_hub`，旧数据目录自动迁移。
+
+### Changed
+
+- 项目从 `astrbot_plugin_mimo_tts_clone` 更名为 `astrbot_plugin_voice_hub`。
+- 日志前缀从 `[mimo-tts]` 改为 `[voice-hub]`。
+- 仓库地址改为 `https://github.com/qsbb/astrbot_plugin_voice_hub`。
+
 ## v0.5.3 - 2026-07-22
 
 ### Changed

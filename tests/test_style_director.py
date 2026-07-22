@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from astrbot_plugin_mimo_tts_clone.core.style_director import (
+from astrbot_plugin_voice_hub.core.style_director import (
     StyleDirectorInput,
     build_style_director_prompt,
     generate_style_directive,

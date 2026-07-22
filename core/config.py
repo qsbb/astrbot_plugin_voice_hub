@@ -43,6 +43,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "api_server_enabled": False,
     "api_server_host": "0.0.0.0",
     "api_server_port": 9960,
+    "tts_backend": "mimo",  # "mimo" 或 "astrbot"
+    "astrbot_tts_provider_id": "",  # 空=用 AstrBot 默认 TTS 提供商
 }
 
 
@@ -85,6 +87,8 @@ class PluginConfig:
     api_server_enabled: bool
     api_server_host: str
     api_server_port: int
+    tts_backend: str
+    astrbot_tts_provider_id: str
 
     @property
     def max_voice_file_bytes(self) -> int:
@@ -196,6 +200,13 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["api_server_enabled"] = _bool_value(cfg.get("api_server_enabled", False))
     cfg["api_server_host"] = str(cfg.get("api_server_host") or "0.0.0.0").strip()
     cfg["api_server_port"] = _int_at_least(cfg.get("api_server_port"), 9960, 1)
+    backend = str(cfg.get("tts_backend") or "mimo").strip().lower()
+    if backend not in {"mimo", "astrbot"}:
+        backend = "mimo"
+    cfg["tts_backend"] = backend
+    cfg["astrbot_tts_provider_id"] = str(
+        cfg.get("astrbot_tts_provider_id") or ""
+    ).strip()
     return cfg
 
 

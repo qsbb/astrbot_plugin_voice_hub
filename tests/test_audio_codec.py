@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from astrbot_plugin_mimo_tts_clone.core.audio_codec import (
+from astrbot_plugin_voice_hub.core.audio_codec import (
     AudioValidationError,
     encode_voice_file_data_url,
     estimate_base64_chars,

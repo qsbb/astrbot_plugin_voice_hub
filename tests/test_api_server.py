@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from astrbot_plugin_mimo_tts_clone.core.api_server import (
+from astrbot_plugin_voice_hub.core.api_server import (
     MimoTTSApiServer,
     _concat_wav,
     _read_bytes,

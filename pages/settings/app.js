@@ -351,6 +351,40 @@ function updateTriggerModeUI() {
   $('auto-tts-probability-field').classList.toggle('is-disabled', !probabilityMode);
 }
 
+function updateApiServerUrl() {
+  const urlField = $('api-server-url');
+  if (!urlField) return;
+  const enabled = $('api-server-enabled').checked;
+  if (!enabled) {
+    urlField.value = '';
+    return;
+  }
+  const port = $('api-server-port').value || '9960';
+  const hostname = window.location.hostname || '127.0.0.1';
+  urlField.value = `http://${hostname}:${port}/v1`;
+}
+
+async function copyApiServerUrl() {
+  const urlField = $('api-server-url');
+  const url = urlField.value;
+  if (!url) {
+    toast('请先开启外部 TTS API 开关', 'warn');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('API 链接已复制');
+  } catch (error) {
+    urlField.select();
+    try {
+      document.execCommand('copy');
+      toast('API 链接已复制');
+    } catch (fallbackError) {
+      toast('复制失败，请手动选中地址复制', 'err');
+    }
+  }
+}
+
 function applyState(payload) {
   state.config = payload.config || {};
   state.voices = payload.voices || [];
@@ -383,6 +417,7 @@ function applyState(payload) {
   $('api-server-enabled').checked = state.config.api_server_enabled === true;
   $('api-server-host').value = state.config.api_server_host || '0.0.0.0';
   $('api-server-port').value = state.config.api_server_port ?? 9960;
+  updateApiServerUrl();
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
@@ -752,10 +787,19 @@ function bindConfigDirtyState() {
     'segment-enabled',
     'segment-threshold-chars',
     'segment-max-segments',
+    'api-server-enabled',
+    'api-server-host',
+    'api-server-port',
   ].forEach(id => {
     const el = $(id);
     el.addEventListener('input', markDirty);
     el.addEventListener('change', markDirty);
+  });
+
+  ['api-server-enabled', 'api-server-port', 'api-server-host'].forEach(id => {
+    const el = $(id);
+    el.addEventListener('change', updateApiServerUrl);
+    el.addEventListener('input', updateApiServerUrl);
   });
 
   document.querySelectorAll('input[name="tts-trigger-mode"]').forEach(input => {
@@ -795,6 +839,9 @@ async function init() {
   bind('upload-voice', uploadVoice, '上传中...');
   bind('preview-btn', preview, '生成中...');
   bind('test-connection', testConnection, '诊断中...');
+  $('copy-api-url').addEventListener('click', () => {
+    runAction($('copy-api-url'), '复制中...', copyApiServerUrl);
+  });
   bindConfigDirtyState();
   bindActionAvailability();
   bindProviderSelect();

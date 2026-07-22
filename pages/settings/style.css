@@ -765,6 +765,22 @@ button.danger {
   margin-top: 14px;
 }
 
+.api-link-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.api-link-row label.wide {
+  flex: 1;
+}
+
+.api-link-row button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .emotion-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

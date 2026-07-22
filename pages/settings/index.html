@@ -126,7 +126,12 @@
           <label>API 监听地址<input id="api-server-host" type="text" placeholder="0.0.0.0" /></label>
           <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
         </div>
+        <div class="api-link-row">
+          <label class="wide">API 调用地址<input id="api-server-url" type="text" readonly placeholder="开启后显示" /></label>
+          <button id="copy-api-url" class="secondary" type="button">复制链接</button>
+        </div>
         <p class="field-hint">开启后插件会启动独立 HTTP 服务，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名/ID。</p>
+        <p class="field-hint">在 AstrBot 的 openai_tts 提供商配置中，Base URL 填入上方地址，API Key 填任意字符串（如 <code>sk-anything</code>）即可，否则会报 Missing credentials。</p>
         <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
       </article>
     </section>

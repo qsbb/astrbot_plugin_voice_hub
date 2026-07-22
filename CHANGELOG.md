@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.1 - 2026-07-22
+
+### Added
+
+- Pages 面板在 API 服务开关下方新增「API 调用地址」只读输入框和「复制链接」按钮，开启开关后自动生成 `http://当前主机:端口/v1` 地址，一键复制到剪贴板（带 `document.execCommand` 兜底）。
+- 新增 API Key 填写提示：说明在 AstrBot 的 openai_tts 提供商配置中 API Key 填任意字符串（如 `sk-anything`）即可，避免触发 `Missing credentials` 实例化错误。
+
 ## v0.5.0 - 2026-07-22
 
 ### Added

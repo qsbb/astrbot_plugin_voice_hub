@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520" role="img" aria-labelledby="title desc">
-  <title id="title">MiMo Sound Studio README Hero</title>
-  <desc id="desc">Warm dashboard illustration for AstrBot MiMo TTS voice clone plugin.</desc>
+  <title id="title">Voice Hub README Hero</title>
+  <desc id="desc">Warm dashboard illustration for AstrBot Voice Hub dual TTS backend plugin.</desc>
   <defs>
     <radialGradient id="glow" cx="18%" cy="8%" r="86%">
       <stop offset="0" stop-color="#fff2bd"/>
@@ -21,8 +21,8 @@
   <rect x="76" y="68" width="1128" height="384" rx="44" fill="url(#panel)" filter="url(#shadow)"/>
   <g transform="translate(124 110)">
     <text x="0" y="0" fill="#80510f" font-family="Arial, sans-serif" font-size="22" font-weight="800" letter-spacing="3">ASTRBOT PLUGIN</text>
-    <text x="0" y="72" fill="#24180d" font-family="Arial, sans-serif" font-size="68" font-weight="900">MiMo Sound Studio</text>
-    <text x="0" y="118" fill="#6f5838" font-family="Arial, sans-serif" font-size="25">Official MiMo v2.5 voiceclone TTS, multi-voice routing, Pages UI.</text>
+    <text x="0" y="72" fill="#24180d" font-family="Arial, sans-serif" font-size="68" font-weight="900">Voice Hub</text>
+    <text x="0" y="118" fill="#6f5838" font-family="Arial, sans-serif" font-size="25">Dual TTS backend: MiMo voiceclone + AstrBot built-in TTS, Pages UI.</text>
     <g transform="translate(0 172)">
       <rect width="170" height="46" rx="23" fill="#24180d"/>
       <text x="85" y="31" text-anchor="middle" fill="#ffd376" font-family="Arial, sans-serif" font-size="18" font-weight="800">Voice Clone</text>

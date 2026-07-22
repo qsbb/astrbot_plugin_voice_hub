@@ -1,10 +1,10 @@
 name: astrbot_plugin_voice_hub
-display_name: MiMo TTS 音色克隆
-short_desc: 基于 MiMo 官方 API 的 TTS 音色克隆、多音色切换、AI 语音导演与情绪路由插件
+display_name: Voice Hub 语音中枢
+short_desc: 双 TTS 后端语音中枢：MiMo 音色克隆 + AstrBot 内置 TTS、多音色管理、AI 语音导演、外部 API
 desc: >
   双 TTS 后端语音中枢：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、
   AI 语音导演、概率自动语音、OpenAI 兼容外部 API，以及 Pages 可视化管理。
-version: v0.6.1
+version: v0.6.2
 author: Justice-ocr
 author_desc: >
   Justice-ocr，AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、

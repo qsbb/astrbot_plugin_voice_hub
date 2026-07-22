@@ -11,8 +11,8 @@ class PagesUITests(unittest.TestCase):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
-        self.assertIn("MiMo Sound Studio", html)
-        self.assertIn("Firefly Inspired Voice Console", html)
+        self.assertIn("Voice Hub", html)
+        self.assertIn("Dual Backend Voice Console", html)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)

@@ -55,7 +55,7 @@ class MimoTTSApiServer:
         except OSError as exc:
             # 端口可能已被另一个 server 实例占用（__init__ task 与钩子 fallback 竞态）
             self.logger.warning(
-                "[mimo-tts] api server failed to bind %s:%s: %s",
+                "[voice-hub] api server failed to bind %s:%s: %s",
                 self.host,
                 self.port,
                 exc,
@@ -65,7 +65,7 @@ class MimoTTSApiServer:
             self._site = None
             return
         self.logger.info(
-            "[mimo-tts] api server listening on http://%s:%s/v1/audio/speech",
+            "[voice-hub] api server listening on http://%s:%s/v1/audio/speech",
             self.host,
             self.port,
         )
@@ -96,7 +96,7 @@ class MimoTTSApiServer:
     async def _handle_root(self, request: web.Request) -> web.Response:
         return web.json_response(
             {
-                "service": "mimo-tts",
+                "service": "voice-hub",
                 "endpoints": ["/v1/audio/speech", "/v1/models"],
             }
         )
@@ -113,7 +113,7 @@ class MimoTTSApiServer:
                     {
                         "id": model,
                         "object": "model",
-                        "owned_by": "mimo-tts",
+                        "owned_by": "voice-hub",
                     }
                 ],
             }
@@ -152,7 +152,7 @@ class MimoTTSApiServer:
                 style_director_enabled=False,
             )
         except Exception as exc:
-            self.logger.warning("[mimo-tts] api server synthesis failed: %s", exc)
+            self.logger.warning("[voice-hub] api server synthesis failed: %s", exc)
             return _error_response(f"synthesis failed: {exc}", 500)
 
         if not outputs:

@@ -28,12 +28,12 @@ class PagesAPIMixin:
     def _register_pages_web_api(self) -> None:
         register_web_api = getattr(self.context, "register_web_api", None)
         if not callable(register_web_api):
-            self.logger.warning("[mimo-tts] context.register_web_api unavailable")
+            self.logger.warning("[voice-hub] context.register_web_api unavailable")
             return
         plugin_id = "astrbot_plugin_voice_hub"
         routes = [
-            ("get_config", self._pages_get_config, ["GET"], "获取 MiMo TTS 配置"),
-            ("save_config", self._pages_save_config, ["POST"], "保存 MiMo TTS 配置"),
+            ("get_config", self._pages_get_config, ["GET"], "获取 Voice Hub 配置"),
+            ("save_config", self._pages_save_config, ["POST"], "保存 Voice Hub 配置"),
             ("list_voices", self._pages_list_voices, ["GET"], "列出音色"),
             (
                 "list_ai_providers",
@@ -77,7 +77,7 @@ class PagesAPIMixin:
                 "test_connection",
                 self._pages_test_connection,
                 ["POST"],
-                "测试 MiMo TTS 连接",
+                "测试 Voice Hub 连接",
             ),
             (
                 "list_tts_providers",
@@ -165,7 +165,7 @@ class PagesAPIMixin:
                 candidates.extend(list(getter() or []))
             except Exception as exc:
                 self.logger.warning(
-                    "[mimo-tts] failed to list AstrBot AI providers: %s", exc
+                    "[voice-hub] failed to list AstrBot AI providers: %s", exc
                 )
 
         provider_manager = getattr(self.context, "provider_manager", None)

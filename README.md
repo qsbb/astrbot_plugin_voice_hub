@@ -18,28 +18,30 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme-hero.svg" alt="MiMo Sound Studio 插件横幅" />
+  <img src="./assets/readme-hero.svg" alt="Voice Hub 插件横幅" />
 </p>
 
 ## 项目来源
 
 本版本基于 Justice-ocr 开源的 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone) 修改，沿用原项目的 MiMo v2.5 voiceclone 接入、音色管理、概率自动语音、情绪路由、AI 风格导演、Pages 管理和插件服务能力。
 
-在原项目基础上，当前版本主要调整了聊天触发方式：
+在原项目基础上，当前版本主要新增：
 
+- **双 TTS 后端切换**：支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换，无需上传音频即可使用 AstrBot 已配置的 TTS。
+- **OpenAI 兼容外部 API**：开启后插件启动独立 HTTP 服务，暴露 `POST /v1/audio/speech` 接口，可被任意 OpenAI TTS 客户端调用。
+- **一键迁移旧插件配置**：Pages 面板提供按钮，自动读取旧插件 `astrbot_plugin_mimo_tts_clone` 的配置和音色数据并合并到本插件。
 - 保留原版概率语音的权限检查、概率抽取、文本清洗、音色与情绪路由、分段合成及回复链处理。
-- 增加“概率触发 / LLM 自主决定”互斥模式；概率模式不向 LLM 提供 TTS 工具，LLM 模式不执行概率自动 TTS。
-- 让主 LLM 在工具模式下直接判断是否适合发送语音，并提供 `emotion`、`voice` 和 `style`。
-- 增加事件级语音处理标记，避免同一轮回复被重复合成。
+- 增加"概率触发 / LLM 自主决定"互斥模式；概率模式不向 LLM 提供 TTS 工具，LLM 模式不执行概率自动 TTS。
 - 移除 `/tts`、`/朗读`、`/语音` 及聊天内音色管理命令，统一通过 Pages、LLM 工具或插件服务调用。
 
 原项目版权归原作者所有，本版本继续遵循 [MIT License](./LICENSE)。
 
 ## 适合谁
 
-- 想在 AstrBot 里接入 MiMo 官方 voiceclone TTS 的用户。
+- 想在 AstrBot 里接入 MiMo 官方 voiceclone TTS 或切换使用 AstrBot 内置 TTS 的用户。
 - 想用 Pages 页面管理多个授权音色、默认音色和试听流程的机器人管理员。
 - 想通过 LLM 工具按需生成语音，或让普通 LLM 回复按概率转为语音的群聊/私聊场景。
+- 想通过 OpenAI 兼容 API 给外部应用提供 TTS 服务的用户。
 - 想给其他插件复用统一 TTS 服务能力的插件开发者。
 
 ## 功能概览

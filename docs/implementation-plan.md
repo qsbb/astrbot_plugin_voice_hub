@@ -1,6 +1,6 @@
-# MiMo TTS Clone Implementation Plan
+# Voice Hub Implementation Plan
 
-Goal: build an AstrBot plugin that manages local voice samples, calls the official MiMo `mimo-v2.5-tts-voiceclone` API, and supports multi-voice switching from both Pages and chat commands.
+Goal: build an AstrBot plugin that supports dual TTS backends (MiMo voiceclone + AstrBot built-in TTS), manages local voice samples, calls the official MiMo `mimo-v2.5-tts-voiceclone` API, and supports multi-voice switching from Pages.
 
 Architecture: the plugin stores voice sample metadata locally and sends the selected sample as a Data URL on each synthesis request. Pages handles configuration, upload, preview, and default voice management. Commands resolve voice priority from temporary command choice, user default, group default, and global default.
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6.1 - 2026-07-22
+
+### Added
+
+- Pages 面板「工作台状态」区块新增「从旧插件迁移配置」按钮，一键读取旧插件 `astrbot_plugin_mimo_tts_clone` 的 config.json 和音色数据并合并到本插件，已存在的数据不会被覆盖。
+
+### Fixed
+
+- 修复 AstrBot TTS 提供商下拉列表为空的问题：`list_astrbot_tts_providers` 改为优先从 `providers_config` 读取配置，即使提供商实例化失败（如 Missing credentials）也能列出来供选择。
+- 修正 TTS 后端选择器提示：明确说明只有「MiMo TTS」后端需要上传授权参考音频，「AstrBot 内置 TTS」无需上传音频；切换到 AstrBot 后端时音色库区块会自动弱化显示。
+
 ## v0.6.0 - 2026-07-22
 
 ### Added

@@ -781,6 +781,23 @@ button.danger {
   white-space: nowrap;
 }
 
+.migration-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.migration-row button {
+  align-self: flex-start;
+}
+
+.voice-workbench.is-muted {
+  opacity: 0.55;
+}
+
 .emotion-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

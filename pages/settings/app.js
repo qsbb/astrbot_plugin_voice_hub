@@ -357,6 +357,29 @@ function updateTtsBackendUI() {
   const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || 'mimo';
   const isAstrbot = backend === 'astrbot';
   $('astrbot-tts-provider-field').style.display = isAstrbot ? '' : 'none';
+  // 切换到 AstrBot TTS 时弱化音色库区块提示
+  const voiceWorkbench = document.querySelector('.voice-workbench');
+  if (voiceWorkbench) {
+    voiceWorkbench.classList.toggle('is-muted', isAstrbot);
+  }
+}
+
+async function migrateOldPlugin() {
+  let res;
+  try {
+    res = await bridge.apiPost('migrate_old_plugin', {});
+  } catch (error) {
+    throw new Error(extractErrorMessage(error, '迁移失败'));
+  }
+  if (!res.success) {
+    throw new Error(res.error || '迁移失败');
+  }
+  // 迁移成功后刷新页面状态
+  await refresh();
+  const detail = res.errors && res.errors.length
+    ? `（部分错误：${res.errors.join('; ')}）`
+    : '';
+  toast(`迁移成功：${res.message || '已完成'}${detail}`);
 }
 
 async function loadTtsProviders(selectedId) {
@@ -883,6 +906,9 @@ async function init() {
   bind('test-connection', testConnection, '诊断中...');
   $('copy-api-url').addEventListener('click', () => {
     runAction($('copy-api-url'), '复制中...', copyApiServerUrl);
+  });
+  $('migrate-old-plugin').addEventListener('click', () => {
+    runAction($('migrate-old-plugin'), '迁移中...', migrateOldPlugin);
   });
   bindConfigDirtyState();
   bindActionAvailability();

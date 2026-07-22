@@ -70,6 +70,10 @@
         <h2>工作台状态</h2>
       </div>
       <div id="readiness-list" class="readiness-list"></div>
+      <div class="migration-row">
+        <button id="migrate-old-plugin" class="secondary" type="button">从旧插件迁移配置</button>
+        <span id="migrate-hint" class="field-hint">读取旧插件 astrbot_plugin_mimo_tts_clone 的配置和音色数据，合并到本插件。已存在的数据不会被覆盖。</span>
+      </div>
     </section>
 
     <section class="studio-grid">
@@ -114,15 +118,16 @@
           </fieldset>
           <fieldset class="trigger-mode-fieldset">
             <legend>TTS 后端</legend>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用插件自带的 MiMo 音色克隆能力。</small></span></label>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>调用 AstrBot 已配置的 TTS 提供商，无需上传音色。</small></span></label>
+            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>需要上传授权参考音频进行音色克隆。</small></span></label>
+            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>调用 AstrBot 已配置的 TTS 提供商，无需上传音频。</small></span></label>
           </fieldset>
           <label id="astrbot-tts-provider-field">AstrBot TTS 提供商
             <select id="astrbot-tts-provider-id">
               <option value="">使用 AstrBot 默认</option>
             </select>
           </label>
-          <p class="field-hint">选择「AstrBot 内置 TTS」后，MiMo 的音色、情绪路由、AI 导演等功能不生效，直接使用 AstrBot 已配置的 TTS 提供商合成语音。</p>
+          <p class="field-hint">选择「AstrBot 内置 TTS」后，直接使用 AstrBot 已配置的 TTS 提供商合成语音，无需上传音频；MiMo 的音色克隆、情绪路由、AI 导演等功能不生效。</p>
+          <p class="field-hint">只有在「MiMo TTS」后端下才需要上传参考音频。切换到「AstrBot 内置 TTS」后可忽略音色库。</p>
           <p class="field-hint">触发方式是唯一开关：概率触发会执行自动 TTS，LLM 自主决定只开放语音工具。</p>
           <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
           <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>

@@ -85,6 +85,12 @@ class PagesAPIMixin:
                 ["GET"],
                 "列出 AstrBot TTS 提供商",
             ),
+            (
+                "migrate_old_plugin",
+                self._pages_migrate_old_plugin,
+                ["POST"],
+                "从旧插件迁移配置",
+            ),
         ]
         for name, handler, methods, desc in routes:
             register_web_api(f"/{plugin_id}/{name}", handler, methods, desc)
@@ -488,3 +494,7 @@ class PagesAPIMixin:
     async def _pages_list_tts_providers(self):
         providers = self.list_astrbot_tts_providers()
         return jsonify({"success": True, "providers": providers})
+
+    async def _pages_migrate_old_plugin(self):
+        result = self.migrate_from_old_plugin()
+        return jsonify(result)

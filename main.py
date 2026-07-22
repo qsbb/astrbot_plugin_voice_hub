@@ -45,7 +45,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_voice_hub",
     "Justice-ocr",
     "双 TTS 后端语音中枢：MiMo 音色克隆 + AstrBot 内置 TTS、多音色管理、AI 语音导演、外部 API",
-    "0.6.0",
+    "0.6.1",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
@@ -376,26 +376,152 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         return results
 
     def list_astrbot_tts_providers(self) -> list[dict[str, str]]:
-        """列出 AstrBot 已配置的 TTS 提供商。"""
-        try:
-            providers = self.context.provider_manager.tts_provider_insts
-        except Exception:
-            return []
+        """列出 AstrBot 已配置的 TTS 提供商。
+
+        优先读取 provider 配置（providers_config），这样即使提供商实例化失败
+        （如 Missing credentials）也能列出来供用户选择。再补充已实例化的列表。
+        """
         result: list[dict[str, str]] = []
-        for prov in providers:
+        seen_ids: set[str] = set()
+
+        # 优先从配置读取（覆盖实例化失败的情况）
+        try:
+            providers_config = self.context.provider_manager.providers_config or []
+        except Exception:
+            providers_config = []
+        for cfg in providers_config:
+            if not isinstance(cfg, dict):
+                continue
+            ptype = str(cfg.get("type", "") or "")
+            # 只保留 TTS 类型：openai_tts / edge_tts / fish_speech 等
+            if not ptype.endswith("_tts") and ptype not in {
+                "edge_tts",
+                "fish_speech_tts",
+            }:
+                continue
+            pid = str(cfg.get("id", "") or "")
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+            model_config = cfg.get("model_config", {}) if isinstance(cfg, dict) else {}
+            model_value = ""
+            if isinstance(model_config, dict):
+                model_value = str(model_config.get("model", "") or "")
+            result.append(
+                {
+                    "id": pid,
+                    "type": ptype,
+                    "model": model_value,
+                }
+            )
+
+        # 补充已实例化但配置读取不到的提供商
+        try:
+            insts = self.context.provider_manager.tts_provider_insts
+        except Exception:
+            insts = []
+        for prov in insts:
             cfg = getattr(prov, "provider_config", {}) or {}
+            pid = str(cfg.get("id", "") or "")
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
             model_config = cfg.get("model_config", {}) if isinstance(cfg, dict) else {}
             model_value = str(getattr(prov, "model_name", "") or "")
             if not model_value and isinstance(model_config, dict):
                 model_value = str(model_config.get("model", "") or "")
             result.append(
                 {
-                    "id": str(cfg.get("id", "") or ""),
+                    "id": pid,
                     "type": str(cfg.get("type", "") or ""),
                     "model": model_value,
                 }
             )
         return result
+
+    def migrate_from_old_plugin(self) -> dict:
+        """从旧插件 astrbot_plugin_mimo_tts_clone 读取配置并迁移到本插件。
+
+        读取旧插件的 config.json 和音色数据，合并到当前插件。已存在的配置不会被覆盖。
+        """
+        import shutil
+
+        old_data_dir = (
+            pathlib.Path(self.data_dir).parent / "astrbot_plugin_mimo_tts_clone"
+        )
+        if not old_data_dir.is_dir():
+            return {
+                "success": False,
+                "error": f"未找到旧插件数据目录：{old_data_dir}",
+            }
+
+        migrated: list[str] = []
+        errors: list[str] = []
+
+        # 迁移 config.json（合并而非覆盖）
+        old_config_file = old_data_dir / "config.json"
+        if old_config_file.is_file():
+            try:
+                old_config = json.loads(old_config_file.read_text(encoding="utf-8"))
+                if isinstance(old_config, dict):
+                    merged = dict(self.config)
+                    # 只迁移旧配置中存在且当前不存在的键
+                    for key, value in old_config.items():
+                        if key not in merged or merged.get(key) in (None, "", [], {}):
+                            merged[key] = value
+                    self.config = normalize_config(merged)
+                    self.plugin_config = build_plugin_config(self.config)
+                    self.emotion_router = EmotionRouter(
+                        emotion_contexts=self.plugin_config.emotion_contexts
+                    )
+                    self._persist_local_config()
+                    migrated.append("config.json")
+            except Exception as exc:
+                errors.append(f"config.json: {exc}")
+
+        # 迁移音色目录（voices）
+        old_voices_dir = old_data_dir / "voices"
+        new_voices_dir = pathlib.Path(self.data_dir) / "voices"
+        if old_voices_dir.is_dir():
+            try:
+                new_voices_dir.mkdir(parents=True, exist_ok=True)
+                for item in old_voices_dir.iterdir():
+                    dest = new_voices_dir / item.name
+                    if not dest.exists():
+                        if item.is_dir():
+                            shutil.copytree(item, dest)
+                        else:
+                            shutil.copy2(item, dest)
+                migrated.append("voices/")
+            except Exception as exc:
+                errors.append(f"voices/: {exc}")
+
+        # 迁移音色库索引文件
+        old_index = old_data_dir / "voices.json"
+        if old_index.is_file():
+            try:
+                dest = pathlib.Path(self.data_dir) / "voices.json"
+                if not dest.exists():
+                    shutil.copy2(old_index, dest)
+                migrated.append("voices.json")
+            except Exception as exc:
+                errors.append(f"voices.json: {exc}")
+
+        # 刷新内存中的音色库
+        self.voice_store = VoiceStore(self.data_dir)
+
+        if not migrated:
+            return {
+                "success": False,
+                "error": "旧插件目录中没有可迁移的数据",
+            }
+
+        return {
+            "success": True,
+            "migrated": migrated,
+            "errors": errors,
+            "message": f"已迁移 {', '.join(migrated)}",
+        }
 
     async def text_to_speech(
         self,

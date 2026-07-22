@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from astrbot_plugin_mimo_tts_clone.core.text_processing import (
     clean_tts_text,
+    contains_url,
     split_tts_text,
 )
 
@@ -35,3 +36,13 @@ class TextProcessingTests(unittest.TestCase):
         self.assertEqual(
             parts, ["第一句很短。", "第二句也很短！", "第三句继续？第四句结束。"]
         )
+
+    def test_contains_url_detects_http_and_www(self):
+        self.assertTrue(contains_url("请看 https://example.com"))
+        self.assertTrue(contains_url("访问 www.example.com 试试"))
+        self.assertTrue(contains_url("http://foo.bar/baz"))
+
+    def test_contains_url_returns_false_for_plain_text(self):
+        self.assertFalse(contains_url("今天天气不错"))
+        self.assertFalse(contains_url(""))
+        self.assertFalse(contains_url(None))

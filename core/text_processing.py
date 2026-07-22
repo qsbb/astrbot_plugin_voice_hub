@@ -31,6 +31,11 @@ def clean_tts_text(text: str) -> str:
     return content.strip()
 
 
+def contains_url(text: str) -> bool:
+    """检测文本是否包含网址。"""
+    return bool(_URL_RE.search(str(text or "")))
+
+
 def split_tts_text(
     text: str,
     *,

@@ -207,6 +207,12 @@
     "description": "语音消息发送失败或当前版本缺少语音组件时，允许回退为文件发送",
     "default": true
   },
+  "skip_url_tts": {
+    "type": "bool",
+    "description": "跳过含网址的回复语音化",
+    "hint": "开启后，当 LLM 回复中包含网址时不进行 TTS 朗读（网址只随文字发送，不会出现在语音里）；LLM 工具 mimo_tts_speak 遇到含网址的文本也会拒绝合成。",
+    "default": true
+  },
   "output_retention_days": {
     "type": "int",
     "description": "生成音频文件保留天数，0 表示不按时间清理",

@@ -30,7 +30,7 @@ from .core.synthesis_context import (
     clip_log_text,
     merge_directed_context,
 )
-from .core.text_processing import clean_tts_text, split_tts_text
+from .core.text_processing import clean_tts_text, contains_url, split_tts_text
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
@@ -39,7 +39,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.4.3",
+    "0.4.4",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
@@ -394,7 +394,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             delivery clearly improves the response. Do not call it for an ordinary text reply.
             For long text, decide whether voice delivery is suitable before calling; the plugin
             handles any required segmentation. Generate `style` directly from the requested
-            delivery and text instead of asking the user to provide a style.
+            delivery and text instead of asking the user to provide a style. If the text
+            contains a URL and the skip_url_tts option is on, this tool will refuse to
+            synthesize — send URLs as plain text instead.
 
             Args:
                 text(string): Complete text to convert to speech.
@@ -415,6 +417,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             content = str(text or "").strip()
             if not content:
                 yield "empty text"
+                return
+            if plugin.plugin_config.skip_url_tts and contains_url(content):
+                yield (
+                    "skipped tts: text contains url and skip_url_tts is on; "
+                    "send the url as plain text instead"
+                )
                 return
             try:
                 outputs = await plugin.synthesize_text(
@@ -849,7 +857,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if callable(is_llm_result) and not is_llm_result():
             plugin.logger.info("[mimo-tts] auto tts skipped: non-LLM result")
             return
-        text = clean_tts_text(result.get_plain_text())
+        raw_plain_text = result.get_plain_text()
+        if plugin.plugin_config.skip_url_tts and contains_url(raw_plain_text):
+            plugin.logger.info("[mimo-tts] auto tts skipped: reply contains url")
+            return
+        text = clean_tts_text(raw_plain_text)
         if not text:
             plugin.logger.info("[mimo-tts] auto tts skipped: empty plain text")
             return

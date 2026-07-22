@@ -1,1 +1,2 @@
 openai>=1.97
+aiohttp>=3.9

@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.0 - 2026-07-22
+
+### Added
+
+- 新增 OpenAI 兼容的外部 TTS API 功能：开启 `api_server_enabled` 后插件启动独立 HTTP 服务，暴露 `POST /v1/audio/speech` 接口，可被任意 OpenAI TTS 客户端直接调用。
+- 新增 `GET /v1/models` 接口，返回当前模型信息（兼容 OpenAI SDK 的模型列表请求）。
+- 新增 `api_server_host` / `api_server_port` 配置项，默认监听 `0.0.0.0:9960`。
+- Pages 面板新增 API 服务开关和监听地址/端口配置。
+- `requirements.txt` 新增 `aiohttp>=3.9` 依赖。
+
+### Notes
+
+- API 不校验 Authorization 头和 model 字段，方便外部工具直接调用；`voice` 字段填插件音色名或 ID，匹配不到时使用默认音色。
+- 响应为 `audio/wav` 二进制流，兼容 OpenAI Python SDK 的 `client.audio.speech.create(...)` 调用方式。
+- 服务在插件 `terminate` 时自动关闭，热重载时若端口/host 未变则不重启。
+- 默认关闭，需在 Pages 面板或配置中手动开启。
+
 ## v0.4.5 - 2026-07-22
 
 ### Changed

@@ -20,6 +20,7 @@ except Exception:  # pragma: no cover - AstrBot versions differ here.
     Record = None
 
 from .core.audio_codec import encode_voice_file_data_url, estimate_base64_chars
+from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
@@ -44,11 +45,12 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.4.5",
+    "0.5.0",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
     _current_instance: Any = None
+    _api_server: Any = None
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -71,6 +73,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         MimoTTSClonePlugin._current_instance = self
         self._unwrap_stale_partials()
         self._register_pages_web_api()
+        self._ensure_api_server()
 
     @staticmethod
     def _coerce_config(config: Any) -> dict[str, Any]:
@@ -143,6 +146,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 self.logger.warning(
                     "[mimo-tts] failed to persist native config: %s", exc
                 )
+        self._ensure_api_server()
         return persisted
 
     def _client(self) -> MimoOfficialClient:
@@ -898,7 +902,56 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         result.chain.extend(audio_components)
 
     async def terminate(self):
+        await self._stop_api_server()
         self._cleanup_plugin_handlers()
+
+    def _ensure_api_server(self) -> None:
+        """根据配置启动或停止外部 API 服务。"""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+
+        if not self.plugin_config.api_server_enabled:
+            return
+
+        if loop is None or not loop.is_running():
+            self.logger.info("[mimo-tts] api server deferred: no running event loop")
+            return
+
+        # 已在运行且端口/host 未变则不重启
+        server = MimoTTSClonePlugin._api_server
+        if (
+            server is not None
+            and server.running
+            and server.host == self.plugin_config.api_server_host
+            and server.port == self.plugin_config.api_server_port
+        ):
+            server.plugin = self
+            return
+
+        # 配置变化，先停旧的
+        if server is not None and server.running:
+            asyncio.ensure_future(server.stop(), loop=loop)
+
+        new_server = MimoTTSApiServer(
+            self,
+            host=self.plugin_config.api_server_host,
+            port=self.plugin_config.api_server_port,
+            logger=self.logger,
+        )
+        MimoTTSClonePlugin._api_server = new_server
+        asyncio.ensure_future(new_server.start(), loop=loop)
+
+    async def _stop_api_server(self) -> None:
+        server = MimoTTSClonePlugin._api_server
+        MimoTTSClonePlugin._api_server = None
+        if server is not None and server.running:
+            try:
+                await server.stop()
+                self.logger.info("[mimo-tts] api server stopped")
+            except Exception as exc:
+                self.logger.warning("[mimo-tts] api server stop failed: %s", exc)
 
     def _unwrap_stale_partials(self) -> None:
         """在 __init__ 中调用：尝试将 registry 中本插件的 handler 重置为原始未绑定函数。

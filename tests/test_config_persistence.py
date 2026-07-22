@@ -281,6 +281,27 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["output_max_files"], 0)
         self.assertFalse(cfg["replace_url_in_tts"])
 
+    def test_runtime_config_normalizes_api_server_options(self):
+        from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
+
+        cfg = normalize_config(
+            {
+                "api_server_enabled": "true",
+                "api_server_host": "  127.0.0.1  ",
+                "api_server_port": "8080",
+            }
+        )
+
+        self.assertTrue(cfg["api_server_enabled"])
+        self.assertEqual(cfg["api_server_host"], "127.0.0.1")
+        self.assertEqual(cfg["api_server_port"], 8080)
+
+        # 默认值
+        defaults = normalize_config({})
+        self.assertFalse(defaults["api_server_enabled"])
+        self.assertEqual(defaults["api_server_host"], "0.0.0.0")
+        self.assertEqual(defaults["api_server_port"], 9960)
+
     def test_runtime_config_migrates_legacy_skip_url_tts_to_replace_url_in_tts(self):
         from astrbot_plugin_mimo_tts_clone.core.config import normalize_config
 

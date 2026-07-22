@@ -120,7 +120,13 @@
         <div class="switch-stack">
           <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
           <label class="studio-switch"><input id="replace-url-in-tts" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
+          <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
         </div>
+        <div class="field-row">
+          <label>API 监听地址<input id="api-server-host" type="text" placeholder="0.0.0.0" /></label>
+          <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
+        </div>
+        <p class="field-hint">开启后插件会启动独立 HTTP 服务，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名/ID。</p>
         <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
       </article>
     </section>

@@ -158,6 +158,9 @@ function configPayload() {
     admin_users: $('admin-users').value,
     file_fallback_enabled: $('file-fallback-enabled').checked,
     replace_url_in_tts: $('replace-url-in-tts').checked,
+    api_server_enabled: $('api-server-enabled').checked,
+    api_server_host: $('api-server-host').value.trim() || '0.0.0.0',
+    api_server_port: Number($('api-server-port').value || 9960),
     output_retention_days: Number($('output-retention-days').value || 0),
     output_max_files: Number($('output-max-files').value || 0),
     emotion_routing_enabled: $('emotion-routing-enabled').checked,
@@ -377,6 +380,9 @@ function applyState(payload) {
   $('admin-users').value = (state.config.admin_users || []).join('\n');
   $('file-fallback-enabled').checked = state.config.file_fallback_enabled !== false;
   $('replace-url-in-tts').checked = state.config.replace_url_in_tts !== false;
+  $('api-server-enabled').checked = state.config.api_server_enabled === true;
+  $('api-server-host').value = state.config.api_server_host || '0.0.0.0';
+  $('api-server-port').value = state.config.api_server_port ?? 9960;
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;

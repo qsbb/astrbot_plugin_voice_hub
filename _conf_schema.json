@@ -213,6 +213,23 @@
     "hint": "开启后，TTS 朗读文本中的网址会被替换为“这个网址”等占位词（避免读出一长串字母），原始网址仍通过文字回复发送给用户。关闭后网址会原样读出。",
     "default": true
   },
+  "api_server_enabled": {
+    "type": "bool",
+    "description": "启用 OpenAI 兼容的外部 TTS API",
+    "hint": "开启后插件会启动独立 HTTP 服务，暴露 POST /v1/audio/speech 接口，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名/ID。",
+    "default": false
+  },
+  "api_server_host": {
+    "type": "string",
+    "description": "外部 API 监听地址",
+    "hint": "0.0.0.0 表示监听所有网卡，127.0.0.1 表示仅本机访问。",
+    "default": "0.0.0.0"
+  },
+  "api_server_port": {
+    "type": "int",
+    "description": "外部 API 监听端口",
+    "default": 9960
+  },
   "output_retention_days": {
     "type": "int",
     "description": "生成音频文件保留天数，0 表示不按时间清理",

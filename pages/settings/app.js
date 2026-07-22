@@ -360,8 +360,7 @@ function updateApiServerUrl() {
     return;
   }
   const port = $('api-server-port').value || '9960';
-  const hostname = window.location.hostname || '127.0.0.1';
-  urlField.value = `http://${hostname}:${port}/v1`;
+  urlField.value = `http://127.0.0.1:${port}/v1`;
 }
 
 async function copyApiServerUrl() {

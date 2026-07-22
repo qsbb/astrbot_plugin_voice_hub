@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.3 - 2026-07-22
+
+### Changed
+
+- Pages 面板「API 调用地址」改用 `127.0.0.1` 而非 `window.location.hostname`，复制后可直接粘贴到本机 AstrBot openai_tts 提供商的 Base URL。
+- 「一键诊断」在外部 TTS API 开启时，会顺带通过 HTTP 调用本地 `/v1/audio/speech` 接口验证可达性和响应，诊断结果（含耗时）追加到提示消息中。
+
 ## v0.5.2 - 2026-07-22
 
 ### Fixed

@@ -410,10 +410,71 @@ class PagesAPIMixin:
         elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
         for output in outputs:
             pathlib.Path(output).unlink(missing_ok=True)
+
+        # 若外部 TTS API 已开启，顺带诊断其可达性
+        api_status = None
+        if self.plugin_config.api_server_enabled:
+            api_status = await self._diagnose_api_server(text, voice_selector)
+
+        message = "连接测试成功，MiMo 已返回音频。"
+        if api_status:
+            if api_status["ok"]:
+                message += f" 外部 API 诊断通过（{api_status['elapsed_ms']}ms）。"
+            else:
+                message += f" 外部 API 诊断失败：{api_status['error']}。"
         return jsonify(
             {
                 "success": True,
-                "message": "连接测试成功，MiMo 已返回音频。",
+                "message": message,
                 "elapsed_ms": elapsed_ms,
+                "api_server": api_status,
             }
         )
+
+    async def _diagnose_api_server(self, text: str, voice_selector: str) -> dict:
+        """通过 HTTP 调用本地 API server，验证可达性和响应。"""
+        import aiohttp
+
+        port = self.plugin_config.api_server_port
+        url = f"http://127.0.0.1:{port}/v1/audio/speech"
+        started = asyncio.get_running_loop().time()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json={
+                        "model": "diagnostic",
+                        "input": text,
+                        "voice": voice_selector or "",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    elapsed_ms = round(
+                        (asyncio.get_running_loop().time() - started) * 1000
+                    )
+                    if resp.status != 200:
+                        body = await resp.text()
+                        return {
+                            "ok": False,
+                            "elapsed_ms": elapsed_ms,
+                            "error": f"HTTP {resp.status}: {body[:200]}",
+                        }
+                    audio_bytes = await resp.read()
+                    if not audio_bytes or len(audio_bytes) < 44:
+                        return {
+                            "ok": False,
+                            "elapsed_ms": elapsed_ms,
+                            "error": "返回的音频数据为空或过短",
+                        }
+                    return {
+                        "ok": True,
+                        "elapsed_ms": elapsed_ms,
+                        "size": len(audio_bytes),
+                    }
+        except Exception as exc:
+            elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
+            return {
+                "ok": False,
+                "elapsed_ms": elapsed_ms,
+                "error": str(exc),
+            }

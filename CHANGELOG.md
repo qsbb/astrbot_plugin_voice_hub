@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.2 - 2026-07-22
+
+### Fixed
+
+- 修复 `api_server_enabled` 开启后重启 AstrBot 时 API server 不自动启动的问题：`_ensure_api_server` 不再因事件循环未运行而跳过，改为创建 task 排队，循环开始运行后自动执行。
+- 在 `on_llm_request` 钩子开头增加 `_ensure_api_server()` fallback 调用，确保 `__init__` 阶段未能启动的 server 在事件循环中补启动。
+- `api_server.py` 的 `start()` 方法增加端口冲突保护，避免 `__init__` task 与钩子 fallback 竞态时重复绑定端口导致崩溃。
+
 ## v0.5.1 - 2026-07-22
 
 ### Added

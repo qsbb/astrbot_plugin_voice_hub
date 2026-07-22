@@ -45,7 +45,7 @@ from .pages_api import PagesAPIMixin
     "astrbot_plugin_mimo_tts_clone",
     "Justice-ocr",
     "MiMo 官方 TTS 音色克隆、多音色切换与 AI 语音导演",
-    "0.5.1",
+    "0.5.2",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
@@ -370,6 +370,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             plugin = MimoTTSClonePlugin._current_instance or self
             if not isinstance(plugin, MimoTTSClonePlugin):
                 return
+            # fallback：确保 __init__ 时未能启动的 API server 在事件循环中补启动
+            plugin._ensure_api_server()
             if len(args) < 2:
                 return
             request = args[-1]
@@ -906,17 +908,18 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self._cleanup_plugin_handlers()
 
     def _ensure_api_server(self) -> None:
-        """根据配置启动或停止外部 API 服务。"""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = None
+        """根据配置启动或停止外部 API 服务。
 
+        如果调用时事件循环尚未运行（如 __init__ 阶段），仍然创建 task；
+        task 会在循环开始运行后自动执行。异步钩子里也会再次调用本方法作为 fallback。
+        """
         if not self.plugin_config.api_server_enabled:
             return
 
-        if loop is None or not loop.is_running():
-            self.logger.info("[mimo-tts] api server deferred: no running event loop")
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+        except RuntimeError:
+            self.logger.warning("[mimo-tts] api server: no event loop available")
             return
 
         # 已在运行且端口/host 未变则不重启
@@ -942,6 +945,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         )
         MimoTTSClonePlugin._api_server = new_server
         asyncio.ensure_future(new_server.start(), loop=loop)
+        if not loop.is_running():
+            self.logger.info(
+                "[mimo-tts] api server pending: will start when event loop runs"
+            )
 
     async def _stop_api_server(self) -> None:
         server = MimoTTSClonePlugin._api_server

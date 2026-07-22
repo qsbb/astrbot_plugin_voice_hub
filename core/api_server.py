@@ -50,7 +50,20 @@ class MimoTTSApiServer:
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, self.host, self.port)
-        await self._site.start()
+        try:
+            await self._site.start()
+        except OSError as exc:
+            # 端口可能已被另一个 server 实例占用（__init__ task 与钩子 fallback 竞态）
+            self.logger.warning(
+                "[mimo-tts] api server failed to bind %s:%s: %s",
+                self.host,
+                self.port,
+                exc,
+            )
+            await self._runner.cleanup()
+            self._runner = None
+            self._site = None
+            return
         self.logger.info(
             "[mimo-tts] api server listening on http://%s:%s/v1/audio/speech",
             self.host,

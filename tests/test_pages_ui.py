@@ -11,7 +11,7 @@ class PagesUITests(unittest.TestCase):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
-        self.assertIn("Voice Hub", html)
+        self.assertIn("凝心溯溪-声", html)
         self.assertIn("Dual Backend Voice Console", html)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)

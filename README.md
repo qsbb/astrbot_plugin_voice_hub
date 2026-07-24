@@ -1,25 +1,18 @@
-<p align="center">
-  <img src="./assets/icon.svg" width="112" alt="MiMo TTS 音色克隆插件图标" />
-</p>
+# 凝心溯溪-声
 
-<h1 align="center">astrbot_plugin_voice_hub</h1>
+> 凝心溯溪系列语音模块：双 TTS 后端、多音色管理、AI 语音导演、外部 API。支持 Pages 可视化管理、多音色切换、情绪路由、自动语音化、试听诊断与输出清理。
 
-<p align="center">
-  双 TTS 后端语音中枢：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、AI 语音导演、外部 API。<br />
-  支持 Pages 可视化管理、多音色切换、情绪路由、自动语音化、试听诊断与输出清理。
-</p>
+> **凝心溯溪系列** 是一套功能互补的 AstrBot 插件集合，旨在构建从记忆学习、对话调节、身份管理到语音合成的完整对话能力链。各插件职责独立、互不冲突，可按需组合使用。
 
-<p align="center">
-  <a href="https://github.com/qsbb/astrbot_plugin_voice_hub">GitHub 仓库</a>
-  ·
-  <a href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5">MiMo 官方文档</a>
-  ·
-  <a href="#免责声明">免责声明</a>
-</p>
+| 字 | 模块 | 说明 |
+|----|------|------|
+| [忆](https://github.com/qsbb/astrbot_plugin_active_learner) | 记忆学习 | 自动检索注入、多源学习、交叉验证 |
+| [言](https://github.com/qsbb/astrbot_plugin_conversation_flow) | 对话调节 | 沉默判断、智能分段、插话衔接 |
+| [序](https://github.com/qsbb/astrbot_plugin_identity_guardian) | 身份管理 | 关系感知、权限边界、群组行动 |
+| [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 双 TTS 后端、多音色管理、AI 导演（本插件） |
 
-<p align="center">
-  <img src="./assets/readme-hero.svg" alt="Voice Hub 插件横幅" />
-</p>
+- 仓库：<https://github.com/qsbb/astrbot_plugin_voice_hub>
+- MiMo 官方文档：<https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5>
 
 ## 项目来源
 
@@ -214,8 +207,8 @@ audio_path = await plugin.text_to_speech(
 | 项目 | 内容 |
 | --- | --- |
 | 插件名 | `astrbot_plugin_voice_hub` |
-| 展示名 | MiMo TTS 音色克隆 |
-| 当前版本 | `v0.4.0` |
+| 展示名 | 凝心溯溪-声 |
+| 当前版本 | `v0.6.2` |
 | 作者 | Justice-ocr |
 | 作者简介 | AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、Pages 管理体验与实用型机器人扩展 |
 | AstrBot 版本 | `>=4.16.0,<5` |

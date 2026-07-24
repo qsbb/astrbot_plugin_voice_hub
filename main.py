@@ -44,7 +44,7 @@ from .pages_api import PagesAPIMixin
 @register(
     "astrbot_plugin_voice_hub",
     "Justice-ocr",
-    "双 TTS 后端语音中枢：MiMo 音色克隆 + AstrBot 内置 TTS、多音色管理、AI 语音导演、外部 API",
+    "凝心溯溪-声，双 TTS 后端、多音色管理、AI 语音导演与外部 API",
     "0.6.2",
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):

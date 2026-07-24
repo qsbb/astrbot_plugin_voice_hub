@@ -1,4 +1,4 @@
-# Voice Hub Implementation Plan
+# 凝心溯溪-声 Implementation Plan
 
 Goal: build an AstrBot plugin that supports dual TTS backends (MiMo voiceclone + AstrBot built-in TTS), manages local voice samples, calls the official MiMo `mimo-v2.5-tts-voiceclone` API, and supports multi-voice switching from Pages.
 

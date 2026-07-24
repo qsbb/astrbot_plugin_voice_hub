@@ -205,6 +205,22 @@ class PagesUITests(unittest.TestCase):
         self.assertIn(".preview-row", tablet)
         self.assertIn("repeat(2, minmax(0, 1fr))", tablet)
 
+    def test_settings_shows_backend_notice_when_voice_library_muted(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="voice-backend-notice"', html)
+        self.assertIn("音色库不生效", html)
+        self.assertIn("voiceBackendNotice.hidden = !isAstrbot;", js)
+        self.assertRegex(
+            css, r"\.voice-backend-notice\s*\{[^}]*background:"
+        )
+        self.assertRegex(
+            css,
+            r"\.voice-workbench\.is-muted \.upload-panel,",
+        )
+
     def test_settings_delete_voice_uses_sandbox_safe_confirmation(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")

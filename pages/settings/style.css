@@ -429,6 +429,7 @@ p { margin: 0; }
 
 .span-7 { grid-column: span 7; }
 .span-5 { grid-column: span 5; }
+.span-12 { grid-column: 1 / -1; }
 
 .studio-card {
   position: relative;
@@ -821,8 +822,21 @@ button.danger {
   align-self: flex-start;
 }
 
-.voice-workbench.is-muted {
+.voice-workbench.is-muted .upload-panel,
+.voice-workbench.is-muted .voice-list,
+.voice-workbench.is-muted #upload-hint {
   opacity: 0.55;
+}
+
+.voice-backend-notice {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(232, 189, 98, .45);
+  border-radius: var(--radius-md);
+  background: rgba(255, 247, 224, .72);
+  color: #8a6d1f;
+  font-weight: 750;
+  line-height: 1.55;
 }
 
 .emotion-grid {

@@ -46,7 +46,7 @@ from .core.text_processing import (
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 
 @register(

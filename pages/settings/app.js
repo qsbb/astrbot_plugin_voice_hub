@@ -382,6 +382,10 @@ function updateTtsBackendUI() {
   if (voiceWorkbench) {
     voiceWorkbench.classList.toggle('is-muted', isAstrbot);
   }
+  const voiceBackendNotice = $('voice-backend-notice');
+  if (voiceBackendNotice) {
+    voiceBackendNotice.hidden = !isAstrbot;
+  }
 }
 
 async function migrateOldPlugin() {

@@ -369,6 +369,10 @@ p { margin: 0; }
   align-items: center;
 }
 
+.status-board .migration-row {
+  grid-column: 1 / -1;
+}
+
 .readiness-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -477,6 +481,13 @@ h2 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .form-grid.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -723,16 +734,31 @@ button.danger {
 
 .studio-switch {
   display: flex;
+  min-width: 0;
   min-height: 49px;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, .52);
-  white-space: nowrap;
+  white-space: normal;
   transition: border-color .18s var(--ease), background .18s var(--ease);
+}
+
+.studio-switch span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.studio-switch small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 750;
+  line-height: 1.55;
 }
 
 .studio-switch:hover {
@@ -1087,14 +1113,74 @@ audio { width: 100%; }
   }
 }
 
-@media (max-width: 1020px) {
-  .studio-hero,
+@media (min-width: 761px) and (max-width: 1020px) {
+  .studio-shell {
+    width: min(100% - 28px, 920px);
+    margin-top: 20px;
+  }
+
+  .studio-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, .62fr);
+    gap: 18px;
+    min-height: 0;
+    padding: 24px;
+  }
+
+  .studio-hero h1 {
+    font-size: clamp(48px, 7vw, 68px);
+  }
+
   .workflow-strip,
+  .readiness-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .status-board,
-  .readiness-list,
   .studio-grid,
   .upload-panel,
-  .preview-row,
+  .voice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .span-7,
+  .span-5 {
+    grid-column: auto;
+  }
+
+  .form-grid,
+  .switch-grid,
+  .emotion-grid,
+  .access-summary-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .upload-panel {
+    padding: 16px;
+  }
+
+  .voice-upload-actions {
+    min-width: 0;
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .voice-upload-actions > * {
+    flex: 1;
+  }
+
+  .preview-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .preview-row input {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1020px) {
+  .status-board,
+  .studio-grid,
+  .upload-panel,
   .voice-list {
     grid-template-columns: 1fr;
   }
@@ -1117,11 +1203,17 @@ audio { width: 100%; }
     padding: 18px;
   }
 
+  .studio-hero,
   .hero-panel,
+  .workflow-strip,
+  .readiness-list,
   .form-grid,
   .switch-grid,
+  .field-row,
   .policy-grid,
   .emotion-grid,
+  .access-summary-list,
+  .preview-row,
   .audio-frame {
     grid-template-columns: 1fr;
   }

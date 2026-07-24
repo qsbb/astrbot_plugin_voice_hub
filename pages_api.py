@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import inspect
+import json
 import pathlib
 from typing import Any
 
@@ -122,6 +123,11 @@ class PagesAPIMixin:
 
     async def _pages_save_config(self):
         data = await request.get_json(force=True) or {}
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                return jsonify({"success": False, "error": "Invalid JSON payload"}), 400
         if not isinstance(data, dict):
             return jsonify({"success": False, "error": "Invalid JSON payload"}), 400
         persisted = self._update_runtime_config(data)

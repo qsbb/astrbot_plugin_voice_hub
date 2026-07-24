@@ -14,6 +14,13 @@
 - 版本号从 `0.6.2` 提升至 `0.7.0`。
 - `main.py` 增加 `__version__` 模块变量，`@register` 版本改为引用该变量。
 
+### Fixed
+
+- 修复在 AstrBot 插件设置页保存配置时出现的 `AxiosError: Request failed with status code 400`：`_pages_save_config` 兼容 Bridge 传入的 JSON 字符串请求体，非法或非对象载荷返回明确的 400；前端对返回的 JSON 字符串做兼容解析。
+- 群聊/私聊黑白名单与管理员名单改为在前端统一拆分为数组后提交，支持逗号、中文逗号与换行分隔并自动去重。
+- `_conf_schema.json` 中 `auto_tts_probability` 的类型从 `string` 修正为 `float`，默认值同步为数值 `0.0`。
+- 修复设置页布局问题：状态区迁移操作横跨整行、API 地址/端口双列排布、长开关说明文案不再被裁切，并补齐 761–1020px 平板断点响应式。
+
 ## v0.6.2 - 2026-07-22
 
 ### Fixed

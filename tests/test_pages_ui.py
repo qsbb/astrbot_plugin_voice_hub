@@ -134,6 +134,31 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("access-summary-core", css)
         self.assertIn("access-summary-list", css)
 
+    def test_settings_serializes_lists_and_accepts_json_string_responses(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function parseJsonResponse", js)
+        self.assertIn("return JSON.parse(value);", js)
+        self.assertIn("function listValue", js)
+        self.assertIn(r".split(/[,\r\n]/)", js)
+        self.assertIn("auto_tts_group_whitelist: listValue", js)
+        self.assertIn("admin_users: listValue", js)
+        self.assertIn("parseJsonResponse(await bridge.apiPost", js)
+
+    def test_settings_layout_covers_status_and_api_fields(self):
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+        self.assertRegex(
+            css,
+            r"\.status-board \.migration-row\s*\{[^}]*grid-column:\s*1 / -1;",
+        )
+        self.assertRegex(
+            css,
+            r"\.field-row\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);",
+        )
+        mobile = css.split("@media (max-width: 760px)", 1)[1]
+        self.assertIn(".field-row", mobile)
+
     def test_settings_css_keeps_large_cards_stable_on_hover(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
@@ -149,6 +174,36 @@ class PagesUITests(unittest.TestCase):
         self.assertRegex(css, r"\.studio-switch input\s*\{[^}]*transition:\s*none;")
         studio_hover = css.split(".studio-card:hover", 1)[1].split("}", 1)[0]
         self.assertNotIn("transform", studio_hover)
+
+    def test_settings_switch_copy_wraps_without_clipping(self):
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        switch = css.split(".studio-switch {", 1)[1].split("}", 1)[0]
+
+        self.assertIn("min-width: 0;", switch)
+        self.assertIn("white-space: normal;", switch)
+        self.assertNotIn("white-space: nowrap;", switch)
+        self.assertRegex(css, r"\.studio-switch span\s*\{[^}]*min-width:\s*0;")
+        self.assertRegex(
+            css, r"\.studio-switch span\s*\{[^}]*overflow-wrap:\s*anywhere;"
+        )
+        self.assertRegex(css, r"\.studio-switch small\s*\{[^}]*display:\s*block;")
+
+    def test_settings_has_tablet_layout_from_761_to_1020(self):
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        tablet = css.split(
+            "@media (min-width: 761px) and (max-width: 1020px)", 1
+        )[1].split("@media (max-width: 1020px)", 1)[0]
+
+        self.assertIn(".studio-hero", tablet)
+        self.assertIn(".workflow-strip", tablet)
+        self.assertIn(".readiness-list", tablet)
+        self.assertIn(".form-grid", tablet)
+        self.assertIn(".switch-grid", tablet)
+        self.assertIn(".emotion-grid", tablet)
+        self.assertIn(".upload-panel", tablet)
+        self.assertIn(".voice-upload-actions", tablet)
+        self.assertIn(".preview-row", tablet)
+        self.assertIn("repeat(2, minmax(0, 1fr))", tablet)
 
     def test_settings_delete_voice_uses_sandbox_safe_confirmation(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")

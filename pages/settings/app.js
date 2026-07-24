@@ -139,6 +139,23 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
+function parseJsonResponse(value) {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+}
+
+function listValue(id) {
+  return $(id).value
+    .replace(/，/g, ',')
+    .split(/[,\r\n]/)
+    .map(item => item.trim())
+    .filter((item, index, items) => item && items.indexOf(item) === index);
+}
+
 function configPayload() {
   return {
     api_key: $('api-key').value.trim(),
@@ -154,11 +171,11 @@ function configPayload() {
     astrbot_tts_provider_id: $('astrbot-tts-provider-id').value,
     auto_tts_probability: Number($('auto-tts-probability').value || 0),
     llm_tts_judge_enabled: $('llm-tts-judge-enabled').checked,
-    auto_tts_group_whitelist: $('auto-tts-group-whitelist').value,
-    auto_tts_group_blacklist: $('auto-tts-group-blacklist').value,
-    auto_tts_private_whitelist: $('auto-tts-private-whitelist').value,
-    auto_tts_private_blacklist: $('auto-tts-private-blacklist').value,
-    admin_users: $('admin-users').value,
+    auto_tts_group_whitelist: listValue('auto-tts-group-whitelist'),
+    auto_tts_group_blacklist: listValue('auto-tts-group-blacklist'),
+    auto_tts_private_whitelist: listValue('auto-tts-private-whitelist'),
+    auto_tts_private_blacklist: listValue('auto-tts-private-blacklist'),
+    admin_users: listValue('admin-users'),
     file_fallback_enabled: $('file-fallback-enabled').checked,
     replace_url_in_tts: $('replace-url-in-tts').checked,
     api_server_enabled: $('api-server-enabled').checked,
@@ -590,17 +607,19 @@ function renderVoices() {
 }
 
 async function refresh() {
-  const [payload, providersPayload] = await Promise.all([
+  const [rawPayload, rawProvidersPayload] = await Promise.all([
     bridge.apiGet('get_config'),
     bridge.apiGet('list_ai_providers').catch(() => ({ success: false, providers: [] })),
   ]);
-  if (!payload.success) throw new Error(payload.error || '加载配置失败');
+  const payload = parseJsonResponse(rawPayload);
+  const providersPayload = parseJsonResponse(rawProvidersPayload);
+  if (!payload || !payload.success) throw new Error((payload && payload.error) || '加载配置失败');
   state.providers = providersPayload && providersPayload.success ? providersPayload.providers || [] : [];
   applyState(payload);
 }
 
 async function saveConfig() {
-  const res = await bridge.apiPost('save_config', configPayload());
+  const res = parseJsonResponse(await bridge.apiPost('save_config', configPayload()));
   if (!res.success) throw new Error(res.error || '保存失败');
   state.config = res.config || state.config;
   if (res.warning) {

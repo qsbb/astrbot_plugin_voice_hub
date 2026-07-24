@@ -158,9 +158,9 @@
     "default": "probability"
   },
   "auto_tts_probability": {
-    "type": "string",
+    "type": "float",
     "description": "普通 LLM 回复自动语音化概率，范围 0-1，例如 0.3",
-    "default": "0.0"
+    "default": 0.0
   },
   "llm_tts_judge_enabled": {
     "type": "bool",

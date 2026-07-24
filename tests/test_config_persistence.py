@@ -203,6 +203,50 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(reloaded.config["api_key"], "mimo-secret")
             self.assertEqual(reloaded.config["max_text_chars"], 321)
 
+    def test_pages_save_config_accepts_json_string_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            pages_api = importlib.import_module("astrbot_plugin_voice_hub.pages_api")
+            original_request = pages_api.request
+            pages_api.request = types.SimpleNamespace(
+                get_json=AsyncMock(
+                    return_value=json.dumps(
+                        {
+                            "auto_tts_probability": 0.35,
+                            "auto_tts_group_whitelist": ["group-a", "group-b"],
+                        }
+                    )
+                )
+            )
+            try:
+                response = asyncio.run(plugin._pages_save_config())
+            finally:
+                pages_api.request = original_request
+
+            self.assertTrue(response["success"])
+            self.assertEqual(plugin.config["auto_tts_probability"], 0.35)
+            self.assertEqual(
+                plugin.config["auto_tts_group_whitelist"], ["group-a", "group-b"]
+            )
+
+    def test_pages_save_config_rejects_invalid_json_string_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            pages_api = importlib.import_module("astrbot_plugin_voice_hub.pages_api")
+            original_request = pages_api.request
+            pages_api.request = types.SimpleNamespace(
+                get_json=AsyncMock(return_value="{invalid")
+            )
+            try:
+                response, status = asyncio.run(plugin._pages_save_config())
+            finally:
+                pages_api.request = original_request
+
+            self.assertEqual(status, 400)
+            self.assertFalse(response["success"])
+
     def test_pages_lists_astrbot_ai_providers(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

@@ -76,34 +76,21 @@
       </div>
     </section>
 
-    <section class="studio-grid">
-      <article class="studio-card api-card span-12">
+    <section class="studio-grid backend-settings-grid">
+      <article class="studio-card backend-card span-12" data-backend-scope="shared">
         <div class="section-head">
           <div>
-            <span class="section-kicker">API CONFIG</span>
-            <h2>连接配置</h2>
+            <span class="section-kicker">SHARED</span>
+            <h2>通用设置</h2>
           </div>
-          <span class="soft-pill">OpenAI-compatible</span>
-        </div>
-        <div class="form-grid two-col">
-          <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
-          <label>Base URL<input id="base-url" type="text" /></label>
-          <label>模型<input id="model" type="text" /></label>
-          <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
-          <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
-          <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
-        </div>
-        <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
-      </article>
-
-      <article class="studio-card span-12">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">DELIVERY</span>
-            <h2>发送策略</h2>
-          </div>
+          <span class="soft-pill">所有后端</span>
         </div>
         <div class="form-grid one-col">
+          <fieldset class="trigger-mode-fieldset">
+            <legend>TTS 后端</legend>
+            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用授权参考音频克隆音色，并支持情绪路由和 AI 风格导演。</small></span></label>
+            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>调用 AstrBot 已配置的 TTS 提供商，无需维护音色。</small></span></label>
+          </fieldset>
           <label>回复模式
             <select id="reply-mode">
               <option value="audio_only">只发音频</option>
@@ -116,21 +103,9 @@
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="probability" /><span><strong>概率触发</strong><small>不向 LLM 提供语音工具，普通回复按下方概率自动转语音。</small></span></label>
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="llm_decides" /><span><strong>LLM 自主决定</strong><small>只允许 LLM 调用语音工具，不执行概率自动 TTS。</small></span></label>
           </fieldset>
-          <fieldset class="trigger-mode-fieldset">
-            <legend>TTS 后端</legend>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>需要上传授权参考音频进行音色克隆。</small></span></label>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>调用 AstrBot 已配置的 TTS 提供商，无需上传音频。</small></span></label>
-          </fieldset>
-          <label id="astrbot-tts-provider-field">AstrBot TTS 提供商
-            <select id="astrbot-tts-provider-id">
-              <option value="">使用 AstrBot 默认</option>
-            </select>
-          </label>
-          <p class="field-hint">选择「AstrBot 内置 TTS」后，直接使用 AstrBot 已配置的 TTS 提供商合成语音，无需上传音频；MiMo 的音色克隆、情绪路由、AI 导演等功能不生效。</p>
-          <p class="field-hint">只有在「MiMo TTS」后端下才需要上传参考音频。切换到「AstrBot 内置 TTS」后可忽略音色库。</p>
           <p class="field-hint">触发方式是唯一开关：概率触发会执行自动 TTS，LLM 自主决定只开放语音工具。</p>
           <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
-          <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>LLM 情绪化朗读判断<small>仅概率触发下生效。让主 LLM 在回复开头输出朗读意愿标记，太长/含代码/羞耻尴尬/纯功能性内容主动跳过，适合朗读的简短口语直接转语音（不再受概率限制）。标记自动剥离，用户不可见。</small></span></label>
+          <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>LLM 情绪化朗读判断<small>仅概率触发下生效。让主 LLM 在回复开头输出朗读意愿标记，太长、含代码、羞耻尴尬或纯功能性内容主动跳过，适合朗读的简短口语直接转语音。标记自动剥离，用户不可见。</small></span></label>
           <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
           <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
         </div>
@@ -147,13 +122,48 @@
           <label class="wide">API 调用地址<input id="api-server-url" type="text" readonly placeholder="开启后显示" /></label>
           <button id="copy-api-url" class="secondary" type="button">复制链接</button>
         </div>
-        <p class="field-hint">开启后插件会启动独立 HTTP 服务，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名/ID。</p>
-        <p class="field-hint">在 AstrBot 的 openai_tts 提供商配置中，Base URL 填入上方地址，API Key 填任意字符串（如 <code>sk-anything</code>）即可，否则会报 Missing credentials。</p>
-        <p id="test-hint" class="field-hint">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
+        <p class="field-hint">开启后插件会启动独立 HTTP 服务，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名或 ID。</p>
+        <p class="field-hint">在 AstrBot 的 openai_tts 提供商配置中，Base URL 填入上方地址，API Key 填任意字符串即可，否则会报 Missing credentials。</p>
+      </article>
+
+      <article class="studio-card backend-card api-card span-12" data-backend-scope="mimo">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">MIMO</span>
+            <h2>MiMo 设置</h2>
+          </div>
+          <span class="soft-pill">OpenAI-compatible</span>
+        </div>
+        <div class="form-grid two-col">
+          <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
+          <label>Base URL<input id="base-url" type="text" /></label>
+          <label>模型<input id="model" type="text" /></label>
+          <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
+          <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
+          <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
+        </div>
+        <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
+        <p id="test-hint" class="field-hint wide">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
+      </article>
+
+      <article class="studio-card backend-card span-12" data-backend-scope="astrbot">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">ASTRBOT</span>
+            <h2>AstrBot 设置</h2>
+          </div>
+          <span class="soft-pill">内置 TTS</span>
+        </div>
+        <label id="astrbot-tts-provider-field">AstrBot TTS 提供商
+          <select id="astrbot-tts-provider-id">
+            <option value="">使用 AstrBot 默认</option>
+          </select>
+        </label>
+        <p class="field-hint wide">直接使用 AstrBot 已配置的 TTS 提供商合成语音，无需上传参考音频；MiMo 的音色克隆、情绪路由和 AI 导演不生效。</p>
       </article>
     </section>
 
-    <section class="studio-card access-card">
+    <section class="studio-card access-card" data-backend-scope="shared">
       <div class="section-head">
         <div>
           <span class="section-kicker">AUTO TTS ACCESS</span>
@@ -175,7 +185,7 @@
       </div>
     </section>
 
-    <section class="studio-card director-card">
+    <section class="studio-card director-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
           <span class="section-kicker">AI STYLE DIRECTOR</span>
@@ -207,23 +217,36 @@
       <p class="field-hint">发送前 AI 导演会生成给 MiMo 的隐藏 user 风格指令；开启文本优化时，还会生成仅用于音频朗读的 speech_text。最终聊天文字保持原样，不会被改写。</p>
     </section>
 
-    <section class="studio-card">
-      <div class="section-head">
-        <div>
-          <span class="section-kicker">ROUTER</span>
-          <h2>情绪与分段</h2>
+    <section class="studio-grid routing-settings-grid" data-backend-scope="mimo">
+      <article class="studio-card routing-card span-7">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">EMOTION</span>
+            <h2>情绪路由</h2>
+          </div>
         </div>
-      </div>
-      <div class="switch-grid">
         <label class="studio-switch"><input id="emotion-routing-enabled" type="checkbox" /><span>启用自动情绪路由</span></label>
-        <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用长文本分段</span></label>
-        <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
-        <label>最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
-      </div>
-      <div id="emotion-defaults" class="emotion-grid"></div>
+        <div id="emotion-defaults" class="emotion-grid"></div>
+      </article>
     </section>
 
-    <section class="studio-card voice-workbench">
+    <section class="studio-grid routing-settings-grid" data-backend-scope="shared">
+      <article class="studio-card routing-card span-5">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">SEGMENT</span>
+            <h2>长文本分段</h2>
+          </div>
+        </div>
+        <div class="switch-grid segment-settings-grid">
+          <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用长文本分段</span></label>
+          <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
+          <label>最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
+        </div>
+      </article>
+    </section>
+
+    <section class="studio-card voice-workbench" data-backend-scope="mimo">
       <div class="section-head">
         <div>
           <span class="section-kicker">VOICE LIBRARY</span>
@@ -231,7 +254,6 @@
         </div>
         <span id="voice-count" class="soft-pill">0 个音色</span>
       </div>
-      <p id="voice-backend-notice" class="voice-backend-notice" hidden>当前 TTS 后端为「AstrBot 内置 TTS」，音色库不生效。这里的音色仅在切换回「MiMo TTS」后端时使用，可提前维护。</p>
       <div class="upload-panel">
         <div class="drop-zone">
           <span>上传参考音频</span>
@@ -256,7 +278,7 @@
       <div id="voice-list" class="voice-list"></div>
     </section>
 
-    <section class="studio-card preview-card">
+    <section class="studio-card preview-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
           <span class="section-kicker">PREVIEW</span>

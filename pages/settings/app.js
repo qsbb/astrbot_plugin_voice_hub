@@ -375,17 +375,10 @@ function updateTriggerModeUI() {
 
 function updateTtsBackendUI() {
   const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || 'mimo';
-  const isAstrbot = backend === 'astrbot';
-  $('astrbot-tts-provider-field').style.display = isAstrbot ? '' : 'none';
-  // 切换到 AstrBot TTS 时弱化音色库区块提示
-  const voiceWorkbench = document.querySelector('.voice-workbench');
-  if (voiceWorkbench) {
-    voiceWorkbench.classList.toggle('is-muted', isAstrbot);
-  }
-  const voiceBackendNotice = $('voice-backend-notice');
-  if (voiceBackendNotice) {
-    voiceBackendNotice.hidden = !isAstrbot;
-  }
+  document.querySelectorAll('[data-backend-scope]').forEach(element => {
+    const scopes = element.dataset.backendScope.split(/\s+/);
+    element.hidden = !scopes.includes('shared') && !scopes.includes(backend);
+  });
 }
 
 async function migrateOldPlugin() {

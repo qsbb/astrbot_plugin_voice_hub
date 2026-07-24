@@ -17,7 +17,7 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)
         self.assertIn("top-gradient-highlight", html)
-        self.assertIn("发送策略", html)
+        self.assertIn("通用设置", html)
         self.assertIn("一键诊断", html)
         self.assertIn("--studio-gold", css)
         self.assertIn("--hue", css)
@@ -205,20 +205,56 @@ class PagesUITests(unittest.TestCase):
         self.assertIn(".preview-row", tablet)
         self.assertIn("repeat(2, minmax(0, 1fr))", tablet)
 
-    def test_settings_shows_backend_notice_when_voice_library_muted(self):
+    def test_settings_groups_cards_by_backend_scope(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
-        self.assertIn('id="voice-backend-notice"', html)
-        self.assertIn("音色库不生效", html)
-        self.assertIn("voiceBackendNotice.hidden = !isAstrbot;", js)
-        self.assertRegex(
-            css, r"\.voice-backend-notice\s*\{[^}]*background:"
+        self.assertIn('data-backend-scope="shared"', html)
+        self.assertGreaterEqual(html.count('data-backend-scope="mimo"'), 5)
+        self.assertIn('data-backend-scope="astrbot"', html)
+        self.assertIn(
+            'class="studio-card access-card" data-backend-scope="shared"', html
         )
         self.assertRegex(
+            html,
+            r'<section class="studio-grid routing-settings-grid" data-backend-scope="shared">\s*<article class="studio-card routing-card span-5">',
+        )
+        self.assertIn("通用设置", html)
+        self.assertIn("MiMo 设置", html)
+        self.assertIn("AstrBot 设置", html)
+        self.assertIn("document.querySelectorAll('[data-backend-scope]')", js)
+        self.assertIn("element.dataset.backendScope", js)
+        self.assertIn("scopes.includes('shared')", js)
+        self.assertRegex(
+            css, r"\[data-backend-scope\]\[hidden\]\s*\{[^}]*display:\s*none;"
+        )
+        self.assertNotIn("voiceBackendNotice", js)
+        self.assertNotIn("voice-workbench.is-muted", css)
+
+    def test_settings_splits_emotion_and_segment_cards(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn("routing-settings-grid", html)
+        self.assertIn("情绪路由", html)
+        self.assertIn("长文本分段", html)
+        self.assertNotIn("情绪与分段", html)
+        emotion_card = html.split('class="studio-card routing-card span-7"', 1)[1].split(
+            "</article>", 1
+        )[0]
+        segment_card = html.split('class="studio-card routing-card span-5"', 1)[1].split(
+            "</article>", 1
+        )[0]
+        self.assertIn('id="emotion-routing-enabled"', emotion_card)
+        self.assertIn('id="emotion-defaults"', emotion_card)
+        self.assertNotIn('id="segment-enabled"', emotion_card)
+        self.assertIn('id="segment-enabled"', segment_card)
+        self.assertIn('id="segment-threshold-chars"', segment_card)
+        self.assertIn('id="segment-max-segments"', segment_card)
+        self.assertRegex(
             css,
-            r"\.voice-workbench\.is-muted \.upload-panel,",
+            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*1fr;",
         )
 
     def test_settings_delete_voice_uses_sandbox_safe_confirmation(self):

@@ -836,8 +836,12 @@ button.danger {
   margin-bottom: 0;
 }
 
+.routing-settings-grid:has(> .span-7[hidden]) > .span-5:not([hidden]) {
+  grid-column: 1 / -1;
+}
+
 .segment-settings-grid {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
 }
 
 .emotion-grid {

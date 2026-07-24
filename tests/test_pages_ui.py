@@ -218,7 +218,7 @@ class PagesUITests(unittest.TestCase):
         )
         self.assertRegex(
             html,
-            r'<section class="studio-grid routing-settings-grid" data-backend-scope="shared">\s*<article class="studio-card routing-card span-5">',
+            r'<section class="studio-grid routing-settings-grid">\s*<article class="studio-card routing-card span-7" data-backend-scope="mimo">[\s\S]*</article>\s*<article class="studio-card routing-card span-5" data-backend-scope="shared">',
         )
         self.assertIn("通用设置", html)
         self.assertIn("MiMo 设置", html)
@@ -231,6 +231,18 @@ class PagesUITests(unittest.TestCase):
         )
         self.assertNotIn("voiceBackendNotice", js)
         self.assertNotIn("voice-workbench.is-muted", css)
+        routing_section = html.split(
+            '<section class="studio-grid routing-settings-grid">', 1
+        )[1].split("</section>", 1)[0]
+        self.assertNotIn("data-backend-scope", routing_section.split("<article", 1)[0])
+        self.assertIn(
+            'class="studio-card routing-card span-7" data-backend-scope="mimo"',
+            routing_section,
+        )
+        self.assertIn(
+            'class="studio-card routing-card span-5" data-backend-scope="shared"',
+            routing_section,
+        )
 
     def test_settings_splits_emotion_and_segment_cards(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
@@ -254,7 +266,11 @@ class PagesUITests(unittest.TestCase):
         self.assertIn('id="segment-max-segments"', segment_card)
         self.assertRegex(
             css,
-            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*1fr;",
+            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.4fr\) repeat\(2, minmax\(0, 1fr\)\);",
+        )
+        self.assertRegex(
+            css,
+            r"\.routing-settings-grid:has\(> \.span-7\[hidden\]\) > \.span-5:not\(\[hidden\]\)\s*\{[^}]*grid-column:\s*1 / -1;",
         )
 
     def test_settings_delete_voice_uses_sandbox_safe_confirmation(self):

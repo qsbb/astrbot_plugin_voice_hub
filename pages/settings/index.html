@@ -217,8 +217,8 @@
       <p class="field-hint">发送前 AI 导演会生成给 MiMo 的隐藏 user 风格指令；开启文本优化时，还会生成仅用于音频朗读的 speech_text。最终聊天文字保持原样，不会被改写。</p>
     </section>
 
-    <section class="studio-grid routing-settings-grid" data-backend-scope="mimo">
-      <article class="studio-card routing-card span-7">
+    <section class="studio-grid routing-settings-grid">
+      <article class="studio-card routing-card span-7" data-backend-scope="mimo">
         <div class="section-head">
           <div>
             <span class="section-kicker">EMOTION</span>
@@ -228,10 +228,7 @@
         <label class="studio-switch"><input id="emotion-routing-enabled" type="checkbox" /><span>启用自动情绪路由</span></label>
         <div id="emotion-defaults" class="emotion-grid"></div>
       </article>
-    </section>
-
-    <section class="studio-grid routing-settings-grid" data-backend-scope="shared">
-      <article class="studio-card routing-card span-5">
+      <article class="studio-card routing-card span-5" data-backend-scope="shared">
         <div class="section-head">
           <div>
             <span class="section-kicker">SEGMENT</span>

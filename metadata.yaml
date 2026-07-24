@@ -4,7 +4,7 @@ short_desc: 凝心溯溪系列语音模块：双 TTS 后端、多音色管理、
 desc: >
   凝心溯溪系列语音模块：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、
   AI 语音导演、概率自动语音、OpenAI 兼容外部 API，以及 Pages 可视化管理。
-version: v0.7.2
+version: v0.7.3
 author: Justice-ocr
 author_desc: >
   Justice-ocr，AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、

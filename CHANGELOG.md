@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.7.0 - 2026-07-25
+
+### Added
+
+- 新增 LLM 情绪化朗读判断（`llm_tts_judge_enabled`，默认关闭）。仅在 `probability` 触发方式下生效，开启后引导主 LLM 在回复开头输出 `<TTS:yes>` 或 `<TTS:no:原因>` 标记，太长/含代码/羞耻尴尬/纯功能性内容主动跳过，适合朗读的简短口语直接转语音（不再受概率限制）；标记自动剥离对用户不可见，LLM 未输出标记时退回概率逻辑。
+- 新增 `_inject_tts_judge_prompt` 与 `_strip_tts_judge_marker` 辅助方法，分别负责在 `on_llm_request` 注入判断提示词、在 `auto_tts_reply` 中解析标记并执行对应决策。
+- Pages 面板新增「LLM 情绪化朗读判断」开关，与触发方式联动，非 probability 模式下自动禁用弱化。
+- 104 个单元测试全部通过，覆盖配置解析、提示词注入、标记剥离、yes/no/none 三个分支。
+
+### Changed
+
+- 版本号从 `0.6.2` 提升至 `0.7.0`。
+- `main.py` 增加 `__version__` 模块变量，`@register` 版本改为引用该变量。
+
 ## v0.6.2 - 2026-07-22
 
 ### Fixed

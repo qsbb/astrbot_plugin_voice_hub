@@ -832,6 +832,214 @@ class ConfigPersistenceTests(unittest.TestCase):
             log_args = plugin.logger.infos[-1]
             self.assertIn("event already handled", log_args[0] % log_args[1:])
 
+    def test_llm_tts_judge_config_defaults_false_and_parses_bool(self):
+        from astrbot_plugin_voice_hub.core.config import normalize_config
+
+        defaults = normalize_config({})
+        self.assertFalse(defaults["llm_tts_judge_enabled"])
+        self.assertTrue(
+            normalize_config({"llm_tts_judge_enabled": True})["llm_tts_judge_enabled"]
+        )
+        self.assertFalse(
+            normalize_config({"llm_tts_judge_enabled": "false"})[
+                "llm_tts_judge_enabled"
+            ]
+        )
+
+    def test_on_llm_request_injects_judge_prompt_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "llm_tts_judge_enabled": True},
+            )
+            request = types.SimpleNamespace(
+                tools=[],
+                extra_user_content_parts=[],
+                system_prompt="原始",
+            )
+
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
+
+            self.assertIn("语音朗读意愿判断", request.system_prompt)
+
+    def test_on_llm_request_skips_judge_prompt_when_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "llm_tts_judge_enabled": False},
+            )
+            request = types.SimpleNamespace(
+                tools=[],
+                extra_user_content_parts=[],
+                system_prompt="原始",
+            )
+
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
+
+            self.assertEqual(request.system_prompt, "原始")
+
+    def test_strip_tts_judge_marker_yes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "<TTS:yes>晚上好"
+            result = types.SimpleNamespace(chain=[plain])
+
+            decision = plugin._strip_tts_judge_marker(result)
+
+            self.assertEqual(decision, "yes")
+            self.assertEqual(plain.text, "晚上好")
+
+    def test_strip_tts_judge_marker_no_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "<TTS:no:太羞耻了>剩余文本"
+            result = types.SimpleNamespace(chain=[plain])
+
+            decision = plugin._strip_tts_judge_marker(result)
+
+            self.assertEqual(decision, "no")
+            self.assertEqual(plain.text, "剩余文本")
+
+    def test_strip_tts_judge_marker_none_when_no_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "普通回复没有标记"
+            result = types.SimpleNamespace(chain=[plain])
+
+            decision = plugin._strip_tts_judge_marker(result)
+
+            self.assertIsNone(decision)
+            self.assertEqual(plain.text, "普通回复没有标记")
+
+    def test_auto_tts_judge_yes_forces_tts_despite_zero_probability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "tts_trigger_mode": "probability",
+                    "auto_tts_probability": 0.0,
+                    "llm_tts_judge_enabled": True,
+                },
+            )
+            captured = {}
+            plugin._send_audio_result = AsyncMock()
+            plugin._audio_component = lambda path: None
+
+            async def fake_synthesize(text, **kwargs):
+                captured["text"] = text
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "<TTS:yes>晚上好"
+            result = types.SimpleNamespace(
+                chain=[plain],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: plain.text,
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: None,
+                set_extra=lambda key, value: None,
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            self.assertEqual(captured.get("text"), "晚上好")
+
+    def test_auto_tts_judge_no_skips_tts_despite_full_probability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "tts_trigger_mode": "probability",
+                    "auto_tts_probability": 1.0,
+                    "llm_tts_judge_enabled": True,
+                },
+            )
+            plugin._send_audio_result = AsyncMock()
+            plugin.synthesize_text = AsyncMock(
+                side_effect=AssertionError("must not synthesize")
+            )
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "<TTS:no:太长不读>这是一段很长的回复"
+            result = types.SimpleNamespace(
+                chain=[plain],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: plain.text,
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: None,
+                set_extra=lambda key, value: None,
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            plugin.synthesize_text.assert_not_awaited()
+            self.assertEqual(plain.text, "这是一段很长的回复")
+
+    def test_auto_tts_judge_none_falls_back_to_probability_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "tts_trigger_mode": "probability",
+                    "auto_tts_probability": 0.0,
+                    "llm_tts_judge_enabled": True,
+                },
+            )
+            plugin._send_audio_result = AsyncMock()
+            plugin.synthesize_text = AsyncMock(
+                side_effect=AssertionError("must not synthesize")
+            )
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "没有标记的普通回复"
+            result = types.SimpleNamespace(
+                chain=[plain],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: plain.text,
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: None,
+                set_extra=lambda key, value: None,
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            # 无标记退回概率，概率为 0 应跳过
+            plugin.synthesize_text.assert_not_awaited()
+
     def test_auto_tts_replaces_url_in_speech_when_replace_url_on(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

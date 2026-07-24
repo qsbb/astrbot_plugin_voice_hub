@@ -45,6 +45,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "api_server_port": 9960,
     "tts_backend": "mimo",  # "mimo" 或 "astrbot"
     "astrbot_tts_provider_id": "",  # 空=用 AstrBot 默认 TTS 提供商
+    # LLM 情绪化朗读判断：probability 模式下让主 LLM 在回复开头输出朗读意愿标记
+    "llm_tts_judge_enabled": False,
 }
 
 
@@ -89,6 +91,7 @@ class PluginConfig:
     api_server_port: int
     tts_backend: str
     astrbot_tts_provider_id: str
+    llm_tts_judge_enabled: bool
 
     @property
     def max_voice_file_bytes(self) -> int:
@@ -207,6 +210,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     cfg["astrbot_tts_provider_id"] = str(
         cfg.get("astrbot_tts_provider_id") or ""
     ).strip()
+    cfg["llm_tts_judge_enabled"] = _bool_value(cfg.get("llm_tts_judge_enabled", False))
     return cfg
 
 

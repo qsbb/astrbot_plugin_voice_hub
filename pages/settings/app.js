@@ -153,6 +153,7 @@ function configPayload() {
     tts_backend: document.querySelector('input[name="tts-backend"]:checked')?.value || 'mimo',
     astrbot_tts_provider_id: $('astrbot-tts-provider-id').value,
     auto_tts_probability: Number($('auto-tts-probability').value || 0),
+    llm_tts_judge_enabled: $('llm-tts-judge-enabled').checked,
     auto_tts_group_whitelist: $('auto-tts-group-whitelist').value,
     auto_tts_group_blacklist: $('auto-tts-group-blacklist').value,
     auto_tts_private_whitelist: $('auto-tts-private-whitelist').value,
@@ -351,6 +352,8 @@ function updateTriggerModeUI() {
   const probabilityMode = selected === 'probability';
   $('auto-tts-probability').disabled = !probabilityMode;
   $('auto-tts-probability-field').classList.toggle('is-disabled', !probabilityMode);
+  $('llm-tts-judge-enabled').disabled = !probabilityMode;
+  $('llm-tts-judge-field').classList.toggle('is-disabled', !probabilityMode);
 }
 
 function updateTtsBackendUI() {
@@ -455,6 +458,7 @@ function applyState(payload) {
     : 'probability';
   document.querySelector(`input[name="tts-trigger-mode"][value="${triggerMode}"]`).checked = true;
   $('auto-tts-probability').value = state.config.auto_tts_probability ?? 0;
+  $('llm-tts-judge-enabled').checked = state.config.llm_tts_judge_enabled === true;
   updateTriggerModeUI();
   // TTS backend 选择与提供商列表
   const ttsBackend = ['mimo', 'astrbot'].includes(state.config.tts_backend)
@@ -822,6 +826,7 @@ function bindConfigDirtyState() {
     'max-voice-file-mb',
     'reply-mode',
     'auto-tts-probability',
+    'llm-tts-judge-enabled',
     'auto-tts-group-whitelist',
     'auto-tts-group-blacklist',
     'auto-tts-private-whitelist',

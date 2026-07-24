@@ -5,6 +5,7 @@ import functools
 import json
 import pathlib
 import random
+import re
 import time
 from typing import Any
 
@@ -18,6 +19,11 @@ try:
 except Exception:  # pragma: no cover - AstrBot versions differ here.
     Plain = None
     Record = None
+
+try:  # TextPart 用于不破坏 prompt 缓存的动态上下文注入
+    from astrbot.core.agent.message import TextPart
+except Exception:  # pragma: no cover
+    TextPart = None
 
 from .core.audio_codec import encode_voice_file_data_url, estimate_base64_chars
 from .core.api_server import MimoTTSApiServer
@@ -40,17 +46,34 @@ from .core.text_processing import (
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
+__version__ = "0.7.0"
+
 
 @register(
     "astrbot_plugin_voice_hub",
     "Justice-ocr",
     "凝心溯溪-声，双 TTS 后端、多音色管理、AI 语音导演与外部 API",
-    "0.6.2",
+    __version__,
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
     _current_instance: Any = None
     _api_server: Any = None
+    # LLM 朗读意愿判断标记：<TTS:yes> 或 <TTS:no:原因>，仅匹配回复开头
+    _TTS_JUDGE_MARKER_RE = re.compile(
+        r"^\s*<TTS:(yes|no)(?::[^>]*?)?>\s*", re.IGNORECASE
+    )
+    _TTS_JUDGE_PROMPT = (
+        "【语音朗读意愿判断】\n"
+        "请在回复最开头输出一个朗读意愿标记，紧跟实际回复内容。"
+        "标记会被系统自动剥离，对用户不可见，不要解释标记的存在。\n"
+        "- 适合朗读：<TTS:yes>\n"
+        "- 不适合朗读：<TTS:no:简短原因>\n\n"
+        "适合朗读：简短自然的口语对话、问候、关心、情绪表达、有温度的回应。\n"
+        "不适合朗读：回复过长（超过约80字）、含代码块/表格/列表等结构化内容、"
+        "纯链接或命令说明、内容羞耻尴尬不适合开口朗读、纯功能性的确认或否认。\n"
+        "不确定时默认输出 <TTS:no:不确定>。标记之后直接跟回复正文。"
+    )
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -593,6 +616,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 plugin.logger.info(
                     "[voice-hub] probability mode filtered %s TTS LLM tool(s)", removed
                 )
+            # probability 模式下可选：引导主 LLM 在回复开头输出朗读意愿标记
+            if plugin.plugin_config.llm_tts_judge_enabled:
+                plugin._inject_tts_judge_prompt(request)
 
     if hasattr(filter, "llm_tool"):
 
@@ -1016,6 +1042,65 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return True
         return component.__class__.__name__ == "Plain"
 
+    def _inject_tts_judge_prompt(self, request: Any) -> None:
+        """向 LLM 请求注入朗读意愿判断指令。
+
+        优先追加到 extra_user_content_parts（不破坏 prompt 缓存），
+        回退到 system_prompt 拼接。
+        """
+        prompt = self._TTS_JUDGE_PROMPT
+        injected = False
+        extra = getattr(request, "extra_user_content_parts", None)
+        if extra is not None and TextPart is not None:
+            try:
+                extra.append(TextPart(text=prompt))
+                injected = True
+            except Exception as exc:
+                self.logger.debug("[voice-hub] TextPart inject failed: %s", exc)
+        if not injected:
+            current = getattr(request, "system_prompt", "") or ""
+            try:
+                request.system_prompt = (
+                    (current + "\n\n" + prompt) if current else prompt
+                )
+            except Exception as exc:
+                self.logger.debug("[voice-hub] system_prompt inject failed: %s", exc)
+
+    def _strip_tts_judge_marker(self, result: Any) -> str | None:
+        """从结果链开头剥离 <TTS:yes/no> 标记。
+
+        返回 'yes'/'no' 表示命中并已剥离；None 表示首个 Plain 组件无标记
+        （LLM 未遵循指令，调用方应退回概率逻辑）。
+        """
+        chain = getattr(result, "chain", None)
+        if not chain:
+            return None
+        for idx, comp in enumerate(chain):
+            if not self._is_plain_component(comp):
+                continue
+            text = getattr(comp, "text", "") or ""
+            match = self._TTS_JUDGE_MARKER_RE.match(text)
+            if not match:
+                return None
+            decision = match.group(1).lower()
+            new_text = text[match.end() :]
+            # 优先原地更新 text 属性（兼容真实 Plain 与动态类实例）
+            try:
+                comp.text = new_text
+            except Exception:
+                # 原地更新失败（如 slots 限制）则重建 Plain 组件
+                rebuilt = False
+                if Plain is not None:
+                    try:
+                        chain[idx] = Plain(text=new_text)
+                        rebuilt = True
+                    except Exception:
+                        pass
+                if not rebuilt:
+                    self.logger.debug("[voice-hub] failed to strip TTS judge marker")
+            return decision
+        return None
+
     async def _send_audio_result(
         self, event: AstrMessageEvent, audio_path: pathlib.Path
     ) -> None:
@@ -1060,16 +1145,6 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         plugin.logger.info(
             "[voice-hub] auto tts allowed: %s", access_decision["reason"]
         )
-        roll = random.random()
-        if roll > plugin.plugin_config.auto_tts_probability:
-            plugin.logger.info(
-                "[voice-hub] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
-                roll,
-                plugin.plugin_config.auto_tts_probability,
-                access_decision["scope"],
-                clip_log_text(access_decision["matched_rule"] or "none"),
-            )
-            return
         result = event.get_result()
         if result is None or not getattr(result, "chain", None):
             plugin.logger.info("[voice-hub] auto tts skipped: no result chain")
@@ -1078,6 +1153,26 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if callable(is_llm_result) and not is_llm_result():
             plugin.logger.info("[voice-hub] auto tts skipped: non-LLM result")
             return
+        # LLM 情绪化朗读判断：解析回复开头标记，yes 必读、no 跳过、无标记退回概率
+        judge_decision: str | None = None
+        if plugin.plugin_config.llm_tts_judge_enabled:
+            judge_decision = plugin._strip_tts_judge_marker(result)
+            if judge_decision == "no":
+                plugin.logger.info("[voice-hub] auto tts skipped: llm judge no")
+                return
+            if judge_decision == "yes":
+                plugin.logger.info("[voice-hub] auto tts forced: llm judge yes")
+        if judge_decision != "yes":
+            roll = random.random()
+            if roll > plugin.plugin_config.auto_tts_probability:
+                plugin.logger.info(
+                    "[voice-hub] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
+                    roll,
+                    plugin.plugin_config.auto_tts_probability,
+                    access_decision["scope"],
+                    clip_log_text(access_decision["matched_rule"] or "none"),
+                )
+                return
         raw_plain_text = result.get_plain_text()
         if plugin.plugin_config.replace_url_in_tts and contains_url(raw_plain_text):
             raw_plain_text = replace_urls_for_tts(raw_plain_text)

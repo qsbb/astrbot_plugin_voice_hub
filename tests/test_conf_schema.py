@@ -31,3 +31,5 @@ class ConfigSchemaTests(unittest.TestCase):
             ["probability", "llm_decides"],
         )
         self.assertEqual(schema["auto_tts_probability"]["default"], "0.0")
+        self.assertFalse(schema["llm_tts_judge_enabled"]["default"])
+        self.assertEqual(schema["llm_tts_judge_enabled"]["type"], "bool")

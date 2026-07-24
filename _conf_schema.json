@@ -162,6 +162,12 @@
     "description": "普通 LLM 回复自动语音化概率，范围 0-1，例如 0.3",
     "default": "0.0"
   },
+  "llm_tts_judge_enabled": {
+    "type": "bool",
+    "description": "启用 LLM 情绪化朗读判断",
+    "hint": "仅在 probability 触发方式下生效。开启后会引导主 LLM 在回复开头输出朗读意愿标记（<TTS:yes> 或 <TTS:no:原因>），太长、含代码、羞耻尴尬或纯功能性内容会被主动跳过；适合朗读的简短口语回复则直接转语音（不再受概率限制）。标记会被自动剥离，用户不可见。LLM 未输出标记时退回概率逻辑。",
+    "default": false
+  },
   "auto_tts_group_whitelist": {
     "type": "list",
     "description": "普通 LLM 自动语音化群聊白名单；留空表示不限制，支持群 ID 或完整会话 ID",

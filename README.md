@@ -117,6 +117,7 @@ pip install -r requirements.txt
 | `reply_mode` | `audio_only` | 自动语音化时只保留音频输出 |
 | `tts_trigger_mode` | `probability` 或 `llm_decides` | 唯一触发开关；前者沿用原版概率逻辑，后者由 LLM 调用工具 |
 | `auto_tts_probability` | `0.1` - `0.3` | 仅概率模式生效，避免群聊中过度刷屏 |
+| `llm_tts_judge_enabled` | `false` | 仅概率模式生效。开启后让主 LLM 在回复开头输出朗读意愿标记（`<TTS:yes>`/`<TTS:no:原因>`），太长、含代码、羞耻尴尬或纯功能性内容主动跳过，适合朗读的简短口语直接转语音（不再受概率限制）；标记自动剥离对用户不可见；LLM 未输出标记时退回概率逻辑 |
 | `max_voice_file_mb` | `10` | 越大请求体越大，速度也可能变慢 |
 | `segment_enabled` | `true` | 长文本更稳定 |
 | `output_retention_days` | `7` | 防止长期运行占用磁盘 |

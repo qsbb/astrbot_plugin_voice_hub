@@ -531,7 +531,8 @@ h2 {
   line-height: 1.45;
 }
 
-#auto-tts-probability-field.is-disabled {
+#auto-tts-probability-field.is-disabled,
+#llm-tts-judge-field.is-disabled {
   opacity: .55;
 }
 .policy-grid {

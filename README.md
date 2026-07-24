@@ -2,11 +2,11 @@
 
 > 凝心溯溪系列语音模块：双 TTS 后端、多音色管理、AI 语音导演、外部 API。支持 Pages 可视化管理、多音色切换、情绪路由、自动语音化、试听诊断与输出清理。
 
-> **凝心溯溪系列** 是一套功能互补的 AstrBot 插件集合，旨在构建从记忆学习、对话调节、身份管理到语音合成的完整对话能力链。各插件职责独立、互不冲突，可按需组合使用。
+> **凝心溯溪系列** 是一套功能互补的 AstrBot 插件集合，旨在构建从知识学习、对话调节、身份管理到语音合成的完整对话能力链。各插件职责独立、互不冲突，可按需组合使用。
 
 | 字 | 模块 | 说明 |
 |----|------|------|
-| [忆](https://github.com/qsbb/astrbot_plugin_active_learner) | 记忆学习 | 自动检索注入、多源学习、交叉验证 |
+| [知](https://github.com/qsbb/astrbot_plugin_active_learner) | 知识学习 | 自动检索注入、多源学习、交叉验证 |
 | [言](https://github.com/qsbb/astrbot_plugin_conversation_flow) | 对话调节 | 沉默判断、智能分段、插话衔接 |
 | [序](https://github.com/qsbb/astrbot_plugin_identity_guardian) | 身份管理 | 关系感知、权限边界、群组行动 |
 | [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 双 TTS 后端、多音色管理、AI 导演（本插件） |

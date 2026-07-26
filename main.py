@@ -46,7 +46,7 @@ from .core.text_processing import (
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 
 
 @register(
@@ -1117,7 +1117,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 event.chain_result([File(name=audio_path.name, file=str(audio_path))])
             )
 
-    @filter.on_decorating_result()
+    # 配合言插件（astrbot_plugin_conversation_flow，priority=600）的顺序约束：
+    # 言先在 600 完成长文本分段，本插件在 400 再做语音合成（先分段后合成）。
+    # 若言已分段发送并停止事件，下方 event 停止检查会安全降级为不合成；
+    # 若本插件异常先执行，也只在现有 result.chain 上追加音频，不与分段逻辑冲突。
+    @filter.on_decorating_result(priority=400)
     async def auto_tts_reply(self, *args):
         # AstrBot 热重载时 functools.partial 可能套娃，额外实例参数被前置。
         # 真实 event 始终是 args 末尾参数。
@@ -1127,6 +1131,16 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not args:
             return
         event = args[-1]
+        is_stopped = getattr(event, "is_stopped", None)
+        if callable(is_stopped):
+            try:
+                if is_stopped():
+                    plugin.logger.info(
+                        "[voice-hub] auto tts skipped: event stopped upstream"
+                    )
+                    return
+            except Exception:
+                pass
         if plugin._is_tts_handled(event):
             plugin.logger.info("[voice-hub] auto tts skipped: event already handled")
             return

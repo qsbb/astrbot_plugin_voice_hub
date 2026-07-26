@@ -1,5 +1,16 @@
 # Changelog
 
+> 当前系列归属：知、言、序、情、声、核；下方版本号与日期均为真实历史记录，不因当前文档整改而改写。
+
+## 0.7.5 - 2026-07-27
+
+### Changed
+
+- `on_decorating_result` 钩子显式声明 `priority=400`，配合言插件（`astrbot_plugin_conversation_flow`，`priority=600`）先分段后合成的顺序约束，并加注释说明；上游已分段发送并停止事件时安全降级为不合成，异常先执行时也只在现有回复链上追加音频，不与分段逻辑冲突。
+- 核对 `metadata.yaml` 的 `icon` 字段：插件根目录 `logo.png` 真实存在且为有效 PNG（256x256），声明保持不变；README 插件信息表中的 WebUI 图标说明与实际一致。
+- 修正 README「开发与验证」一节：确认 Pages 目录实际为 `pages/settings/`，统一说明测试框架为 Python 标准库 `unittest`，测试命令精简为 `unittest discover`、`ruff check` 与 `node --check`。
+- 版本号从 `v0.7.4` 迁移为三段式无 `v` 前缀格式，升为 `0.7.5`；同步 `metadata.yaml`、`main.py` 的 `__version__` 与 README 当前版本。
+
 ## v0.7.4 - 2026-07-27
 
 ### Changed

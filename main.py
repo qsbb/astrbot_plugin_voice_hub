@@ -46,7 +46,7 @@ from .core.text_processing import (
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
-__version__ = "0.7.5"
+__version__ = "0.7.6"
 
 
 @register(
@@ -597,7 +597,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
     if hasattr(filter, "on_llm_request"):
 
-        @filter.on_llm_request()
+        # priority=300：凝心溯溪系列 on_llm_request 区间为 200-800，数值越大越先执行。
+        # 顺序为 序 800 > 知 700 > 情 600 > 言 500 > 声 300。本钩子只做工具集裁剪，
+        # 不注入上下文，必须在其余模块完成注入后再执行，确保裁剪结果不被覆盖。
+        @filter.on_llm_request(priority=300)
         async def filter_tts_tool_for_probability_mode(self, *args):
             # AstrBot 热重载时 functools.partial 可能套娃，导致额外实例参数被前置。
             # 真实参数 (event, request) 始终在 args 末尾，从末尾提取即可。

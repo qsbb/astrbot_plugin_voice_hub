@@ -15,6 +15,34 @@ SUPPORTED_AUDIO_MIME = {
 }
 
 
+def sniff_audio_format(header: bytes) -> str:
+    """按文件内容识别真实音频格式，不信任扩展名。
+
+    平台侧语音（QQ/微信）常把 silk/amr 命名成 .wav 或 .mp3，
+    仅凭扩展名判断会把「格式不支持」误报成「文件损坏」。
+    返回小写格式名；无法识别时返回 "unknown"。
+    """
+    if not header:
+        return "unknown"
+    if header.startswith(b"RIFF") and header[8:12] == b"WAVE":
+        return "wav"
+    if header.startswith(b"ID3"):
+        return "mp3"
+    if len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+        return "mp3"
+    if header.startswith(b"#!SILK") or header[1:8] == b"#!SILK_":
+        return "silk"
+    if header.startswith(b"#!AMR"):
+        return "amr"
+    if header.startswith(b"OggS"):
+        return "ogg"
+    if header.startswith(b"fLaC"):
+        return "flac"
+    if header[4:8] == b"ftyp":
+        return "m4a"
+    return "unknown"
+
+
 def detect_audio_mime(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in SUPPORTED_AUDIO_MIME:
@@ -31,20 +59,26 @@ def estimate_base64_chars(byte_count: int) -> int:
 
 def validate_audio_header(path: Path, mime_type: str) -> None:
     header = path.read_bytes()[:12]
+    actual = sniff_audio_format(header)
     if mime_type == "audio/wav":
-        if len(header) < 12 or not (
-            header.startswith(b"RIFF") and header[8:12] == b"WAVE"
-        ):
-            raise AudioValidationError("Invalid wav audio header.")
+        if actual != "wav":
+            raise AudioValidationError(
+                f"Invalid wav audio header ({_describe_actual(actual)})."
+            )
         return
     if mime_type == "audio/mpeg":
-        has_id3 = header.startswith(b"ID3")
-        has_frame_sync = (
-            len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0
-        )
-        if not (has_id3 or has_frame_sync):
-            raise AudioValidationError("Invalid mp3 audio header.")
+        if actual != "mp3":
+            raise AudioValidationError(
+                f"Invalid mp3 audio header ({_describe_actual(actual)})."
+            )
         return
+
+
+def _describe_actual(actual: str) -> str:
+    """把嗅探结果转成可读提示，帮助定位「扩展名对但编码不支持」。"""
+    if actual == "unknown":
+        return "content not recognised as mp3 or wav"
+    return f"file content looks like {actual}; convert it to mp3 or wav"
 
 
 def validate_voice_file(

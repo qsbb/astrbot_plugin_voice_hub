@@ -8,6 +8,7 @@ from astrbot_plugin_voice_hub.core.audio_codec import (
     AudioValidationError,
     encode_voice_file_data_url,
     estimate_base64_chars,
+    sniff_audio_format,
 )
 
 
@@ -71,3 +72,37 @@ class AudioCodecTests(unittest.TestCase):
 
     def test_base64_limit_can_be_derived_from_byte_limit(self):
         self.assertEqual(estimate_base64_chars(10), 16)
+
+    def test_sniff_audio_format_identifies_platform_voice_codecs(self):
+        self.assertEqual(sniff_audio_format(b"RIFF\x00\x00\x00\x00WAVE"), "wav")
+        self.assertEqual(sniff_audio_format(b"ID3\x04\x00\x00"), "mp3")
+        self.assertEqual(sniff_audio_format(b"\xff\xfb\x90\x00"), "mp3")
+        self.assertEqual(sniff_audio_format(b"\x02#!SILK_V3"), "silk")
+        self.assertEqual(sniff_audio_format(b"#!AMR\n"), "amr")
+        self.assertEqual(sniff_audio_format(b"OggS\x00\x02"), "ogg")
+        self.assertEqual(sniff_audio_format(b"fLaC\x00\x00"), "flac")
+        self.assertEqual(sniff_audio_format(b"\x00\x00\x00 ftypM4A "), "m4a")
+        self.assertEqual(sniff_audio_format(b""), "unknown")
+
+    def test_silk_voice_renamed_to_wav_reports_real_format(self):
+        """QQ 语音（silk）被命名成 .wav 时，错误应指出真实格式而非只说损坏。"""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sample = Path(temp_dir) / "voice.wav"
+            sample.write_bytes(b"\x02#!SILK_V3" + b"0" * 20)
+
+            with self.assertRaisesRegex(AudioValidationError, "looks like silk"):
+                encode_voice_file_data_url(sample, max_bytes=1024)
+
+    def test_unrecognised_content_named_mp3_is_reported_clearly(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sample = Path(temp_dir) / "voice.mp3"
+            sample.write_bytes(b"not really an mp3")
+
+            with self.assertRaisesRegex(
+                AudioValidationError, "content not recognised"
+            ):
+                encode_voice_file_data_url(sample, max_bytes=1024)

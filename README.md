@@ -211,10 +211,10 @@ audio_path = await plugin.text_to_speech(
 | --- | --- |
 | 插件名 | `astrbot_plugin_voice_hub` |
 | 展示名 | 凝心溯溪-声 |
-| 当前版本 | `0.7.5` |
+| 当前版本 | 见 `metadata.yaml`（唯一事实源） |
 | 作者 | Justice-ocr |
 | 作者简介 | AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、Pages 管理体验与实用型机器人扩展 |
-| AstrBot 版本 | `>=4.16.0,<5` |
+| AstrBot 版本 | `>=4.16,<5` |
 | 支持平台 | `aiocqhttp` |
 | WebUI 图标 | `logo.png`（插件根目录） |
 | README 图标 | `assets/icon.svg`（README 资源图标）；横幅为 `assets/readme-hero.svg` |

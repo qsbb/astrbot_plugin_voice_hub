@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import base64
+import io
 import mimetypes
+import wave
 from pathlib import Path
 
 
 class AudioValidationError(ValueError):
     """Raised when a voice sample cannot be sent to the MiMo API."""
+
+
+class AudioMergeError(RuntimeError):
+    """Raised when segmented audio cannot be merged without data loss."""
 
 
 SUPPORTED_AUDIO_MIME = {
@@ -119,3 +125,80 @@ def encode_voice_file_data_url(
     data = audio_path.read_bytes()
     encoded = base64.b64encode(data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
+
+
+def merge_wav_files(paths: list[Path | str], output_path: Path | str) -> Path:
+    """Merge compatible PCM WAV files and return the single output path.
+
+    Every segment is parsed instead of assuming a fixed-size WAV header.  A
+    mismatch is reported explicitly so callers never mistake the first segment
+    for the complete recording.
+    """
+    inputs = [Path(path) for path in paths]
+    if not inputs:
+        raise AudioMergeError("No WAV segments to merge.")
+
+    chunks: list[bytes] = []
+    try:
+        chunks = [path.read_bytes() for path in inputs]
+    except OSError as exc:
+        raise AudioMergeError(f"Unable to read WAV segment: {exc}") from exc
+
+    data = merge_wav_bytes(chunks)
+    destination = Path(output_path)
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+    except OSError as exc:
+        destination.unlink(missing_ok=True)
+        raise AudioMergeError(f"Unable to write merged WAV: {exc}") from exc
+    return destination
+
+
+def merge_wav_bytes(chunks: list[bytes]) -> bytes:
+    """Merge compatible PCM WAV byte strings without assuming header layout."""
+    if not chunks:
+        raise AudioMergeError("No WAV segments to merge.")
+
+    expected: tuple[int, int, int, str] | None = None
+    frames: list[bytes] = []
+
+    try:
+        for index, chunk in enumerate(chunks, start=1):
+            with wave.open(io.BytesIO(chunk), "rb") as reader:
+                signature = (
+                    reader.getnchannels(),
+                    reader.getsampwidth(),
+                    reader.getframerate(),
+                    reader.getcomptype(),
+                )
+                if signature[3] != "NONE":
+                    raise AudioMergeError(
+                        f"Unsupported compressed WAV segment {index}."
+                    )
+                if expected is None:
+                    expected = signature
+                elif signature != expected:
+                    raise AudioMergeError(
+                        "WAV segments use incompatible channel, sample-width, "
+                        "sample-rate, or compression settings."
+                    )
+                frames.append(reader.readframes(reader.getnframes()))
+
+        assert expected is not None
+        if len(chunks) == 1:
+            return chunks[0]
+        channels, sample_width, frame_rate, _ = expected
+        destination = io.BytesIO()
+        with wave.open(destination, "wb") as writer:
+            writer.setnchannels(channels)
+            writer.setsampwidth(sample_width)
+            writer.setframerate(frame_rate)
+            writer.setcomptype("NONE", "not compressed")
+            for chunk in frames:
+                writer.writeframes(chunk)
+        return destination.getvalue()
+    except AudioMergeError:
+        raise
+    except (OSError, EOFError, wave.Error) as exc:
+        raise AudioMergeError(f"Invalid WAV segment: {exc}") from exc

@@ -25,7 +25,12 @@ try:  # TextPart 用于不破坏 prompt 缓存的动态上下文注入
 except Exception:  # pragma: no cover
     TextPart = None
 
-from .core.audio_codec import encode_voice_file_data_url, estimate_base64_chars
+from .core.audio_codec import (
+    AudioMergeError,
+    encode_voice_file_data_url,
+    estimate_base64_chars,
+    merge_wav_files,
+)
 from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, normalize_emotion
@@ -72,6 +77,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
     VOICE_DECISION_EVENT_KEY = "voice_hub.delivery_decision"
     DELIVERY_PLAN_EVENT_KEY = "conversation_flow.delivery_plan"
+    TOOL_INTERRUPT_EVENT_KEY = "voice_hub.tool_interrupt_token"
     VOICE_DELIVERY_CONTRACT_NAME = "voice.delivery"
     VOICE_DELIVERY_CONTRACT_VERSION = "1.0"
     _current_instance: Any = None
@@ -96,6 +102,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         super().__init__(context)
         self.context = context
         self.logger = logger
+        self._tool_delivery_tokens: dict[
+            str, tuple[float, dict[str, Any]]
+        ] = {}
         self._native_config = config if hasattr(config, "save_config") else None
         self.data_dir = StarTools.get_data_dir("astrbot_plugin_voice_hub")
         pathlib.Path(self.data_dir).mkdir(parents=True, exist_ok=True)
@@ -603,14 +612,31 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         """Compatibility helper for generic TTS callers such as daily_sharing."""
         del session_state
         group_id = str(target_umo or session or session_id or "").strip()
-        outputs = await self.synthesize_text(
-            text,
-            voice_name=voice_name or voice or None,
-            emotion=emotion or None,
-            context=context,
-            group_id=group_id,
-        )
-        return str(outputs[0]) if outputs else ""
+        synthesis_options = {
+            "voice_name": voice_name or voice or None,
+            "emotion": emotion or None,
+            "context": context,
+            "group_id": group_id,
+        }
+        outputs = await self.synthesize_text(text, **synthesis_options)
+        if not outputs:
+            return ""
+        if len(outputs) == 1:
+            return str(outputs[0])
+        output_dir = pathlib.Path(self.data_dir) / "outputs"
+        merged_path = output_dir / f"mimo_tts_merged_{time.time_ns()}.wav"
+        try:
+            merged = await asyncio.to_thread(merge_wav_files, outputs, merged_path)
+            return str(merged)
+        except AudioMergeError:
+            if self.plugin_config.tts_backend != "astrbot":
+                raise
+        fallback = await self.synthesize_text(text, split=False, **synthesis_options)
+        if len(fallback) != 1:
+            raise RuntimeError(
+                "AstrBot TTS provider did not return one complete audio file."
+            )
+        return str(fallback[0])
 
     @staticmethod
     def _llm_tool_name(tool: Any) -> str:
@@ -661,6 +687,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 "VOICE_REQUEST_FILTER_STARTED",
             )
             if plugin.plugin_config.tts_trigger_mode != "probability":
+                plugin._register_tool_delivery_request(event, request_context)
                 return
             removed = plugin._filter_tts_llm_tool(request)
             if removed:
@@ -720,39 +747,61 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
             if plugin.plugin_config.replace_url_in_tts and contains_url(content):
                 content = replace_urls_for_tts(content)
+            request_context = ensure_context(event, PHASE_LLM_REQUEST)
+            plugin._register_tool_delivery_request(event, request_context)
+            interrupt_tokens = plugin._delivery_interrupt_tokens(event)
+            outputs: list[pathlib.Path] = []
             try:
-                outputs = await plugin.synthesize_text(
-                    content,
-                    voice_name=str(voice or "").strip() or None,
-                    emotion=emotion,
-                    context=style,
-                    user_id=str(
-                        getattr(event, "get_sender_id", lambda: "")() or ""
-                    ).strip(),
-                    group_id=str(getattr(event, "unified_msg_origin", "") or "").strip()
-                    or plugin._conversation_id(event),
-                    style_director_enabled=False,
-                )
-            except Exception as exc:
-                yield f"tts failed: {exc}"
+                if plugin._interrupt_cancelled(interrupt_tokens):
+                    plugin._discard_cancelled_delivery(event)
+                    yield "tts cancelled: request superseded"
+                    return
+                try:
+                    outputs = await plugin.synthesize_text(
+                        content,
+                        voice_name=str(voice or "").strip() or None,
+                        emotion=emotion,
+                        context=style,
+                        user_id=str(
+                            getattr(event, "get_sender_id", lambda: "")() or ""
+                        ).strip(),
+                        group_id=str(
+                            getattr(event, "unified_msg_origin", "") or ""
+                        ).strip()
+                        or plugin._conversation_id(event),
+                        style_director_enabled=False,
+                    )
+                except Exception as exc:
+                    yield f"tts failed: {exc}"
+                    return
+                if plugin._interrupt_cancelled(interrupt_tokens):
+                    plugin._remove_cancelled_outputs(outputs)
+                    plugin._discard_cancelled_delivery(event)
+                    yield "tts cancelled: request superseded"
+                    return
+                sent = 0
+                for output in outputs:
+                    if plugin._interrupt_cancelled(interrupt_tokens):
+                        plugin._discard_cancelled_delivery(event)
+                        yield "tts cancelled: request superseded"
+                        return
+                    await plugin._send_audio_result(event, output)
+                    sent += 1
+                    if sent == 1:
+                        plugin._mark_tts_handled(event)
+                if hasattr(event, "clear_result"):
+                    event.clear_result()
+                if sent == 0:
+                    yield "no audio generated"
+                else:
+                    yield (
+                        f"audio already sent to user ({sent} segment"
+                        + ("s" if sent != 1 else "")
+                        + "); do not resend it via other tools"
+                    )
                 return
-            sent = 0
-            for output in outputs:
-                await plugin._send_audio_result(event, output)
-                sent += 1
-                if sent == 1:
-                    plugin._mark_tts_handled(event)
-            if hasattr(event, "clear_result"):
-                event.clear_result()
-            if sent == 0:
-                yield "no audio generated"
-            else:
-                yield (
-                    f"audio already sent to user ({sent} segment"
-                    + ("s" if sent != 1 else "")
-                    + "); do not resend it via other tools"
-                )
-            return
+            finally:
+                plugin._finish_tool_delivery_request(event, interrupt_tokens)
 
     @classmethod
     def _mark_tts_handled(cls, event: AstrMessageEvent) -> None:
@@ -792,7 +841,83 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
             except Exception:
                 pass
-        setattr(event, key, value)
+        try:
+            setattr(event, key, value)
+        except Exception:
+            pass
+
+    def _tool_delivery_scope(self, event: AstrMessageEvent) -> str:
+        return str(getattr(event, "unified_msg_origin", "") or "").strip() or str(
+            self._conversation_id(event) or ""
+        ).strip()
+
+    def _register_tool_delivery_request(
+        self,
+        event: AstrMessageEvent,
+        request_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        existing = self._event_extra(event, self.TOOL_INTERRUPT_EVENT_KEY)
+        if isinstance(existing, dict):
+            return existing
+
+        scope = self._tool_delivery_scope(event)
+        now = time.monotonic()
+        expired = [
+            key
+            for key, (created_at, token) in self._tool_delivery_tokens.items()
+            if token.get("completed") or now - created_at > 600
+        ]
+        for key in expired:
+            self._tool_delivery_tokens.pop(key, None)
+
+        if scope:
+            previous = self._tool_delivery_tokens.get(scope)
+            if previous is not None:
+                previous[1]["cancelled"] = True
+
+        token: dict[str, Any] = {"cancelled": False, "completed": False}
+        self._set_event_extra(event, self.TOOL_INTERRUPT_EVENT_KEY, token)
+        context = request_context or ensure_context(event, PHASE_LLM_REQUEST)
+        set_artifact(context, OWNER_VOICE_HUB, "tool_interrupt_token", token)
+        if scope:
+            self._tool_delivery_tokens[scope] = (now, token)
+        return token
+
+    def _delivery_interrupt_tokens(
+        self, event: AstrMessageEvent
+    ) -> list[dict[str, Any]]:
+        tokens: list[dict[str, Any]] = []
+        plan_token = self._delivery_plan(event).get("interrupt_token")
+        own_token = self._event_extra(event, self.TOOL_INTERRUPT_EVENT_KEY)
+        for token in (plan_token, own_token):
+            if isinstance(token, dict) and all(token is not item for item in tokens):
+                tokens.append(token)
+        return tokens
+
+    @staticmethod
+    def _interrupt_cancelled(tokens: list[dict[str, Any]]) -> bool:
+        return any(bool(token.get("cancelled")) for token in tokens)
+
+    def _finish_tool_delivery_request(
+        self, event: AstrMessageEvent, tokens: list[dict[str, Any]]
+    ) -> None:
+        for token in tokens:
+            token["completed"] = True
+        scope = self._tool_delivery_scope(event)
+        current = self._tool_delivery_tokens.get(scope) if scope else None
+        own_token = self._event_extra(event, self.TOOL_INTERRUPT_EVENT_KEY)
+        if current is not None and current[1] is own_token:
+            self._tool_delivery_tokens.pop(scope, None)
+
+    def _remove_cancelled_outputs(self, outputs: list[pathlib.Path]) -> None:
+        output_dir = (pathlib.Path(self.data_dir) / "outputs").resolve()
+        for output in outputs:
+            try:
+                path = pathlib.Path(output).resolve()
+                if path.is_relative_to(output_dir):
+                    path.unlink(missing_ok=True)
+            except (OSError, RuntimeError, ValueError):
+                pass
 
     def voice_delivery_contract(self) -> dict[str, object]:
         return {

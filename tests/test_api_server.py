@@ -108,6 +108,32 @@ class ApiServerTests(unittest.TestCase):
 
             asyncio.run(run())
 
+    def test_audio_speech_rejects_provider_output_that_is_not_wav(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mp3_path = Path(tmp) / "voice.mp3"
+            mp3_path.write_bytes(b"ID3\x04\x00\x00audio")
+            plugin = _FakePlugin(outputs=[mp3_path])
+
+            async def run():
+                test_server = self._make_server(plugin)
+                async with TestClient(test_server) as client:
+                    resp = await client.post(
+                        "/v1/audio/speech",
+                        data=json.dumps(
+                            {
+                                "model": "mimo-v2.5-tts-voiceclone",
+                                "input": "hello",
+                                "voice": "voice-a",
+                            }
+                        ),
+                        headers=self._headers(),
+                    )
+                    self.assertEqual(resp.status, 502)
+                    body = await resp.json()
+                    self.assertEqual(body["error"]["code"], "invalid_audio")
+
+            asyncio.run(run())
+
     def test_audio_speech_missing_input_returns_400(self):
         plugin = _FakePlugin()
 

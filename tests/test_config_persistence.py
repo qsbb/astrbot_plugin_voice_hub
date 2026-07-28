@@ -540,7 +540,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertTrue(mid.exists())
             self.assertTrue(new.exists())
 
-    def test_text_to_speech_returns_first_output_path_for_generic_callers(self):
+    def test_text_to_speech_returns_single_output_path_for_generic_callers(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -561,6 +561,84 @@ class ConfigPersistenceTests(unittest.TestCase):
             )
 
             self.assertEqual(result, str(Path(tmp) / "voice.wav"))
+
+    def test_text_to_speech_merges_all_segment_outputs_for_generic_callers(self):
+        import wave
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            first = Path(tmp) / "first.wav"
+            second = Path(tmp) / "second.wav"
+            for path, frames in (
+                (first, b"\x00\x01\x02\x03"),
+                (second, b"\x04\x05\x06\x07"),
+            ):
+                with wave.open(str(path), "wb") as writer:
+                    writer.setnchannels(1)
+                    writer.setsampwidth(2)
+                    writer.setframerate(16000)
+                    writer.writeframes(frames)
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [first, second]
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            result = Path(asyncio.run(plugin.text_to_speech("long text")))
+
+            self.assertNotIn(result, (first, second))
+            with wave.open(str(result), "rb") as reader:
+                self.assertEqual(
+                    reader.readframes(reader.getnframes()),
+                    b"\x00\x01\x02\x03\x04\x05\x06\x07",
+                )
+
+    def test_text_to_speech_uses_unsplit_astrbot_fallback_for_mp3_segments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_backend": "astrbot"}
+            )
+            first = Path(tmp) / "first.mp3"
+            second = Path(tmp) / "second.mp3"
+            complete = Path(tmp) / "complete.mp3"
+            first.write_bytes(b"ID3first")
+            second.write_bytes(b"ID3second")
+            complete.write_bytes(b"ID3complete")
+            calls = []
+
+            async def fake_synthesize_text(text, **kwargs):
+                calls.append(kwargs)
+                if kwargs.get("split") is False:
+                    return [complete]
+                return [first, second]
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            result = asyncio.run(plugin.text_to_speech("long text"))
+
+            self.assertEqual(result, str(complete))
+            self.assertEqual(len(calls), 2)
+            self.assertNotIn("split", calls[0])
+            self.assertFalse(calls[1]["split"])
+
+    def test_text_to_speech_does_not_hide_invalid_mimo_segments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            first = Path(tmp) / "first.mp3"
+            second = Path(tmp) / "second.mp3"
+            first.write_bytes(b"ID3first")
+            second.write_bytes(b"ID3second")
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [first, second]
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            with self.assertRaisesRegex(RuntimeError, "Invalid WAV segment"):
+                asyncio.run(plugin.text_to_speech("long text"))
 
     def test_auto_tts_scope_whitelist_and_blacklist(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -906,6 +984,115 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
             self.assertEqual(len(sent), 2)
+
+    def test_mimo_tts_speak_discards_audio_cancelled_during_synthesis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            token = {"cancelled": False, "completed": False}
+            extras = {
+                plugin.DELIVERY_PLAN_EVENT_KEY: {
+                    "version": "1.0",
+                    "interrupt_token": token,
+                }
+            }
+            sent = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: None,
+                stop_event=lambda: None,
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                token["cancelled"] = True
+                return [Path(tmp) / "voice.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append(output)
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual(result, ["tts cancelled: request superseded"])
+            self.assertEqual(sent, [])
+            self.assertTrue(token["completed"])
+            self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
+
+    def test_mimo_tts_speak_stops_before_next_segment_when_cancelled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            token = {"cancelled": False, "completed": False}
+            extras = {
+                plugin.DELIVERY_PLAN_EVENT_KEY: {
+                    "version": "1.0",
+                    "interrupt_token": token,
+                }
+            }
+            sent = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: None,
+                stop_event=lambda: None,
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                return [Path(tmp) / "one.wav", Path(tmp) / "two.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append(output)
+                token["cancelled"] = True
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual(result, ["tts cancelled: request superseded"])
+            self.assertEqual(sent, [Path(tmp) / "one.wav"])
+            self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
+
+    def test_new_request_cancels_previous_tool_delivery_in_same_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "llm_decides"}
+            )
+
+            def make_event():
+                extras = {}
+                return types.SimpleNamespace(
+                    unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                    set_extra=lambda key, value: extras.__setitem__(key, value),
+                    get_extra=lambda key: extras.get(key),
+                )
+
+            first = make_event()
+            second = make_event()
+            request = types.SimpleNamespace(tools=[])
+
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(first, request))
+            first_token = first.get_extra(plugin.TOOL_INTERRUPT_EVENT_KEY)
+            asyncio.run(plugin.filter_tts_tool_for_probability_mode(second, request))
+
+            self.assertTrue(first_token["cancelled"])
+            self.assertFalse(
+                second.get_extra(plugin.TOOL_INTERRUPT_EVENT_KEY)["cancelled"]
+            )
 
     def test_llm_decides_mode_skips_probability_auto_tts(self):
         with tempfile.TemporaryDirectory() as tmp:

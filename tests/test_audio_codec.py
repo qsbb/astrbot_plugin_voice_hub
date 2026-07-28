@@ -5,14 +5,26 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from astrbot_plugin_voice_hub.core.audio_codec import (
+    AudioMergeError,
     AudioValidationError,
     encode_voice_file_data_url,
     estimate_base64_chars,
+    merge_wav_files,
     sniff_audio_format,
 )
 
 
 class AudioCodecTests(unittest.TestCase):
+    @staticmethod
+    def _write_wav(path, frames, *, frame_rate=16000):
+        import wave
+
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(frame_rate)
+            writer.writeframes(frames)
+
     def test_encode_voice_file_data_url_accepts_mp3(self):
         import tempfile
 
@@ -106,3 +118,38 @@ class AudioCodecTests(unittest.TestCase):
                 AudioValidationError, "content not recognised"
             ):
                 encode_voice_file_data_url(sample, max_bytes=1024)
+
+    def test_merge_wav_files_preserves_all_segment_frames(self):
+        import tempfile
+        import wave
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = Path(temp_dir) / "first.wav"
+            second = Path(temp_dir) / "second.wav"
+            merged = Path(temp_dir) / "merged.wav"
+            self._write_wav(first, b"\x00\x01\x02\x03")
+            self._write_wav(second, b"\x04\x05\x06\x07")
+
+            result = merge_wav_files([first, second], merged)
+
+            self.assertEqual(result, merged)
+            with wave.open(str(merged), "rb") as reader:
+                self.assertEqual(
+                    reader.readframes(reader.getnframes()),
+                    b"\x00\x01\x02\x03\x04\x05\x06\x07",
+                )
+
+    def test_merge_wav_files_rejects_incompatible_segments(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = Path(temp_dir) / "first.wav"
+            second = Path(temp_dir) / "second.wav"
+            merged = Path(temp_dir) / "merged.wav"
+            self._write_wav(first, b"\x00\x01", frame_rate=16000)
+            self._write_wav(second, b"\x02\x03", frame_rate=24000)
+
+            with self.assertRaisesRegex(AudioMergeError, "incompatible"):
+                merge_wav_files([first, second], merged)
+
+            self.assertFalse(merged.exists())

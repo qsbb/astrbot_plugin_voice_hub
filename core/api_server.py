@@ -9,6 +9,8 @@ from typing import Any
 
 from aiohttp import web
 
+from .audio_codec import AudioMergeError, merge_wav_bytes
+
 
 class MimoTTSApiServer:
     """OpenAI 兼容的 TTS HTTP 服务。
@@ -203,11 +205,16 @@ class MimoTTSApiServer:
                 "server_error",
             )
 
-        # 多段音频时，拼接为单个 wav；大多数情况只有一段
-        if len(outputs) == 1:
-            data = _read_bytes(outputs[0])
-        else:
-            data = _concat_wav([_read_bytes(p) for p in outputs])
+        try:
+            data = _concat_wav([_read_bytes(path) for path in outputs])
+        except (AudioMergeError, OSError) as exc:
+            self.logger.warning("[voice-hub] api server invalid WAV output: %s", exc)
+            return _error_response(
+                "speech provider returned invalid or incompatible WAV audio",
+                502,
+                "invalid_audio",
+                "server_error",
+            )
 
         resp = web.StreamResponse(
             status=200,
@@ -273,38 +280,5 @@ def _read_bytes(path: Any) -> bytes:
 
 
 def _concat_wav(chunks: list[bytes]) -> bytes:
-    """简易 WAV 拼接：解析首个 header，拼接 PCM 数据并重写长度。"""
-    if not chunks:
-        return b""
-    if len(chunks) == 1:
-        return chunks[0]
-
-    import struct
-
-    header = bytearray(chunks[0][:44])
-    # 解析声道数、采样率、位深
-    try:
-        num_channels = struct.unpack_from("<H", header, 22)[0]
-        sample_rate = struct.unpack_from("<I", header, 24)[0]
-        bits_per_sample = struct.unpack_from("<H", header, 34)[0]
-    except struct.error:
-        # header 不标准，退回返回首段
-        return chunks[0]
-
-    pcm_parts: list[bytes] = []
-    for chunk in chunks:
-        if len(chunk) <= 44:
-            continue
-        pcm_parts.append(chunk[44:])
-    pcm = b"".join(pcm_parts)
-
-    byte_rate = sample_rate * num_channels * bits_per_sample // 8
-    block_align = num_channels * bits_per_sample // 8
-    data_size = len(pcm)
-
-    struct.pack_into("<I", header, 4, 36 + data_size)  # RIFF chunk size
-    struct.pack_into("<I", header, 28, byte_rate)
-    struct.pack_into("<H", header, 32, block_align)
-    struct.pack_into("<I", header, 40, data_size)  # data chunk size
-
-    return bytes(header) + pcm
+    """Compatibility wrapper around the shared validated WAV merger."""
+    return merge_wav_bytes(chunks)

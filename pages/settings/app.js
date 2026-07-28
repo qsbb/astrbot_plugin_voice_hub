@@ -179,8 +179,11 @@ function configPayload() {
     file_fallback_enabled: $('file-fallback-enabled').checked,
     replace_url_in_tts: $('replace-url-in-tts').checked,
     api_server_enabled: $('api-server-enabled').checked,
-    api_server_host: $('api-server-host').value.trim() || '0.0.0.0',
+    api_server_host: $('api-server-host').value.trim() || '127.0.0.1',
     api_server_port: Number($('api-server-port').value || 9960),
+    api_server_token: $('api-server-token').value.trim(),
+    api_server_rate_limit_per_minute: Number($('api-server-rate-limit').value || 30),
+    api_server_max_input_chars: Number($('api-server-max-input-chars').value || 500),
     output_retention_days: Number($('output-retention-days').value || 0),
     output_max_files: Number($('output-max-files').value || 0),
     emotion_routing_enabled: $('emotion-routing-enabled').checked,
@@ -459,7 +462,8 @@ function applyState(payload) {
   state.readiness = payload.readiness || {};
   state.accessControl = payload.access_control || {};
 
-  $('api-key').value = state.config.api_key || '';
+  $('api-key').value = '';
+  $('api-key').placeholder = state.readiness.api_key ? '已配置，留空保持不变' : '填入 MiMo API Key';
   $('base-url').value = state.config.base_url || 'https://api.xiaomimimo.com/v1';
   $('model').value = state.config.model || 'mimo-v2.5-tts-voiceclone';
   $('default-context').value = state.config.default_context || '';
@@ -489,8 +493,14 @@ function applyState(payload) {
   $('file-fallback-enabled').checked = state.config.file_fallback_enabled !== false;
   $('replace-url-in-tts').checked = state.config.replace_url_in_tts !== false;
   $('api-server-enabled').checked = state.config.api_server_enabled === true;
-  $('api-server-host').value = state.config.api_server_host || '0.0.0.0';
+  $('api-server-host').value = state.config.api_server_host || '127.0.0.1';
   $('api-server-port').value = state.config.api_server_port ?? 9960;
+  $('api-server-token').value = '';
+  $('api-server-token').placeholder = state.readiness.api_server_token
+    ? '已配置，留空保持不变'
+    : '填写独立访问令牌';
+  $('api-server-rate-limit').value = state.config.api_server_rate_limit_per_minute ?? 30;
+  $('api-server-max-input-chars').value = state.config.api_server_max_input_chars ?? 500;
   updateApiServerUrl();
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;

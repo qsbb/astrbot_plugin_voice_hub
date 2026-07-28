@@ -61,6 +61,7 @@ def _make_wav(data: bytes = b"\x00\x01\x02\x03") -> bytes:
 
 class ApiServerTests(unittest.TestCase):
     def _make_server(self, plugin, **kwargs):
+        kwargs.setdefault("api_token", "test-token")
         server = MimoTTSApiServer(
             plugin,
             logger=types.SimpleNamespace(
@@ -69,6 +70,13 @@ class ApiServerTests(unittest.TestCase):
             **kwargs,
         )
         return TestServer(server._build_app())
+
+    @staticmethod
+    def _headers(token="test-token"):
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
 
     def test_audio_speech_returns_wav(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,9 +90,13 @@ class ApiServerTests(unittest.TestCase):
                     resp = await client.post(
                         "/v1/audio/speech",
                         data=json.dumps(
-                            {"model": "any", "input": "你好", "voice": "旁白"}
+                            {
+                                "model": "mimo-v2.5-tts-voiceclone",
+                                "input": "你好",
+                                "voice": "旁白",
+                            }
                         ),
-                        headers={"Content-Type": "application/json"},
+                        headers=self._headers(),
                     )
                     self.assertEqual(resp.status, 200)
                     self.assertEqual(resp.headers["Content-Type"], "audio/wav")
@@ -104,8 +116,10 @@ class ApiServerTests(unittest.TestCase):
             async with TestClient(test_server) as client:
                 resp = await client.post(
                     "/v1/audio/speech",
-                    data=json.dumps({"model": "any", "voice": "x"}),
-                    headers={"Content-Type": "application/json"},
+                    data=json.dumps(
+                        {"model": "mimo-v2.5-tts-voiceclone", "voice": "x"}
+                    ),
+                    headers=self._headers(),
                 )
                 self.assertEqual(resp.status, 400)
                 body = await resp.json()
@@ -121,17 +135,19 @@ class ApiServerTests(unittest.TestCase):
             async with TestClient(test_server) as client:
                 resp = await client.post(
                     "/v1/audio/speech",
-                    data=json.dumps({"input": "你好"}),
-                    headers={"Content-Type": "application/json"},
+                    data=json.dumps(
+                        {"model": "mimo-v2.5-tts-voiceclone", "input": "你好"}
+                    ),
+                    headers=self._headers(),
                 )
-                self.assertEqual(resp.status, 500)
+                self.assertEqual(resp.status, 502)
                 body = await resp.json()
-                self.assertIn("upstream down", body["error"]["message"])
+                self.assertEqual(body["error"]["code"], "synthesis_failed")
+                self.assertNotIn("upstream down", body["error"]["message"])
 
         asyncio.run(run())
 
-    def test_audio_speech_no_auth_required(self):
-        """token 和 model 均不校验，不带 Authorization 也能调用。"""
+    def test_audio_speech_requires_authentication(self):
         with tempfile.TemporaryDirectory() as tmp:
             wav_path = Path(tmp) / "voice.wav"
             wav_path.write_bytes(_make_wav())
@@ -142,10 +158,18 @@ class ApiServerTests(unittest.TestCase):
                 async with TestClient(test_server) as client:
                     resp = await client.post(
                         "/v1/audio/speech",
-                        data=json.dumps({"input": "测试", "model": "whatever"}),
+                        data=json.dumps(
+                            {
+                                "input": "测试",
+                                "model": "mimo-v2.5-tts-voiceclone",
+                            }
+                        ),
                         headers={"Content-Type": "application/json"},
                     )
-                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(resp.status, 401)
+                    body = await resp.json()
+                    self.assertEqual(body["error"]["code"], "invalid_api_key")
+                    self.assertEqual(plugin.synthesize_calls, [])
 
             asyncio.run(run())
 
@@ -155,11 +179,71 @@ class ApiServerTests(unittest.TestCase):
         async def run():
             test_server = self._make_server(plugin)
             async with TestClient(test_server) as client:
-                resp = await client.get("/v1/models")
+                resp = await client.get(
+                    "/v1/models", headers={"Authorization": "Bearer test-token"}
+                )
                 self.assertEqual(resp.status, 200)
                 body = await resp.json()
                 self.assertEqual(body["object"], "list")
                 self.assertEqual(body["data"][0]["id"], "mimo-custom")
+
+        asyncio.run(run())
+
+    def test_audio_speech_rejects_unknown_model(self):
+        plugin = _FakePlugin()
+
+        async def run():
+            test_server = self._make_server(plugin)
+            async with TestClient(test_server) as client:
+                resp = await client.post(
+                    "/v1/audio/speech",
+                    data=json.dumps({"model": "unknown", "input": "测试"}),
+                    headers=self._headers(),
+                )
+                self.assertEqual(resp.status, 404)
+                body = await resp.json()
+                self.assertEqual(body["error"]["code"], "model_not_found")
+
+        asyncio.run(run())
+
+    def test_audio_speech_enforces_input_limit(self):
+        plugin = _FakePlugin()
+
+        async def run():
+            test_server = self._make_server(plugin, max_input_chars=2)
+            async with TestClient(test_server) as client:
+                resp = await client.post(
+                    "/v1/audio/speech",
+                    data=json.dumps(
+                        {"model": "mimo-v2.5-tts-voiceclone", "input": "三个字"}
+                    ),
+                    headers=self._headers(),
+                )
+                self.assertEqual(resp.status, 400)
+                body = await resp.json()
+                self.assertEqual(body["error"]["code"], "input_too_long")
+
+        asyncio.run(run())
+
+    def test_audio_speech_enforces_rate_limit(self):
+        plugin = _FakePlugin()
+
+        async def run():
+            test_server = self._make_server(plugin, rate_limit_per_minute=1)
+            async with TestClient(test_server) as client:
+                payload = json.dumps(
+                    {"model": "mimo-v2.5-tts-voiceclone", "input": "测试"}
+                )
+                first = await client.post(
+                    "/v1/audio/speech", data=payload, headers=self._headers()
+                )
+                self.assertEqual(first.status, 502)
+                second = await client.post(
+                    "/v1/audio/speech", data=payload, headers=self._headers()
+                )
+                self.assertEqual(second.status, 429)
+                body = await second.json()
+                self.assertEqual(body["error"]["code"], "rate_limit_exceeded")
 
         asyncio.run(run())
 

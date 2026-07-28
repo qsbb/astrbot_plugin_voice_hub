@@ -30,6 +30,18 @@ from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
+from .core.request_context import (
+    OWNER_CONVERSATION_FLOW,
+    OWNER_VOICE_HUB,
+    PHASE_DECORATING_RESULT,
+    PHASE_LLM_REQUEST,
+    add_reason,
+    ensure_context,
+    get_artifact,
+    peek_context,
+    set_artifact,
+    set_flag,
+)
 from .core.style_director import StyleDirectorInput, generate_style_plan
 from .core.synthesis_context import (
     TTSContextResult,
@@ -46,7 +58,7 @@ from .core.text_processing import (
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
 
-__version__ = "0.7.6"
+__version__ = "0.7.7"
 
 
 @register(
@@ -56,7 +68,12 @@ __version__ = "0.7.6"
     __version__,
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
+    PLUGIN_HEALTH_CONTRACT = "plugin.health@1.0"
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
+    VOICE_DECISION_EVENT_KEY = "voice_hub.delivery_decision"
+    DELIVERY_PLAN_EVENT_KEY = "conversation_flow.delivery_plan"
+    VOICE_DELIVERY_CONTRACT_NAME = "voice.delivery"
+    VOICE_DELIVERY_CONTRACT_VERSION = "1.0"
     _current_instance: Any = None
     _api_server: Any = None
     # LLM 朗读意愿判断标记：<TTS:yes> 或 <TTS:no:原因>，仅匹配回复开头
@@ -120,6 +137,30 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self._unwrap_stale_partials()
         self._register_pages_web_api()
         self._ensure_api_server()
+
+    async def initialize(self) -> None:
+        self._ensure_api_server()
+
+    def plugin_health(self) -> dict[str, object]:
+        api_enabled = bool(getattr(self.plugin_config, "api_server_enabled", False))
+        api_server = MimoTTSClonePlugin._api_server
+        api_ready = not api_enabled or bool(
+            getattr(self.plugin_config, "api_server_token", "")
+            and api_server is not None
+            and api_server.running
+        )
+        checks = {
+            "config_ready": getattr(self, "plugin_config", None) is not None,
+            "voice_store_ready": getattr(self, "voice_store", None) is not None,
+            "api_server_ready": api_ready,
+        }
+        reasons = [name.upper() for name, passed in checks.items() if not passed]
+        return {
+            "status": "ok" if not reasons else "degraded",
+            "checks": checks,
+            "reasons": reasons,
+            "version": __version__,
+        }
 
     @staticmethod
     def _coerce_config(config: Any) -> dict[str, Any]:
@@ -611,7 +652,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             plugin._ensure_api_server()
             if len(args) < 2:
                 return
+            event = args[-2]
             request = args[-1]
+            request_context = ensure_context(event, PHASE_LLM_REQUEST)
+            add_reason(
+                request_context,
+                OWNER_VOICE_HUB,
+                "VOICE_REQUEST_FILTER_STARTED",
+            )
             if plugin.plugin_config.tts_trigger_mode != "probability":
                 return
             removed = plugin._filter_tts_llm_tool(request)
@@ -724,6 +772,148 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             except Exception:
                 pass
         return bool(getattr(event, cls.TTS_HANDLED_EVENT_KEY, False))
+
+    @staticmethod
+    def _event_extra(event: AstrMessageEvent, key: str) -> Any:
+        getter = getattr(event, "get_extra", None)
+        if callable(getter):
+            try:
+                return getter(key)
+            except Exception:
+                pass
+        return getattr(event, key, None)
+
+    @staticmethod
+    def _set_event_extra(event: AstrMessageEvent, key: str, value: Any) -> None:
+        setter = getattr(event, "set_extra", None)
+        if callable(setter):
+            try:
+                setter(key, value)
+                return
+            except Exception:
+                pass
+        setattr(event, key, value)
+
+    def voice_delivery_contract(self) -> dict[str, object]:
+        return {
+            "name": self.VOICE_DELIVERY_CONTRACT_NAME,
+            "version": self.VOICE_DELIVERY_CONTRACT_VERSION,
+            "plugin": "astrbot_plugin_voice_hub",
+            "capabilities": ("plan_delivery", "consume_delivery_plan"),
+        }
+
+    def plan_voice_delivery(
+        self, event: AstrMessageEvent, result: Any
+    ) -> dict[str, object]:
+        """只做一次自动语音门控，并把结果缓存到 event。"""
+        request_context = ensure_context(event, PHASE_DECORATING_RESULT)
+        cached = self._event_extra(event, self.VOICE_DECISION_EVENT_KEY)
+        if isinstance(cached, dict) and cached.get("version") == "1.0":
+            return cached
+
+        decision: dict[str, object] = {
+            "version": self.VOICE_DELIVERY_CONTRACT_VERSION,
+            "requested": False,
+            "reason": "not eligible",
+            "scope": "unknown",
+            "matched_rule": "",
+        }
+        if self._is_tts_handled(event):
+            decision["reason"] = "event already handled"
+        elif self.plugin_config.tts_trigger_mode != "probability":
+            decision["reason"] = "trigger mode llm_decides"
+        elif self.plugin_config.reply_mode == "text_only":
+            decision["reason"] = "reply mode text_only"
+        elif result is None or not getattr(result, "chain", None):
+            decision["reason"] = "no result chain"
+        else:
+            is_llm_result = getattr(result, "is_llm_result", None)
+            if callable(is_llm_result) and not is_llm_result():
+                decision["reason"] = "non-LLM result"
+            else:
+                access = self._auto_tts_access_decision(event)
+                decision["scope"] = access["scope"]
+                decision["matched_rule"] = access["matched_rule"]
+                if not access["allowed"]:
+                    decision["reason"] = access["reason"]
+                else:
+                    judge: str | None = None
+                    if self.plugin_config.llm_tts_judge_enabled:
+                        judge = self._strip_tts_judge_marker(result)
+                    if judge == "no":
+                        decision["reason"] = "llm judge no"
+                    elif judge == "yes":
+                        decision["requested"] = True
+                        decision["reason"] = "llm judge yes"
+                    else:
+                        roll = random.random()
+                        decision["roll"] = roll
+                        if roll <= self.plugin_config.auto_tts_probability:
+                            decision["requested"] = True
+                            decision["reason"] = "probability gate passed"
+                        else:
+                            decision["reason"] = "probability gate rejected"
+        self._set_event_extra(event, self.VOICE_DECISION_EVENT_KEY, decision)
+        set_artifact(
+            request_context,
+            OWNER_VOICE_HUB,
+            "delivery_decision",
+            decision,
+        )
+        set_flag(
+            request_context,
+            OWNER_VOICE_HUB,
+            "voice_requested",
+            bool(decision.get("requested")),
+        )
+        add_reason(
+            request_context,
+            OWNER_VOICE_HUB,
+            "VOICE_DELIVERY_REQUESTED"
+            if decision.get("requested")
+            else "VOICE_DELIVERY_SKIPPED",
+        )
+        return decision
+
+    @classmethod
+    def _delivery_plan(cls, event: AstrMessageEvent) -> dict[str, Any]:
+        request_context = peek_context(event)
+        if request_context is not None:
+            shared = get_artifact(
+                request_context,
+                OWNER_CONVERSATION_FLOW,
+                "delivery_plan",
+            )
+            if isinstance(shared, dict) and shared.get("version") == "1.0":
+                return shared
+        value = cls._event_extra(event, cls.DELIVERY_PLAN_EVENT_KEY)
+        return value if isinstance(value, dict) and value.get("version") == "1.0" else {}
+
+    @staticmethod
+    def _delivery_cancelled(plan: dict[str, Any]) -> bool:
+        token = plan.get("interrupt_token")
+        return bool(isinstance(token, dict) and token.get("cancelled"))
+
+    @staticmethod
+    def _complete_delivery(plan: dict[str, Any]) -> None:
+        token = plan.get("interrupt_token")
+        if isinstance(token, dict):
+            token["completed"] = True
+
+    @staticmethod
+    def _discard_cancelled_delivery(event: AstrMessageEvent) -> None:
+        clear = getattr(event, "clear_result", None)
+        if callable(clear):
+            try:
+                clear()
+            except Exception:
+                pass
+        stop = getattr(event, "stop_event", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
 
     @staticmethod
     def _conversation_id(event: AstrMessageEvent) -> str:
@@ -1120,10 +1310,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 event.chain_result([File(name=audio_path.name, file=str(audio_path))])
             )
 
-    # 配合言插件（astrbot_plugin_conversation_flow，priority=600）的顺序约束：
-    # 言先在 600 完成长文本分段，本插件在 400 再做语音合成（先分段后合成）。
-    # 若言已分段发送并停止事件，下方 event 停止检查会安全降级为不合成；
-    # 若本插件异常先执行，也只在现有 result.chain 上追加音频，不与分段逻辑冲突。
+    # 言在 priority=600 先发布交付计划，本插件在 400 消费；没有言时独立降级。
     @filter.on_decorating_result(priority=400)
     async def auto_tts_reply(self, *args):
         # AstrBot 热重载时 functools.partial 可能套娃，额外实例参数被前置。
@@ -1134,99 +1321,99 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not args:
             return
         event = args[-1]
-        is_stopped = getattr(event, "is_stopped", None)
-        if callable(is_stopped):
-            try:
-                if is_stopped():
-                    plugin.logger.info(
-                        "[voice-hub] auto tts skipped: event stopped upstream"
-                    )
-                    return
-            except Exception:
-                pass
-        if plugin._is_tts_handled(event):
-            plugin.logger.info("[voice-hub] auto tts skipped: event already handled")
-            return
-        if plugin.plugin_config.tts_trigger_mode != "probability":
-            plugin.logger.info("[voice-hub] auto tts skipped: trigger mode llm_decides")
-            return
-        if plugin.plugin_config.reply_mode == "text_only":
-            plugin.logger.info("[voice-hub] auto tts skipped: reply mode text_only")
-            return
-        access_decision = plugin._auto_tts_access_decision(event)
-        if not access_decision["allowed"]:
-            plugin.logger.info(
-                "[voice-hub] auto tts skipped: %s", access_decision["reason"]
-            )
-            return
-        plugin.logger.info(
-            "[voice-hub] auto tts allowed: %s", access_decision["reason"]
-        )
-        result = event.get_result()
-        if result is None or not getattr(result, "chain", None):
-            plugin.logger.info("[voice-hub] auto tts skipped: no result chain")
-            return
-        is_llm_result = getattr(result, "is_llm_result", None)
-        if callable(is_llm_result) and not is_llm_result():
-            plugin.logger.info("[voice-hub] auto tts skipped: non-LLM result")
-            return
-        # LLM 情绪化朗读判断：解析回复开头标记，yes 必读、no 跳过、无标记退回概率
-        judge_decision: str | None = None
-        if plugin.plugin_config.llm_tts_judge_enabled:
-            judge_decision = plugin._strip_tts_judge_marker(result)
-            if judge_decision == "no":
-                plugin.logger.info("[voice-hub] auto tts skipped: llm judge no")
+        delivery_plan = plugin._delivery_plan(event)
+        handoff = bool(delivery_plan.get("voice_requested"))
+        request_context = ensure_context(event, PHASE_DECORATING_RESULT)
+        try:
+            get_result = getattr(event, "get_result", None)
+            result = get_result() if callable(get_result) else None
+            is_stopped = getattr(event, "is_stopped", None)
+            if callable(is_stopped) and is_stopped():
+                plugin.logger.info("[voice-hub] auto tts skipped: event stopped upstream")
                 return
-            if judge_decision == "yes":
-                plugin.logger.info("[voice-hub] auto tts forced: llm judge yes")
-        if judge_decision != "yes":
-            roll = random.random()
-            if roll > plugin.plugin_config.auto_tts_probability:
+            decision = plugin.plan_voice_delivery(event, result)
+            if not decision.get("requested"):
                 plugin.logger.info(
-                    "[voice-hub] auto tts skipped: probability gate roll=%.3f threshold=%.3f scope=%s matched=%s",
-                    roll,
-                    plugin.plugin_config.auto_tts_probability,
-                    access_decision["scope"],
-                    clip_log_text(access_decision["matched_rule"] or "none"),
+                    "[voice-hub] auto tts skipped: %s", decision.get("reason")
                 )
                 return
-        raw_plain_text = result.get_plain_text()
-        if plugin.plugin_config.replace_url_in_tts and contains_url(raw_plain_text):
-            raw_plain_text = replace_urls_for_tts(raw_plain_text)
-        text = clean_tts_text(raw_plain_text)
-        if not text:
-            plugin.logger.info("[voice-hub] auto tts skipped: empty plain text")
-            return
-        try:
-            outputs = await plugin.synthesize_text(
-                text,
-                user_id=str(event.get_sender_id() or "").strip(),
-                group_id=plugin._conversation_id(event),
+            if result is None:
+                return
+            raw_segments = delivery_plan.get("segments") if handoff else None
+            if not isinstance(raw_segments, list) or not raw_segments:
+                raw_segments = [result.get_plain_text()]
+            texts: list[str] = []
+            for raw_text in raw_segments:
+                raw_text = str(raw_text or "")
+                if plugin.plugin_config.replace_url_in_tts and contains_url(raw_text):
+                    raw_text = replace_urls_for_tts(raw_text)
+                cleaned = clean_tts_text(raw_text)
+                if cleaned:
+                    texts.append(cleaned)
+            if not texts:
+                plugin.logger.info("[voice-hub] auto tts skipped: empty plain text")
+                return
+
+            outputs: list[pathlib.Path] = []
+            for text in texts:
+                if plugin._delivery_cancelled(delivery_plan):
+                    add_reason(
+                        request_context,
+                        OWNER_VOICE_HUB,
+                        "VOICE_DELIVERY_CANCELLED",
+                    )
+                    plugin._discard_cancelled_delivery(event)
+                    return
+                generated = await plugin.synthesize_text(
+                    text,
+                    user_id=str(event.get_sender_id() or "").strip(),
+                    group_id=plugin._conversation_id(event),
+                )
+                outputs.extend(generated)
+                if plugin._delivery_cancelled(delivery_plan):
+                    add_reason(
+                        request_context,
+                        OWNER_VOICE_HUB,
+                        "VOICE_DELIVERY_CANCELLED",
+                    )
+                    plugin._discard_cancelled_delivery(event)
+                    return
+
+            audio_components = [
+                component
+                for component in (plugin._audio_component(output) for output in outputs)
+                if component is not None
+            ]
+            if not audio_components:
+                return
+            if plugin.plugin_config.reply_mode == "audio_only":
+                result.chain = [
+                    comp for comp in result.chain if not plugin._is_plain_component(comp)
+                ]
+            result.chain.extend(audio_components)
+            plugin.logger.info(
+                "[voice-hub] auto tts generated: scope=%s matched=%s segments=%s outputs=%s",
+                decision.get("scope"),
+                clip_log_text(str(decision.get("matched_rule") or "none")),
+                len(texts),
+                len(outputs),
             )
         except Exception as exc:
+            add_reason(
+                request_context,
+                OWNER_VOICE_HUB,
+                "VOICE_DELIVERY_FAILED",
+            )
             plugin.logger.warning("[voice-hub] auto tts failed: %s", exc)
-            return
-
-        plugin.logger.info(
-            "[voice-hub] auto tts generated: scope=%s matched=%s text=%s outputs=%s",
-            access_decision["scope"],
-            clip_log_text(access_decision["matched_rule"] or "none"),
-            clip_log_text(text),
-            len(outputs),
-        )
-
-        audio_components = [
-            component
-            for component in (plugin._audio_component(output) for output in outputs)
-            if component is not None
-        ]
-        if not audio_components:
-            return
-        if plugin.plugin_config.reply_mode == "audio_only":
-            result.chain = [
-                comp for comp in result.chain if not plugin._is_plain_component(comp)
-            ]
-        result.chain.extend(audio_components)
+        finally:
+            if handoff:
+                plugin._complete_delivery(delivery_plan)
+                set_flag(
+                    request_context,
+                    OWNER_VOICE_HUB,
+                    "delivery_completed",
+                    True,
+                )
 
     async def terminate(self):
         await self._stop_api_server()
@@ -1235,45 +1422,70 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     def _ensure_api_server(self) -> None:
         """根据配置启动或停止外部 API 服务。
 
-        如果调用时事件循环尚未运行（如 __init__ 阶段），仍然创建 task；
-        task 会在循环开始运行后自动执行。异步钩子里也会再次调用本方法作为 fallback。
+        只在事件循环实际运行时变更监听状态；异步钩子会作为启动 fallback。
         """
-        if not self.plugin_config.api_server_enabled:
+        server = MimoTTSClonePlugin._api_server
+        enabled = self.plugin_config.api_server_enabled
+        token = self.plugin_config.api_server_token
+        if not enabled or not token:
+            if server is not None and server.running:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                MimoTTSClonePlugin._api_server = None
+                loop.create_task(server.stop())
+            else:
+                MimoTTSClonePlugin._api_server = None
+            if enabled and not token:
+                self.logger.warning(
+                    "[voice-hub] api server not started: api_server_token is required"
+                )
             return
 
         try:
-            loop = asyncio.get_event_loop_policy().get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            self.logger.warning("[voice-hub] api server: no event loop available")
             return
 
-        # 已在运行且端口/host 未变则不重启
-        server = MimoTTSClonePlugin._api_server
+        # 已在运行且安全相关配置未变则不重启
         if (
             server is not None
             and server.running
             and server.host == self.plugin_config.api_server_host
             and server.port == self.plugin_config.api_server_port
+            and server.api_token == token
+            and server.rate_limit_per_minute
+            == self.plugin_config.api_server_rate_limit_per_minute
+            and server.max_input_chars
+            == self.plugin_config.api_server_max_input_chars
         ):
             server.plugin = self
             return
-
-        # 配置变化，先停旧的
-        if server is not None and server.running:
-            asyncio.ensure_future(server.stop(), loop=loop)
 
         new_server = MimoTTSApiServer(
             self,
             host=self.plugin_config.api_server_host,
             port=self.plugin_config.api_server_port,
+            api_token=token,
+            rate_limit_per_minute=self.plugin_config.api_server_rate_limit_per_minute,
+            max_input_chars=self.plugin_config.api_server_max_input_chars,
             logger=self.logger,
         )
         MimoTTSClonePlugin._api_server = new_server
-        asyncio.ensure_future(new_server.start(), loop=loop)
-        if not loop.is_running():
-            self.logger.info(
-                "[voice-hub] api server pending: will start when event loop runs"
-            )
+        loop.create_task(self._replace_api_server(server, new_server))
+
+    async def _replace_api_server(
+        self,
+        old_server: MimoTTSApiServer | None,
+        new_server: MimoTTSApiServer,
+    ) -> None:
+        """串行替换监听实例，并忽略快速配置变更留下的过期启动任务。"""
+        if old_server is not None and old_server.running:
+            await old_server.stop()
+        if MimoTTSClonePlugin._api_server is not new_server:
+            return
+        await new_server.start()
 
     async def _stop_api_server(self) -> None:
         server = MimoTTSClonePlugin._api_server

@@ -41,8 +41,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "admin_users": [],
     "replace_url_in_tts": True,
     "api_server_enabled": False,
-    "api_server_host": "0.0.0.0",
+    "api_server_host": "127.0.0.1",
     "api_server_port": 9960,
+    "api_server_token": "",
+    "api_server_rate_limit_per_minute": 30,
+    "api_server_max_input_chars": 500,
     "tts_backend": "mimo",  # "mimo" 或 "astrbot"
     "astrbot_tts_provider_id": "",  # 空=用 AstrBot 默认 TTS 提供商
     # LLM 情绪化朗读判断：probability 模式下让主 LLM 在回复开头输出朗读意愿标记
@@ -89,6 +92,9 @@ class PluginConfig:
     api_server_enabled: bool
     api_server_host: str
     api_server_port: int
+    api_server_token: str
+    api_server_rate_limit_per_minute: int
+    api_server_max_input_chars: int
     tts_backend: str
     astrbot_tts_provider_id: str
     llm_tts_judge_enabled: bool
@@ -201,8 +207,19 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         cfg["replace_url_in_tts"] = _bool_value(raw.get("skip_url_tts", True))
     cfg["replace_url_in_tts"] = _bool_value(cfg.get("replace_url_in_tts", True))
     cfg["api_server_enabled"] = _bool_value(cfg.get("api_server_enabled", False))
-    cfg["api_server_host"] = str(cfg.get("api_server_host") or "0.0.0.0").strip()
-    cfg["api_server_port"] = _int_at_least(cfg.get("api_server_port"), 9960, 1)
+    cfg["api_server_host"] = str(
+        cfg.get("api_server_host") or DEFAULT_CONFIG["api_server_host"]
+    ).strip()
+    cfg["api_server_port"] = _int_between(
+        cfg.get("api_server_port"), 9960, 1, 65535
+    )
+    cfg["api_server_token"] = str(cfg.get("api_server_token") or "").strip()
+    cfg["api_server_rate_limit_per_minute"] = _int_between(
+        cfg.get("api_server_rate_limit_per_minute"), 30, 1, 10000
+    )
+    cfg["api_server_max_input_chars"] = _int_between(
+        cfg.get("api_server_max_input_chars"), 500, 1, 10000
+    )
     backend = str(cfg.get("tts_backend") or "mimo").strip().lower()
     if backend not in {"mimo", "astrbot"}:
         backend = "mimo"
@@ -225,6 +242,10 @@ def _int_at_least(value: Any, default: int, minimum: int) -> int:
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, parsed)
+
+
+def _int_between(value: Any, default: int, minimum: int, maximum: int) -> int:
+    return min(maximum, _int_at_least(value, default, minimum))
 
 
 def _bool_value(value: Any) -> bool:

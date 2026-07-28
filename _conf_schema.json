@@ -3,7 +3,8 @@
     "type": "string",
     "description": "MiMo API Key",
     "hint": "可在 MiMo 官方平台获取，也可以在插件 Pages 页面填写。",
-    "default": ""
+    "default": "",
+    "secret": true
   },
   "base_url": {
     "type": "string",
@@ -222,19 +223,38 @@
   "api_server_enabled": {
     "type": "bool",
     "description": "启用 OpenAI 兼容的外部 TTS API",
-    "hint": "开启后插件会启动独立 HTTP 服务，暴露 POST /v1/audio/speech 接口，可被任意 OpenAI TTS 客户端调用。token 和 model 均不校验，voice 字段填插件音色名/ID。",
+    "hint": "开启后插件会启动独立 HTTP 服务，暴露 POST /v1/audio/speech 接口。必须配置访问令牌，model 必须与当前 TTS 模型一致。",
     "default": false
   },
   "api_server_host": {
     "type": "string",
     "description": "外部 API 监听地址",
-    "hint": "0.0.0.0 表示监听所有网卡，127.0.0.1 表示仅本机访问。",
-    "default": "0.0.0.0"
+    "hint": "默认仅允许本机访问。仅在已配置防火墙或反向代理时使用 0.0.0.0。",
+    "default": "127.0.0.1"
   },
   "api_server_port": {
     "type": "int",
     "description": "外部 API 监听端口",
     "default": 9960
+  },
+  "api_server_token": {
+    "type": "string",
+    "description": "外部 API 访问令牌",
+    "hint": "必填。客户端通过 Authorization: Bearer <token> 传入。请使用独立的高强度随机令牌。",
+    "default": "",
+    "obvious_hint": true,
+    "secret": true
+  },
+  "api_server_rate_limit_per_minute": {
+    "type": "int",
+    "description": "外部 API 每分钟请求上限",
+    "hint": "按客户端 IP 限制，超出后返回 429。",
+    "default": 30
+  },
+  "api_server_max_input_chars": {
+    "type": "int",
+    "description": "外部 API 单次最大文本长度",
+    "default": 500
   },
   "tts_backend": {
     "type": "string",

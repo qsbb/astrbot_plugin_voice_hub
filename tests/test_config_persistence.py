@@ -262,13 +262,20 @@ class ConfigPersistenceTests(unittest.TestCase):
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
                 _Context(),
-                {"api_key": "mimo-secret", "ai_style_director_enabled": True},
+                {
+                    "api_key": "mimo-secret",
+                    "api_server_token": "server-secret",
+                    "ai_style_director_enabled": True,
+                },
             )
             plugin.voice_store.add_voice("旁白", Path(tmp) / "voice.wav", "", "", True)
 
             payload = plugin._pages_payload()
 
             self.assertTrue(payload["readiness"]["api_key"])
+            self.assertTrue(payload["readiness"]["api_server_token"])
+            self.assertEqual(payload["config"]["api_key"], "")
+            self.assertEqual(payload["config"]["api_server_token"], "")
             self.assertTrue(payload["readiness"]["voices"])
             self.assertTrue(payload["readiness"]["ai_director"])
             self.assertEqual(payload["readiness"]["providers"], 1)
@@ -333,18 +340,79 @@ class ConfigPersistenceTests(unittest.TestCase):
                 "api_server_enabled": "true",
                 "api_server_host": "  127.0.0.1  ",
                 "api_server_port": "8080",
+                "api_server_token": " secret ",
+                "api_server_rate_limit_per_minute": 0,
+                "api_server_max_input_chars": 20000,
             }
         )
 
         self.assertTrue(cfg["api_server_enabled"])
         self.assertEqual(cfg["api_server_host"], "127.0.0.1")
         self.assertEqual(cfg["api_server_port"], 8080)
+        self.assertEqual(cfg["api_server_token"], "secret")
+        self.assertEqual(cfg["api_server_rate_limit_per_minute"], 1)
+        self.assertEqual(cfg["api_server_max_input_chars"], 10000)
 
         # 默认值
         defaults = normalize_config({})
         self.assertFalse(defaults["api_server_enabled"])
-        self.assertEqual(defaults["api_server_host"], "0.0.0.0")
+        self.assertEqual(defaults["api_server_host"], "127.0.0.1")
         self.assertEqual(defaults["api_server_port"], 9960)
+        self.assertEqual(defaults["api_server_rate_limit_per_minute"], 30)
+        self.assertEqual(defaults["api_server_max_input_chars"], 500)
+
+    def test_api_server_replacement_stops_old_before_starting_new(self):
+        calls = []
+
+        class FakeServer:
+            def __init__(self, running):
+                self.running = running
+
+            async def stop(self):
+                calls.append("stop")
+                self.running = False
+
+            async def start(self):
+                if calls != ["stop"]:
+                    raise AssertionError("old server must stop before replacement starts")
+                calls.append("start")
+
+        plugin = self.module.MimoTTSClonePlugin.__new__(
+            self.module.MimoTTSClonePlugin
+        )
+        old_server = FakeServer(True)
+        new_server = FakeServer(False)
+        self.module.MimoTTSClonePlugin._api_server = new_server
+
+        asyncio.run(plugin._replace_api_server(old_server, new_server))
+
+        self.assertEqual(calls, ["stop", "start"])
+
+    def test_api_server_replacement_does_not_start_stale_instance(self):
+        calls = []
+
+        class FakeServer:
+            def __init__(self, name, running=False):
+                self.name = name
+                self.running = running
+
+            async def stop(self):
+                calls.append(f"stop:{self.name}")
+                self.running = False
+
+            async def start(self):
+                calls.append(f"start:{self.name}")
+
+        plugin = self.module.MimoTTSClonePlugin.__new__(
+            self.module.MimoTTSClonePlugin
+        )
+        stale_server = FakeServer("stale")
+        current_server = FakeServer("current")
+        self.module.MimoTTSClonePlugin._api_server = current_server
+
+        asyncio.run(plugin._replace_api_server(None, stale_server))
+
+        self.assertEqual(calls, [])
 
     def test_runtime_config_migrates_legacy_skip_url_tts_to_replace_url_in_tts(self):
         from astrbot_plugin_voice_hub.core.config import normalize_config
@@ -1083,6 +1151,94 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             # 无标记退回概率，概率为 0 应跳过
             plugin.synthesize_text.assert_not_awaited()
+
+    def test_auto_tts_consumes_conversation_delivery_segments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "auto_tts_probability": 1.0},
+            )
+            captured = []
+            token = {"cancelled": False, "completed": False}
+            extras = {
+                plugin.DELIVERY_PLAN_EVENT_KEY: {
+                    "version": "1.0",
+                    "segments": ["第一段", "第二段"],
+                    "original_text": "第一段第二段",
+                    "voice_requested": True,
+                    "interrupt_token": token,
+                }
+            }
+
+            async def fake_synthesize(text, **kwargs):
+                captured.append(text)
+                return [Path(tmp) / f"{len(captured)}.wav"]
+
+            plugin.synthesize_text = fake_synthesize
+            plugin._audio_component = lambda path: None
+            result = types.SimpleNamespace(
+                chain=[type("Plain", (), {})()],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: "第一段第二段",
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: extras.get(key),
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            self.assertEqual(captured, ["第一段", "第二段"])
+            self.assertTrue(token["completed"])
+
+    def test_auto_tts_discards_delivery_cancelled_during_synthesis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "auto_tts_probability": 1.0},
+            )
+            token = {"cancelled": False, "completed": False}
+            flags = {"cleared": False, "stopped": False}
+            extras = {
+                plugin.DELIVERY_PLAN_EVENT_KEY: {
+                    "version": "1.0",
+                    "segments": ["第一段", "第二段"],
+                    "original_text": "第一段第二段",
+                    "voice_requested": True,
+                    "interrupt_token": token,
+                }
+            }
+
+            async def fake_synthesize(text, **kwargs):
+                token["cancelled"] = True
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize
+            result = types.SimpleNamespace(
+                chain=[type("Plain", (), {})()],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: "第一段第二段",
+            )
+            event = types.SimpleNamespace(
+                get_extra=lambda key: extras.get(key),
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+                clear_result=lambda: flags.__setitem__("cleared", True),
+                stop_event=lambda: flags.__setitem__("stopped", True),
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            self.assertTrue(flags["cleared"])
+            self.assertTrue(flags["stopped"])
+            self.assertTrue(token["completed"])
 
     def test_auto_tts_replaces_url_in_speech_when_replace_url_on(self):
         with tempfile.TemporaryDirectory() as tmp:

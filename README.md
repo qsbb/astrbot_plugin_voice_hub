@@ -23,7 +23,7 @@
 在原项目基础上，当前版本主要新增：
 
 - **双 TTS 后端切换**：支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换，无需上传音频即可使用 AstrBot 已配置的 TTS。
-- **OpenAI 兼容外部 API**：开启后插件启动独立 HTTP 服务，暴露 `POST /v1/audio/speech` 接口，可被任意 OpenAI TTS 客户端调用。
+- **OpenAI 兼容外部 API**：开启后插件启动带 Bearer 认证、模型校验、频率限制和输入长度限制的 `POST /v1/audio/speech` 服务；默认仅监听 `127.0.0.1`。
 - **一键迁移旧插件配置**：Pages 面板提供按钮，自动读取旧插件 `astrbot_plugin_mimo_tts_clone` 的配置和音色数据并合并到本插件。
 - 保留原版概率语音的权限检查、概率抽取、文本清洗、音色与情绪路由、分段合成及回复链处理。
 - 增加"概率触发 / LLM 自主决定"互斥模式；概率模式不向 LLM 提供 TTS 工具，LLM 模式不执行概率自动 TTS。

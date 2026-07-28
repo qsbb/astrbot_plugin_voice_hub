@@ -100,15 +100,19 @@ class PagesAPIMixin:
         voices = self.voice_store.list_voices()
         enabled_voices = [voice for voice in voices if voice.enabled]
         providers = self._list_ai_providers()
+        public_config = dict(self.config)
+        public_config["api_key"] = ""
+        public_config["api_server_token"] = ""
         return {
             "success": True,
-            "config": dict(self.config),
+            "config": public_config,
             "voices": [voice.to_dict() for voice in voices],
             "defaults": self.voice_store.defaults(),
             "emotions": list(SUPPORTED_EMOTIONS),
             "access_control": self._auto_tts_access_preview(),
             "readiness": {
                 "api_key": bool(self.plugin_config.api_key),
+                "api_server_token": bool(self.plugin_config.api_server_token),
                 "voices": bool(enabled_voices),
                 "ai_director": bool(
                     self.plugin_config.ai_style_director_enabled
@@ -130,6 +134,11 @@ class PagesAPIMixin:
                 return jsonify({"success": False, "error": "Invalid JSON payload"}), 400
         if not isinstance(data, dict):
             return jsonify({"success": False, "error": "Invalid JSON payload"}), 400
+        data = dict(data)
+        # 设置页不会回显密钥；空值表示保留原密钥，而不是覆盖为空。
+        for secret_key in ("api_key", "api_server_token"):
+            if not str(data.get(secret_key) or "").strip():
+                data.pop(secret_key, None)
         persisted = self._update_runtime_config(data)
         if not persisted.get("local") and not persisted.get("native"):
             return jsonify(
@@ -141,7 +150,7 @@ class PagesAPIMixin:
             ), 500
         response = {
             "success": True,
-            "config": dict(self.config),
+            "config": self._pages_payload()["config"],
             "persisted": persisted,
         }
         if persisted.get("warning"):
@@ -461,9 +470,12 @@ class PagesAPIMixin:
                 async with session.post(
                     url,
                     json={
-                        "model": "diagnostic",
+                        "model": self.plugin_config.model,
                         "input": text,
                         "voice": voice_selector or "",
+                    },
+                    headers={
+                        "Authorization": f"Bearer {self.plugin_config.api_server_token}"
                     },
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:

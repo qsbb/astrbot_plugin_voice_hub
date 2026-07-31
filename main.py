@@ -9,7 +9,6 @@ import re
 import time
 from typing import Any
 
-from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File
 from astrbot.api.star import Context, Star, StarTools, register
@@ -62,13 +61,19 @@ from .core.text_processing import (
 )
 from .core.voice_store import VoiceProfile, VoiceStore
 from .pages_api import PagesAPIMixin
+from .series_diagnostics import (
+    diagnostic_clear as clear_diagnostic_events,
+    diagnostic_event,
+    diagnostic_events as read_diagnostic_events,
+    logger,
+)
 
-__version__ = "0.7.8"
+__version__ = "0.8.0"
 
 
 @register(
     "astrbot_plugin_voice_hub",
-    "Justice-ocr",
+    "凌溪",
     "凝心溯溪-声，双 TTS 后端、多音色管理、AI 语音导演与外部 API",
     __version__,
 )
@@ -102,6 +107,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         super().__init__(context)
         self.context = context
         self.logger = logger
+        diagnostic_event("plugin.init", "语音插件开始初始化")
         self._tool_delivery_tokens: dict[
             str, tuple[float, dict[str, Any]]
         ] = {}
@@ -146,6 +152,15 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self._unwrap_stale_partials()
         self._register_pages_web_api()
         self._ensure_api_server()
+        diagnostic_event(
+            "plugin.ready",
+            "语音插件初始化完成",
+            details={
+                "api_enabled": self.plugin_config.api_server_enabled,
+                "reply_mode": self.plugin_config.reply_mode,
+                "trigger_mode": self.plugin_config.tts_trigger_mode,
+            },
+        )
 
     async def initialize(self) -> None:
         self._ensure_api_server()
@@ -170,6 +185,22 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             "reasons": reasons,
             "version": __version__,
         }
+
+    def diagnostic_log_contract(self) -> dict[str, object]:
+        return {
+            "name": "series.diagnostics",
+            "version": "1.0",
+            "plugin": "astrbot_plugin_voice_hub",
+            "capabilities": ("read", "clear"),
+            "storage": "memory_only",
+            "astrbot_log_propagation": False,
+        }
+
+    def diagnostic_events(self, after_seq: int = 0, limit: int = 200) -> dict[str, Any]:
+        return read_diagnostic_events(after_seq=after_seq, limit=limit)
+
+    def diagnostic_clear(self) -> None:
+        clear_diagnostic_events()
 
     @staticmethod
     def _coerce_config(config: Any) -> dict[str, Any]:
@@ -1262,14 +1293,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             error_type, error_message = self._style_director_error_summary(exc)
             fallback_enabled = self.plugin_config.ai_style_director_fallback_to_emotion
             self.logger.warning(
-                "[voice-hub] style director failed: provider=%s voice=%s(%s) emotion=%s text=%s error_type=%s error=%s fallback=%s",
+                "[voice-hub] style director failed: provider=%s voice=%s(%s) emotion=%s error_type=%s fallback=%s",
                 self.plugin_config.ai_style_director_provider_id or "default",
                 clip_log_text(voice.name),
                 clip_log_text(voice.id),
                 clip_log_text(emotion or "neutral"),
-                clip_log_text(text),
                 error_type,
-                clip_log_text(error_message),
                 str(bool(fallback_enabled)).lower(),
             )
             if not self.plugin_config.ai_style_director_fallback_to_emotion:
@@ -1307,6 +1336,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     ) -> None:
         if not self.plugin_config.ai_style_director_debug_log:
             return
+        text = f"<{len(text)} chars>"
+        style_context = f"<{len(style_context)} chars>"
+        speech_text = f"<{len(speech_text)} chars>"
         self.logger.info(
             "[voice-hub] AI导演 provider=%s voice=%s(%s) emotion=%s cached=%s text=%s style_context=%s speech_text=%s",
             self.plugin_config.ai_style_director_provider_id or "default",
@@ -1543,6 +1575,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     async def terminate(self):
         await self._stop_api_server()
         self._cleanup_plugin_handlers()
+        diagnostic_event("plugin.terminated", "语音插件已卸载")
 
     def _ensure_api_server(self) -> None:
         """根据配置启动或停止外部 API 服务。

@@ -1629,6 +1629,10 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("cached=false", log_text)
             self.assertIn("style_context=", log_text)
             self.assertIn("speech_text=", log_text)
+            self.assertRegex(log_text, r"text=<\d+ chars>")
+            self.assertRegex(log_text, r"style_context=<\d+ chars>")
+            self.assertRegex(log_text, r"speech_text=<\d+ chars>")
+            self.assertNotIn(result.speech_text, log_text)
 
     def test_ai_style_director_can_fail_hard_when_fallback_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1707,6 +1711,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("emotion=neutral", warning_text)
             self.assertIn("error_type=TimeoutError", warning_text)
             self.assertIn("fallback=true", warning_text)
+            self.assertNotIn("晚上好", warning_text)
 
     def test_terminate_removes_plugin_handlers_from_registry(self):
         """terminate() 应从 star_handlers_registry 移除本插件 handler，防止热重载 partial 套娃。"""

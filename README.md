@@ -2,7 +2,7 @@
 
 > 凝心溯溪系列语音模块：双 TTS 后端、多音色管理、AI 语音导演、外部 API。支持 Pages 可视化管理、多音色切换、情绪路由、自动语音化、试听诊断与输出清理。
 
-> **凝心溯溪系列** 当前完整插件清单为知、言、序、情、声、核：各插件职责独立、互不冲突，可按需组合使用，覆盖知识学习、对话调节、身份管理、关系状态、语音与更新管理。
+> **凝心溯溪系列** 当前完整插件清单为知、言、序、情、境、声、核：各插件职责独立、互不冲突，可按需组合使用，覆盖知识学习、对话调节、身份管理、关系状态、环境感知、语音与更新管理。
 
 | 字 | 模块 | 说明 |
 |----|------|------|
@@ -10,6 +10,7 @@
 | [言](https://github.com/qsbb/astrbot_plugin_conversation_flow) | 对话调节 | 沉默判断、智能分段、插话衔接 |
 | [序](https://github.com/qsbb/astrbot_plugin_identity_guardian) | 身份管理 | 关系感知、权限边界、群组行动 |
 | [情](https://github.com/qsbb/astrbot_plugin_relationship) | 关系状态 | 情绪、好感、信任、熟悉度状态记录与只读建议 |
+| [境](https://github.com/qsbb/astrbot_plugin_environment_awareness) | 环境感知 | 时间、天气、空气质量、预警与环境关心候选 |
 | [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 双 TTS 后端、多音色管理、AI 导演（本插件） |
 | [核](https://github.com/qsbb/astrbot_plugin_update_manager) | 更新管理 | 安全检查、计划、串行更新与回滚 |
 
@@ -225,14 +226,22 @@ audio_path = await plugin.text_to_speech(
 | 插件名 | `astrbot_plugin_voice_hub` |
 | 展示名 | 凝心溯溪-声 |
 | 当前版本 | 见 `metadata.yaml`（唯一事实源） |
-| 作者 | Justice-ocr |
-| 作者简介 | AstrBot 插件开发者，关注多模态工作流、AI 绘图/语音插件、Pages 管理体验与实用型机器人扩展 |
+| 当前维护者 | 凌溪 |
+| 原项目作者 | Justice-ocr；原始版权与致谢保留在 LICENSE 和本文末尾 |
 | AstrBot 版本 | `>=4.16,<5` |
 | 支持平台 | `aiocqhttp` |
 | WebUI 图标 | `logo.png`（插件根目录） |
 | README 图标 | `assets/icon.svg`（README 资源图标）；横幅为 `assets/readme-hero.svg` |
 | Pages 页面目录 | `pages/settings/` |
 | 许可证 | `MIT` |
+
+## 系列诊断日志
+
+本插件提供 `series.diagnostics@1.0` 诊断接口。简单说，它会在内存里留下一小段“出了什么状况”的记录，只保留启动状态、明确标记的关键运行节点和异常告警等真正有检修价值的事件，不把每次普通语音处理都写成流水账。
+
+安装“核”后，可以在“核”的日志页统一查看本插件的诊断记录；没有安装或没有运行“核”也没关系，语音合成、分段发送和外部 API 等功能都会照常工作。诊断记录不会输出到 AstrBot 主日志，写入前会自动脱敏敏感标识、截断过长内容，也不会保存聊天正文、令牌或异常堆栈。记录只存在内存中，插件重载或 AstrBot 重启后会自动清空。
+
+自动捕获的告警只保留模块、函数、行号和异常类型，不保存格式化后的日志正文。AI 导演调试也只记录文本长度，不记录待朗读正文、导演上下文或优化后文本；清空或热重载会更换流标识。
 
 ## 开发与验证
 
@@ -253,7 +262,7 @@ node --check pages/settings/app.js
 - 用户在工具合成或逐段发送期间补充消息后，旧语音停止继续交付且不留下已合成临时结果。
 - 长文本经 `text_to_speech()` 与外部 API 调用时包含完整内容；不兼容 WAV 分段返回明确错误而非首段。
 - `/tts`、`/朗读`、`/语音` 及 TTS 音色管理聊天命令均不会被插件注册或解析。
-- 开启 AI 导演调试日志后，日志能看到 `style_context` / `speech_text` 摘要。
+- 开启 AI 导演调试日志后，日志只显示 provider、音色、情绪、缓存命中和各段文本长度，不显示任何正文。
 - 自动语音访问控制日志能看到 allow / skip / denied 的具体原因。
 
 ## 维护约定

@@ -226,7 +226,7 @@ audio_path = await plugin.text_to_speech(
 | 插件名 | `astrbot_plugin_voice_hub` |
 | 展示名 | 凝心溯溪-声 |
 | 当前版本 | 见 `metadata.yaml`（唯一事实源） |
-| 当前维护者 | 凌溪 |
+| 当前维护者 | 凌溪（GitHub：`qsbb`） |
 | 原项目作者 | Justice-ocr；原始版权与致谢保留在 LICENSE 和本文末尾 |
 | AstrBot 版本 | `>=4.16,<5` |
 | 支持平台 | `aiocqhttp` |

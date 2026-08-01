@@ -68,7 +68,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 
 @register(

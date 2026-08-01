@@ -266,9 +266,10 @@ class PagesUITests(unittest.TestCase):
         self.assertIn('id="segment-enabled"', segment_card)
         self.assertIn('id="segment-threshold-chars"', segment_card)
         self.assertIn('id="segment-max-segments"', segment_card)
+        self.assertIn('id="segment-delay-ms"', segment_card)
         self.assertRegex(
             css,
-            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.4fr\) repeat\(2, minmax\(0, 1fr\)\);",
+            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.4fr\) repeat\(3, minmax\(0, 1fr\)\);",
         )
         self.assertRegex(
             css,

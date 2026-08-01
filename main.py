@@ -784,8 +784,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             outputs: list[pathlib.Path] = []
             try:
                 if plugin._interrupt_cancelled(interrupt_tokens):
-                    plugin._discard_cancelled_delivery(event)
-                    yield "tts cancelled: request superseded"
+                    yield plugin._voice_cancelled_status()
                     return
                 try:
                     outputs = await plugin.synthesize_text(
@@ -807,14 +806,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     return
                 if plugin._interrupt_cancelled(interrupt_tokens):
                     plugin._remove_cancelled_outputs(outputs)
-                    plugin._discard_cancelled_delivery(event)
-                    yield "tts cancelled: request superseded"
+                    yield plugin._voice_cancelled_status()
                     return
                 sent = 0
-                for output in outputs:
-                    if plugin._interrupt_cancelled(interrupt_tokens):
-                        plugin._discard_cancelled_delivery(event)
-                        yield "tts cancelled: request superseded"
+                for segment_index, output in enumerate(outputs):
+                    if not await plugin._wait_for_segment_delay(
+                        segment_index, interrupt_tokens
+                    ):
+                        yield plugin._voice_cancelled_status()
                         return
                     await plugin._send_audio_result(event, output)
                     sent += 1
@@ -928,6 +927,32 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     @staticmethod
     def _interrupt_cancelled(tokens: list[dict[str, Any]]) -> bool:
         return any(bool(token.get("cancelled")) for token in tokens)
+
+    @staticmethod
+    def _voice_cancelled_status() -> str:
+        """Report a voice-only cancellation without stopping the whole LLM turn."""
+        return (
+            "tts cancelled: newer message arrived; decide whether to continue "
+            "with text or another action"
+        )
+
+    async def _wait_for_segment_delay(
+        self, segment_index: int, interrupt_tokens: list[dict[str, Any]]
+    ) -> bool:
+        """Wait between audio segments while keeping cancellation responsive."""
+        if self._interrupt_cancelled(interrupt_tokens):
+            return False
+        if segment_index <= 0 or self.plugin_config.segment_delay_ms <= 0:
+            return True
+
+        remaining = self.plugin_config.segment_delay_ms / 1000
+        while remaining > 0:
+            if self._interrupt_cancelled(interrupt_tokens):
+                return False
+            step = min(0.05, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+        return not self._interrupt_cancelled(interrupt_tokens)
 
     def _finish_tool_delivery_request(
         self, event: AstrMessageEvent, tokens: list[dict[str, Any]]
@@ -1055,21 +1080,6 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         token = plan.get("interrupt_token")
         if isinstance(token, dict):
             token["completed"] = True
-
-    @staticmethod
-    def _discard_cancelled_delivery(event: AstrMessageEvent) -> None:
-        clear = getattr(event, "clear_result", None)
-        if callable(clear):
-            try:
-                clear()
-            except Exception:
-                pass
-        stop = getattr(event, "stop_event", None)
-        if callable(stop):
-            try:
-                stop()
-            except Exception:
-                pass
 
     @staticmethod
     def _conversation_id(event: AstrMessageEvent) -> str:
@@ -1519,7 +1529,6 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                         OWNER_VOICE_HUB,
                         "VOICE_DELIVERY_CANCELLED",
                     )
-                    plugin._discard_cancelled_delivery(event)
                     return
                 generated = await plugin.synthesize_text(
                     text,
@@ -1533,7 +1542,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                         OWNER_VOICE_HUB,
                         "VOICE_DELIVERY_CANCELLED",
                     )
-                    plugin._discard_cancelled_delivery(event)
+                    plugin._remove_cancelled_outputs(outputs)
                     return
 
             audio_components = [

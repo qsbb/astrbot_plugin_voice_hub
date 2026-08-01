@@ -198,6 +198,7 @@ function configPayload() {
     segment_enabled: $('segment-enabled').checked,
     segment_threshold_chars: Number($('segment-threshold-chars').value || 180),
     segment_max_segments: Number($('segment-max-segments').value || 6),
+    segment_delay_ms: Number($('segment-delay-ms').value || 350),
   };
 }
 
@@ -517,6 +518,7 @@ function applyState(payload) {
   $('segment-enabled').checked = state.config.segment_enabled !== false;
   $('segment-threshold-chars').value = state.config.segment_threshold_chars || 180;
   $('segment-max-segments').value = state.config.segment_max_segments || 6;
+  $('segment-delay-ms').value = state.config.segment_delay_ms ?? 350;
 
   fillEmotionSelect($('voice-emotion'), true);
   fillEmotionSelect($('preview-emotion'), true);
@@ -874,6 +876,7 @@ function bindConfigDirtyState() {
     'segment-enabled',
     'segment-threshold-chars',
     'segment-max-segments',
+    'segment-delay-ms',
     'api-server-enabled',
     'api-server-host',
     'api-server-port',

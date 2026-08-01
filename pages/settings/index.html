@@ -244,6 +244,7 @@
           <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用长文本分段</span></label>
           <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
           <label>最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
+          <label>段间等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>每段语音发送前等待；0 表示不等待，建议 300 到 500。</small></label>
         </div>
       </article>
     </section>

@@ -319,6 +319,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 "output_max_files": -5,
                 "emotion_routing_enabled": "off",
                 "replace_url_in_tts": "off",
+                "segment_delay_ms": -1,
             }
         )
 
@@ -331,6 +332,9 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
         self.assertFalse(cfg["replace_url_in_tts"])
+        self.assertEqual(cfg["segment_delay_ms"], 0)
+        self.assertEqual(normalize_config({})["segment_delay_ms"], 350)
+        self.assertEqual(normalize_config({"segment_delay_ms": 99999})["segment_delay_ms"], 5000)
 
     def test_runtime_config_normalizes_api_server_options(self):
         from astrbot_plugin_voice_hub.core.config import normalize_config
@@ -1021,7 +1025,7 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             result = asyncio.run(invoke())
 
-            self.assertEqual(result, ["tts cancelled: request superseded"])
+            self.assertEqual(result, [plugin._voice_cancelled_status()])
             self.assertEqual(sent, [])
             self.assertTrue(token["completed"])
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
@@ -1062,10 +1066,87 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             result = asyncio.run(invoke())
 
-            self.assertEqual(result, ["tts cancelled: request superseded"])
+            self.assertEqual(result, [plugin._voice_cancelled_status()])
             self.assertEqual(sent, [Path(tmp) / "one.wav"])
             self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
 
+    def test_mimo_tts_speak_cancellation_returns_control_without_stopping_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            token = {"cancelled": False, "completed": False}
+            extras = {
+                plugin.DELIVERY_PLAN_EVENT_KEY: {
+                    "version": "1.0",
+                    "interrupt_token": token,
+                }
+            }
+            cleared = []
+            stopped = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: cleared.append(True),
+                stop_event=lambda: stopped.append(True),
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                token["cancelled"] = True
+                return [Path(tmp) / "voice.wav"]
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual(result, [plugin._voice_cancelled_status()])
+            self.assertEqual(cleared, [])
+            self.assertEqual(stopped, [])
+            self.assertTrue(token["completed"])
+
+    def test_mimo_tts_speak_applies_delay_before_later_segments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+            )
+            outputs = [Path(tmp) / "one.wav", Path(tmp) / "two.wav"]
+            waits = AsyncMock(return_value=True)
+            sent = []
+
+            async def fake_synthesize_text(text, **kwargs):
+                return outputs
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append(output)
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+            plugin._wait_for_segment_delay = waits
+
+            async def invoke():
+                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual(len(sent), 2)
+            self.assertEqual(
+                result[0],
+                "audio already sent to user (2 segments); do not resend it via other tools",
+            )
+            self.assertEqual(
+                [call.args[0] for call in waits.await_args_list],
+                [0, 1],
+            )
     def test_new_request_cancels_previous_tool_delivery_in_same_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
@@ -1423,8 +1504,8 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             asyncio.run(plugin.auto_tts_reply(event))
 
-            self.assertTrue(flags["cleared"])
-            self.assertTrue(flags["stopped"])
+            self.assertFalse(flags["cleared"])
+            self.assertFalse(flags["stopped"])
             self.assertTrue(token["completed"])
 
     def test_auto_tts_replaces_url_in_speech_when_replace_url_on(self):

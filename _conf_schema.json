@@ -124,6 +124,14 @@
     "description": "最大分段数",
     "default": 6
   },
+  "segment_delay_ms": {
+    "type": "int",
+    "description": "分段发送间隔毫秒",
+    "hint": "每段语音发送前等待的时间；0 表示不等待，建议设置为 300 到 500 毫秒。",
+    "default": 350,
+    "min": 0,
+    "max": 5000
+  },
   "max_text_chars": {
     "type": "int",
     "description": "单次 MiMo 请求最大文本长度",

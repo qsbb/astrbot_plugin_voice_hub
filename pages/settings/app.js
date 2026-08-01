@@ -198,7 +198,8 @@ function configPayload() {
     segment_enabled: $('segment-enabled').checked,
     segment_threshold_chars: Number($('segment-threshold-chars').value || 180),
     segment_max_segments: Number($('segment-max-segments').value || 6),
-    segment_delay_ms: Number($('segment-delay-ms').value || 350),
+    segment_delay_per_audio_second_ms: Number($('segment-delay-per-audio-second-ms').value || 0),
+    segment_delay_ms: Number($('segment-delay-ms').value || 0),
   };
 }
 
@@ -518,6 +519,7 @@ function applyState(payload) {
   $('segment-enabled').checked = state.config.segment_enabled !== false;
   $('segment-threshold-chars').value = state.config.segment_threshold_chars || 180;
   $('segment-max-segments').value = state.config.segment_max_segments || 6;
+  $('segment-delay-per-audio-second-ms').value = state.config.segment_delay_per_audio_second_ms ?? 700;
   $('segment-delay-ms').value = state.config.segment_delay_ms ?? 350;
 
   fillEmotionSelect($('voice-emotion'), true);

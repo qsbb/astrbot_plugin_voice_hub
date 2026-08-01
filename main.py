@@ -7,6 +7,7 @@ import pathlib
 import random
 import re
 import time
+import wave
 from typing import Any
 
 from astrbot.api.event import AstrMessageEvent, filter
@@ -811,7 +812,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 sent = 0
                 for segment_index, output in enumerate(outputs):
                     if not await plugin._wait_for_segment_delay(
-                        segment_index, interrupt_tokens
+                        segment_index,
+                        interrupt_tokens,
+                        pending_output=output,
                     ):
                         yield plugin._voice_cancelled_status()
                         return
@@ -937,15 +940,34 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         )
 
     async def _wait_for_segment_delay(
-        self, segment_index: int, interrupt_tokens: list[dict[str, Any]]
+        self,
+        segment_index: int,
+        interrupt_tokens: list[dict[str, Any]],
+        *,
+        pending_output: pathlib.Path | None = None,
     ) -> bool:
-        """Wait between audio segments while keeping cancellation responsive."""
+        """Wait relative to the next audio while keeping cancellation responsive."""
         if self._interrupt_cancelled(interrupt_tokens):
             return False
-        if segment_index <= 0 or self.plugin_config.segment_delay_ms <= 0:
+        if segment_index <= 0:
             return True
 
-        remaining = self.plugin_config.segment_delay_ms / 1000
+        audio_seconds = 0.0
+        if (
+            pending_output is not None
+            and self.plugin_config.segment_delay_per_audio_second_ms > 0
+        ):
+            audio_seconds = await asyncio.to_thread(
+                self._wav_duration_seconds, pending_output
+            )
+        if audio_seconds > 0 and self.plugin_config.segment_delay_per_audio_second_ms > 0:
+            remaining = (
+                audio_seconds
+                * self.plugin_config.segment_delay_per_audio_second_ms
+                / 1000
+            )
+        else:
+            remaining = self.plugin_config.segment_delay_ms / 1000
         while remaining > 0:
             if self._interrupt_cancelled(interrupt_tokens):
                 return False
@@ -953,6 +975,19 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             await asyncio.sleep(step)
             remaining -= step
         return not self._interrupt_cancelled(interrupt_tokens)
+
+    @staticmethod
+    def _wav_duration_seconds(audio_path: pathlib.Path) -> float:
+        """Return a local WAV duration without adding a media dependency."""
+        try:
+            with wave.open(str(audio_path), "rb") as reader:
+                frame_rate = reader.getframerate()
+                frame_count = reader.getnframes()
+        except (EOFError, OSError, wave.Error):
+            return 0.0
+        if frame_rate <= 0 or frame_count <= 0:
+            return 0.0
+        return frame_count / frame_rate
 
     def _finish_tool_delivery_request(
         self, event: AstrMessageEvent, tokens: list[dict[str, Any]]

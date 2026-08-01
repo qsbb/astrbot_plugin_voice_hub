@@ -38,6 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "segment_enabled": True,
     "segment_threshold_chars": 180,
     "segment_max_segments": 6,
+    "segment_delay_per_audio_second_ms": 700,
     "segment_delay_ms": 350,
     "admin_users": [],
     "replace_url_in_tts": True,
@@ -88,6 +89,7 @@ class PluginConfig:
     segment_enabled: bool
     segment_threshold_chars: int
     segment_max_segments: int
+    segment_delay_per_audio_second_ms: int
     segment_delay_ms: int
     admin_users: list[str]
     replace_url_in_tts: bool
@@ -202,6 +204,9 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         cfg.get("segment_threshold_chars"), 180, 1
     )
     cfg["segment_max_segments"] = _int_at_least(cfg.get("segment_max_segments"), 6, 1)
+    cfg["segment_delay_per_audio_second_ms"] = _int_between(
+        cfg.get("segment_delay_per_audio_second_ms"), 700, 0, 2000
+    )
     cfg["segment_delay_ms"] = _int_between(cfg.get("segment_delay_ms"), 350, 0, 5000)
     admins = cfg.get("admin_users") or []
     cfg["admin_users"] = _string_list(admins)

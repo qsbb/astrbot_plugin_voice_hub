@@ -124,10 +124,18 @@
     "description": "最大分段数",
     "default": 6
   },
+  "segment_delay_per_audio_second_ms": {
+    "type": "int",
+    "description": "每 1 秒语音等待多少毫秒",
+    "hint": "按下一段即将发送的语音时长计算等待。700 表示下一段 10 秒就等待 7 秒；0 表示关闭按时长等待，改用下面的备用固定等待。",
+    "default": 700,
+    "min": 0,
+    "max": 2000
+  },
   "segment_delay_ms": {
     "type": "int",
-    "description": "分段发送间隔毫秒",
-    "hint": "每段语音发送前等待的时间；0 表示不等待，建议设置为 300 到 500 毫秒。",
+    "description": "备用固定等待毫秒",
+    "hint": "关闭按时长等待或读取不到 WAV 时使用；正常智能等待不会叠加这个值。两个值都为 0 才会完全关闭等待。",
     "default": 350,
     "min": 0,
     "max": 5000

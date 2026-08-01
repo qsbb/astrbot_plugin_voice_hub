@@ -9,7 +9,8 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import AsyncMock
+import wave
+from unittest.mock import AsyncMock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -319,6 +320,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 "output_max_files": -5,
                 "emotion_routing_enabled": "off",
                 "replace_url_in_tts": "off",
+                "segment_delay_per_audio_second_ms": 9999,
                 "segment_delay_ms": -1,
             }
         )
@@ -332,7 +334,15 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(cfg["output_retention_days"], 0)
         self.assertEqual(cfg["output_max_files"], 0)
         self.assertFalse(cfg["replace_url_in_tts"])
+        self.assertEqual(cfg["segment_delay_per_audio_second_ms"], 2000)
         self.assertEqual(cfg["segment_delay_ms"], 0)
+        self.assertEqual(normalize_config({})["segment_delay_per_audio_second_ms"], 700)
+        self.assertEqual(
+            normalize_config({"segment_delay_per_audio_second_ms": -1})[
+                "segment_delay_per_audio_second_ms"
+            ],
+            0,
+        )
         self.assertEqual(normalize_config({})["segment_delay_ms"], 350)
         self.assertEqual(normalize_config({"segment_delay_ms": 99999})["segment_delay_ms"], 5000)
 
@@ -1144,9 +1154,68 @@ class ConfigPersistenceTests(unittest.TestCase):
                 "audio already sent to user (2 segments); do not resend it via other tools",
             )
             self.assertEqual(
-                [call.args[0] for call in waits.await_args_list],
-                [0, 1],
+                [
+                    (call.args[0], call.kwargs["pending_output"])
+                    for call in waits.await_args_list
+                ],
+                [(0, outputs[0]), (1, outputs[1])],
             )
+
+    def test_segment_delay_uses_pending_wav_duration_without_fixed_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "segment_delay_per_audio_second_ms": 700,
+                    "segment_delay_ms": 250,
+                },
+            )
+            audio = Path(tmp) / "two-seconds.wav"
+            with wave.open(str(audio), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8000)
+                writer.writeframes(b"\x00\x00" * 16000)
+            sleeps = []
+
+            async def fake_sleep(seconds):
+                sleeps.append(seconds)
+
+            async def invoke():
+                with patch.object(self.module.asyncio, "sleep", fake_sleep):
+                    return await plugin._wait_for_segment_delay(
+                        1, [], pending_output=audio
+                    )
+
+            self.assertTrue(asyncio.run(invoke()))
+            self.assertAlmostEqual(sum(sleeps), 1.4, places=6)
+            self.assertTrue(all(step <= 0.05 for step in sleeps))
+
+    def test_segment_delay_uses_fixed_fallback_when_wav_is_unreadable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "segment_delay_per_audio_second_ms": 700,
+                    "segment_delay_ms": 250,
+                },
+            )
+            sleeps = []
+
+            async def fake_sleep(seconds):
+                sleeps.append(seconds)
+
+            async def invoke():
+                with patch.object(self.module.asyncio, "sleep", fake_sleep):
+                    return await plugin._wait_for_segment_delay(
+                        1, [], pending_output=Path(tmp) / "missing.wav"
+                    )
+
+            self.assertTrue(asyncio.run(invoke()))
+            self.assertAlmostEqual(sum(sleeps), 0.25, places=6)
+
     def test_new_request_cancels_previous_tool_delivery_in_same_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

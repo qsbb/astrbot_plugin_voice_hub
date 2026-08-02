@@ -55,6 +55,7 @@ let state = {
   defaults: {},
   emotions: ['happy', 'sad', 'angry', 'neutral'],
   providers: [],
+  ttsProviders: [],
   readiness: {},
   accessControl: {},
 };
@@ -247,21 +248,49 @@ function renderProviderSelect() {
 }
 
 function updateStatus() {
-  $('model-status').textContent = state.config.model || 'voiceclone';
-  $('emotion-status').textContent = state.config.emotion_routing_enabled === false ? 'OFF' : 'ON';
-  $('segment-status').textContent = state.config.segment_enabled === false ? 'OFF' : 'ON';
-  $('hero-voice-count').textContent = String(state.voices.length);
+  const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || state.config.tts_backend || 'mimo';
+  const triggerMode = document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || state.config.tts_trigger_mode || 'probability';
+  $('model-status').textContent = backend === 'astrbot' ? 'AstrBot TTS' : 'MiMo TTS';
+  $('emotion-status').textContent = triggerMode === 'llm_decides' ? 'LLM 决定' : '概率触发';
+  $('segment-status').textContent = state.config.segment_enabled === false ? '仅结构' : '结构优先';
+  $('hero-voice-count').textContent = 'READY';
 }
 
 function renderReadiness() {
   const readiness = state.readiness || {};
+  const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || state.config.tts_backend || 'mimo';
+  const selectedProvider = $('astrbot-tts-provider-id').value;
   const enabledVoices = state.voices.filter(voice => voice.enabled !== false).length;
   const hasPreviewText = Boolean($('preview-text').value.trim());
   const hasPreviewVoice = Boolean($('preview-voice').value);
   const previewReady = Boolean(enabledVoices && hasPreviewText && hasPreviewVoice);
-  const items = [
+  const items = backend === 'astrbot' ? [
     {
-      title: 'API Key',
+      title: '当前后端',
+      ok: true,
+      detail: 'AstrBot 内置 TTS 已选中，MiMo 专属配置已收起。',
+    },
+    {
+      title: 'TTS 提供商',
+      ok: Boolean(selectedProvider || state.ttsProviders.length),
+      warn: !selectedProvider && !state.ttsProviders.length,
+      detail: selectedProvider
+        ? `使用 ${selectedProvider}。`
+        : (state.ttsProviders.length ? `使用 AstrBot 默认提供商；检测到 ${state.ttsProviders.length} 个可选项。` : '未读取到可选提供商，将尝试使用 AstrBot 默认 TTS。'),
+    },
+    {
+      title: '统一朗读工具',
+      ok: true,
+      detail: 'voice_hub_speak 已接入当前后端。',
+    },
+    {
+      title: '交付策略',
+      ok: true,
+      detail: state.config.segment_enabled === false ? '保留显式段落；不执行长度兜底。' : '显式段落优先，超长单段按句界兜底。',
+    },
+  ] : [
+    {
+      title: 'MiMo API Key',
       ok: readiness.api_key,
       detail: readiness.api_key ? '已保存，可请求 MiMo。' : '未保存，试听和自动语音会失败。',
     },
@@ -384,6 +413,13 @@ function updateTtsBackendUI() {
     const scopes = element.dataset.backendScope.split(/\s+/);
     element.hidden = !scopes.includes('shared') && !scopes.includes(backend);
   });
+  $('test-connection').textContent = backend === 'astrbot' ? '诊断 AstrBot 后端' : '诊断 MiMo 后端';
+  $('test-hint').textContent = backend === 'astrbot'
+    ? '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。'
+    : '诊断会检查 MiMo Key、模型、音色和网络，并在完成后清理测试文件。';
+  $('test-hint').className = 'field-hint status-hint';
+  updateStatus();
+  renderReadiness();
 }
 
 async function migrateOldPlugin() {
@@ -409,8 +445,9 @@ async function loadTtsProviders(selectedId) {
     const res = await bridge.apiGet('list_tts_providers');
     const select = $('astrbot-tts-provider-id');
     select.innerHTML = '<option value="">使用 AstrBot 默认</option>';
-    if (res && res.success && res.providers) {
-      for (const p of res.providers) {
+    state.ttsProviders = res && res.success && Array.isArray(res.providers) ? res.providers : [];
+    if (state.ttsProviders.length) {
+      for (const p of state.ttsProviders) {
         const opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = `${p.id || p.type} (${p.type})`;
@@ -418,8 +455,10 @@ async function loadTtsProviders(selectedId) {
         select.appendChild(opt);
       }
     }
+    renderReadiness();
   } catch (e) {
-    // 忽略，可能后端不支持
+    state.ttsProviders = [];
+    renderReadiness();
   }
 }
 
@@ -863,6 +902,7 @@ function bindConfigDirtyState() {
     'auto-tts-private-blacklist',
     'admin-users',
     'file-fallback-enabled',
+    'replace-url-in-tts',
     'output-retention-days',
     'output-max-files',
     'emotion-routing-enabled',
@@ -878,10 +918,14 @@ function bindConfigDirtyState() {
     'segment-enabled',
     'segment-threshold-chars',
     'segment-max-segments',
+    'segment-delay-per-audio-second-ms',
     'segment-delay-ms',
     'api-server-enabled',
     'api-server-host',
     'api-server-port',
+    'api-server-token',
+    'api-server-rate-limit',
+    'api-server-max-input-chars',
   ].forEach(id => {
     const el = $(id);
     el.addEventListener('input', markDirty);
@@ -897,6 +941,8 @@ function bindConfigDirtyState() {
   document.querySelectorAll('input[name="tts-trigger-mode"]').forEach(input => {
     input.addEventListener('change', () => {
       updateTriggerModeUI();
+      updateStatus();
+      renderReadiness();
       markDirty();
     });
   });
@@ -908,7 +954,10 @@ function bindConfigDirtyState() {
     });
   });
 
-  $('astrbot-tts-provider-id').addEventListener('change', markDirty);
+  $('astrbot-tts-provider-id').addEventListener('change', () => {
+    renderReadiness();
+    markDirty();
+  });
 }
 
 function bindActionAvailability() {

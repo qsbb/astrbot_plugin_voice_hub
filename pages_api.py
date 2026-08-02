@@ -421,19 +421,24 @@ class PagesAPIMixin:
         data = await request.get_json(force=True) or {}
         text = clean_tts_text(str(data.get("text") or "连接测试，声音工作正常。"))
         voice_selector = str(data.get("voice_id") or data.get("voice") or "").strip()
-        if not self.plugin_config.api_key:
-            return self._pages_error("MiMo API Key 未配置，请先保存配置。", 400)
-        if not self.voice_store.list_voices(include_disabled=False):
-            return self._pages_error("暂无可用音色，请先上传参考音频。", 400)
+        backend = self.plugin_config.tts_backend
+        if backend == "mimo":
+            if not self.plugin_config.api_key:
+                return self._pages_error("MiMo API Key 未配置，请先保存配置。", 400)
+            if not self.voice_store.list_voices(include_disabled=False):
+                return self._pages_error("暂无可用音色，请先上传参考音频。", 400)
         started = asyncio.get_running_loop().time()
         try:
             outputs = await self.synthesize_text(
                 text,
-                voice_id=voice_selector or None,
+                voice_id=(voice_selector or None) if backend == "mimo" else None,
                 split=False,
             )
         except Exception as exc:
-            return self._pages_error(f"连接测试失败：{exc}", 502, str(exc))
+            backend_label = "MiMo" if backend == "mimo" else "AstrBot TTS"
+            return self._pages_error(
+                f"{backend_label} 连接测试失败：{exc}", 502, str(exc)
+            )
         elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
         for output in outputs:
             pathlib.Path(output).unlink(missing_ok=True)
@@ -443,7 +448,11 @@ class PagesAPIMixin:
         if self.plugin_config.api_server_enabled:
             api_status = await self._diagnose_api_server(text, voice_selector)
 
-        message = "连接测试成功，MiMo 已返回音频。"
+        message = (
+            "连接测试成功，MiMo 已返回音频。"
+            if backend == "mimo"
+            else "连接测试成功，AstrBot TTS 提供商已返回音频。"
+        )
         if api_status:
             if api_status["ok"]:
                 message += f" 外部 API 诊断通过（{api_status['elapsed_ms']}ms）。"

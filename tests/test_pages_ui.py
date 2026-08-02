@@ -12,13 +12,14 @@ class PagesUITests(unittest.TestCase):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("凝心溯溪-声", html)
-        self.assertIn("Dual Backend Voice Console", html)
+        self.assertIn("UNIFIED VOICE CENTER", html)
+        self.assertIn("声 · 统一语音中心", html)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)
         self.assertIn("top-gradient-highlight", html)
-        self.assertIn("通用设置", html)
-        self.assertIn("一键诊断", html)
+        self.assertIn("统一朗读与触发", html)
+        self.assertIn("诊断当前后端", html)
         self.assertIn("--studio-gold", css)
         self.assertIn("--hue", css)
         self.assertIn("--primary", css)
@@ -152,7 +153,7 @@ class PagesUITests(unittest.TestCase):
 
         self.assertRegex(
             css,
-            r"\.status-board \.migration-row\s*\{[^}]*grid-column:\s*1 / -1;",
+            r"\.status-board \.status-hint\s*\{[^}]*grid-column:\s*1 / -1;",
         )
         self.assertRegex(
             css,
@@ -215,14 +216,11 @@ class PagesUITests(unittest.TestCase):
         self.assertIn('data-backend-scope="shared"', html)
         self.assertGreaterEqual(html.count('data-backend-scope="mimo"'), 5)
         self.assertIn('data-backend-scope="astrbot"', html)
-        self.assertIn(
-            'class="studio-card access-card" data-backend-scope="shared"', html
-        )
-        self.assertRegex(
-            html,
-            r'<section class="studio-grid routing-settings-grid">\s*<article class="studio-card routing-card span-7" data-backend-scope="mimo">[\s\S]*</article>\s*<article class="studio-card routing-card span-5" data-backend-scope="shared">',
-        )
-        self.assertIn("通用设置", html)
+        self.assertIn('id="backend-selection"', html)
+        self.assertIn("voice-core-grid", html)
+        self.assertIn("统一朗读与触发", html)
+        self.assertIn("分段、等待与取消", html)
+        self.assertIn("外部语音接口", html)
         self.assertIn("MiMo 设置", html)
         self.assertIn("AstrBot 设置", html)
         self.assertIn("document.querySelectorAll('[data-backend-scope]')", js)
@@ -233,48 +231,52 @@ class PagesUITests(unittest.TestCase):
         )
         self.assertNotIn("voiceBackendNotice", js)
         self.assertNotIn("voice-workbench.is-muted", css)
-        routing_section = html.split(
-            '<section class="studio-grid routing-settings-grid">', 1
-        )[1].split("</section>", 1)[0]
-        self.assertNotIn("data-backend-scope", routing_section.split("<article", 1)[0])
-        self.assertIn(
-            'class="studio-card routing-card span-7" data-backend-scope="mimo"',
-            routing_section,
-        )
-        self.assertIn(
-            'class="studio-card routing-card span-5" data-backend-scope="shared"',
-            routing_section,
-        )
+        self.assertIn("$('test-connection').textContent", js)
+        self.assertIn("renderReadiness();", js)
 
-    def test_settings_splits_emotion_and_segment_cards(self):
+    def test_settings_separates_shared_delivery_from_mimo_emotion(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
-        self.assertIn("routing-settings-grid", html)
         self.assertIn("情绪路由", html)
-        self.assertIn("长文本分段", html)
+        self.assertIn("分段、等待与取消", html)
         self.assertNotIn("情绪与分段", html)
-        emotion_card = html.split('class="studio-card routing-card span-7"', 1)[1].split(
-            "</article>", 1
-        )[0]
-        segment_card = html.split('class="studio-card routing-card span-5"', 1)[1].split(
+        emotion_card = html.split(
+            'class="studio-card routing-card" data-backend-scope="mimo"', 1
+        )[1].split("</section>", 1)[0]
+        delivery_card = html.split('class="studio-card delivery-card span-5" data-backend-scope="shared"', 1)[1].split(
             "</article>", 1
         )[0]
         self.assertIn('id="emotion-routing-enabled"', emotion_card)
         self.assertIn('id="emotion-defaults"', emotion_card)
         self.assertNotIn('id="segment-enabled"', emotion_card)
-        self.assertIn('id="segment-enabled"', segment_card)
-        self.assertIn('id="segment-threshold-chars"', segment_card)
-        self.assertIn('id="segment-max-segments"', segment_card)
-        self.assertIn('id="segment-delay-ms"', segment_card)
+        self.assertIn('id="segment-enabled"', delivery_card)
+        self.assertIn('id="segment-threshold-chars"', delivery_card)
+        self.assertIn('id="segment-max-segments"', delivery_card)
+        self.assertIn('id="segment-delay-ms"', delivery_card)
+        self.assertIn("取消语义", delivery_card)
+        self.assertIn('id="output-retention-days"', delivery_card)
         self.assertRegex(
             css,
-            r"\.segment-settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.4fr\) repeat\(3, minmax\(0, 1fr\)\);",
+            r"\.delivery-settings-grid\s*\{[^}]*grid-template-columns:\s*1fr;",
         )
-        self.assertRegex(
-            css,
-            r"\.routing-settings-grid:has\(> \.span-7\[hidden\]\) > \.span-5:not\(\[hidden\]\)\s*\{[^}]*grid-column:\s*1 / -1;",
-        )
+
+    def test_mimo_specific_controls_are_not_global_entry_content(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        hero = html.split('<header class="studio-hero">', 1)[1].split("</header>", 1)[0]
+        status = html.split('<section class="studio-card status-board"', 1)[1].split(
+            "</section>", 1
+        )[0]
+        mimo_card = html.split('data-backend-scope="mimo"', 1)[1].split(
+            "</article>", 1
+        )[0]
+
+        self.assertNotIn("MiMo 文档", hero)
+        self.assertNotIn("API Key", hero)
+        self.assertNotIn("migrate-old-plugin", status)
+        self.assertIn('id="api-key"', mimo_card)
+        self.assertIn('id="migrate-old-plugin"', mimo_card)
+        self.assertIn("data-backend-scope=\"mimo\"", html)
 
     def test_settings_delete_voice_uses_sandbox_safe_confirmation(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")

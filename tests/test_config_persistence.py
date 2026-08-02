@@ -281,6 +281,30 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertTrue(payload["readiness"]["ai_director"])
             self.assertEqual(payload["readiness"]["providers"], 1)
 
+    def test_pages_connection_diagnostic_uses_astrbot_backend_without_mimo_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_backend": "astrbot"}
+            )
+            plugin.synthesize_text = AsyncMock(
+                return_value=[Path(tmp) / "astrbot-diagnostic.wav"]
+            )
+            pages_api = importlib.import_module("astrbot_plugin_voice_hub.pages_api")
+            original_request = pages_api.request
+            pages_api.request = types.SimpleNamespace(
+                get_json=AsyncMock(return_value={"text": "连接测试"})
+            )
+            try:
+                response = asyncio.run(plugin._pages_test_connection())
+            finally:
+                pages_api.request = original_request
+
+            self.assertTrue(response["success"])
+            self.assertIn("AstrBot TTS 提供商", response["message"])
+            self.assertIsNone(plugin.synthesize_text.await_args.kwargs["voice_id"])
+            self.assertFalse(plugin.synthesize_text.await_args.kwargs["split"])
+
     def test_plugin_reads_get_only_native_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>凝心溯溪-声</title>
+  <title>凝心溯溪-声｜统一语音中心</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -11,32 +11,32 @@
   <main class="studio-shell">
     <header class="studio-hero">
       <section class="hero-copy">
-        <span class="eyebrow"><span class="pulse-dot"></span> Dual Backend Voice Console</span>
-        <h1>凝心溯溪-声</h1>
-        <p>双 TTS 后端语音中枢：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换。先保存 Key，再选择后端，最后用诊断确认链路。</p>
+        <span class="eyebrow"><span class="pulse-dot"></span> UNIFIED VOICE CENTER</span>
+        <h1>声 · 统一语音中心</h1>
+        <p>统一管理朗读触发、结构化分段、发送节奏与语音后端。通用能力始终可见，后端专属配置只在选中后展开。</p>
         <div class="hero-actions">
           <button id="save-config" class="primary">保存全部配置</button>
-          <button id="test-connection" class="secondary">一键诊断</button>
+          <button id="test-connection" class="secondary">诊断当前后端</button>
           <span id="save-state" class="action-state">配置已同步</span>
-          <a class="ghost-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" rel="noreferrer">MiMo 文档</a>
+          <a class="ghost-link" href="#backend-selection">选择语音后端</a>
         </div>
       </section>
       <aside class="hero-panel" aria-label="当前工作区概览">
         <div class="signal-card">
-          <span>模型</span>
-          <strong id="model-status">voiceclone</strong>
+          <span>当前后端</span>
+          <strong id="model-status">MiMo TTS</strong>
         </div>
         <div class="signal-card">
-          <span>音色</span>
-          <strong id="hero-voice-count">0</strong>
+          <span>统一工具</span>
+          <strong id="hero-voice-count">READY</strong>
         </div>
         <div class="signal-card">
-          <span>情绪路由</span>
-          <strong id="emotion-status">ON</strong>
+          <span>触发策略</span>
+          <strong id="emotion-status">概率</strong>
         </div>
         <div class="signal-card">
-          <span>长文本</span>
-          <strong id="segment-status">ON</strong>
+          <span>结构分段</span>
+          <strong id="segment-status">开启</strong>
         </div>
       </aside>
     </header>
@@ -44,23 +44,23 @@
     <section class="workflow-strip" aria-label="推荐配置流程">
       <article>
         <b>1</b>
-        <span>保存 API Key</span>
-        <small>Base URL 和模型默认即可</small>
+        <span>选择后端</span>
+        <small>MiMo 音色克隆或 AstrBot TTS</small>
       </article>
       <article>
         <b>2</b>
-        <span>上传授权音色</span>
-        <small>建议 mp3/wav、干声、低噪</small>
+        <span>设置触发</span>
+        <small>概率自动朗读或由 LLM 决定</small>
       </article>
       <article>
         <b>3</b>
-        <span>选择发送策略</span>
-        <small>命令或自动回复均可控制</small>
+        <span>调整交付</span>
+        <small>段落、等待、取消和输出清理</small>
       </article>
       <article>
         <b>4</b>
-        <span>试听与诊断</span>
-        <small>确认 Key、模型和音色都可用</small>
+        <span>保存并诊断</span>
+        <small>按当前后端检查实际合成链路</small>
       </article>
     </section>
 
@@ -70,27 +70,35 @@
         <h2>工作台状态</h2>
       </div>
       <div id="readiness-list" class="readiness-list"></div>
-      <div class="migration-row">
-        <button id="migrate-old-plugin" class="secondary" type="button">从旧插件迁移配置</button>
-        <span id="migrate-hint" class="field-hint">读取旧插件 astrbot_plugin_mimo_tts_clone 的配置和音色数据，合并到本插件。已存在的数据不会被覆盖。</span>
-      </div>
+      <p id="test-hint" class="field-hint status-hint">诊断会按当前后端生成一段短音频，并在完成后清理测试文件。</p>
     </section>
 
-    <section class="studio-grid backend-settings-grid">
-      <article class="studio-card backend-card span-12" data-backend-scope="shared">
+    <section id="backend-selection" class="studio-card backend-selector-card" data-backend-scope="shared">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">VOICE BACKEND</span>
+          <h2>语音后端</h2>
+        </div>
+        <span class="soft-pill">独立选择</span>
+      </div>
+      <fieldset class="trigger-mode-fieldset backend-choice-grid">
+        <legend>选择统一语音服务实际使用的合成后端</legend>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
+      </fieldset>
+    </section>
+
+    <section class="studio-grid voice-core-grid">
+      <article class="studio-card core-controls-card span-7" data-backend-scope="shared">
         <div class="section-head">
           <div>
-            <span class="section-kicker">SHARED</span>
-            <h2>通用设置</h2>
+            <span class="section-kicker">UNIFIED DELIVERY</span>
+            <h2>统一朗读与触发</h2>
           </div>
-          <span class="soft-pill">所有后端</span>
+          <span class="soft-pill">voice_hub_speak</span>
         </div>
+        <div class="service-state-banner"><span class="pulse-dot"></span><strong>统一朗读服务已启用</strong><small>模型只面对一个朗读工具，实际合成由上方后端选择决定。</small></div>
         <div class="form-grid one-col">
-          <fieldset class="trigger-mode-fieldset">
-            <legend>TTS 后端</legend>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用授权参考音频克隆音色，并支持情绪路由和 AI 风格导演。</small></span></label>
-            <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>调用 AstrBot 已配置的 TTS 提供商，无需维护音色。</small></span></label>
-          </fieldset>
           <label>回复模式
             <select id="reply-mode">
               <option value="audio_only">只发音频</option>
@@ -106,14 +114,45 @@
           <p class="field-hint">触发方式是唯一开关：概率触发会执行自动 TTS，LLM 自主决定只开放语音工具。</p>
           <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
           <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>LLM 情绪化朗读判断<small>仅概率触发下生效。让主 LLM 在回复开头输出朗读意愿标记，太长、含代码、羞耻尴尬或纯功能性内容主动跳过，适合朗读的简短口语直接转语音。标记自动剥离，用户不可见。</small></span></label>
-          <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
-          <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
         </div>
         <div class="switch-stack">
           <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
           <label class="studio-switch"><input id="replace-url-in-tts" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
-          <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
         </div>
+      </article>
+
+      <article class="studio-card delivery-card span-5" data-backend-scope="shared">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">SEGMENT & CANCEL</span>
+            <h2>分段、等待与取消</h2>
+          </div>
+          <span class="soft-pill">结构优先</span>
+        </div>
+        <div class="switch-grid delivery-settings-grid">
+          <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用单段超长时的句界兜底</span></label>
+          <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
+          <label>单段兜底最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
+          <label>每 1 秒语音等待（毫秒）<input id="segment-delay-per-audio-second-ms" type="number" min="0" max="2000" step="50" /><small>第一段立即发送，后续按音频时长计算。</small></label>
+          <label>备用固定等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>无法读取音频时使用，不与智能等待叠加。</small></label>
+        </div>
+        <div class="delivery-note"><strong>取消语义</strong><span>新消息到达后停止尚未发送的旧语音；已发送内容不会撤回，也不会由“声”终止整轮对话。</span></div>
+        <div class="field-row output-cleanup-row">
+          <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
+          <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
+        </div>
+      </article>
+    </section>
+
+    <section class="studio-card integration-card" data-backend-scope="shared">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">EXTERNAL API</span>
+          <h2>外部语音接口</h2>
+        </div>
+        <span class="soft-pill">复用当前后端</span>
+      </div>
+      <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
         <div class="field-row">
           <label>API 监听地址<input id="api-server-host" type="text" placeholder="127.0.0.1" /></label>
           <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
@@ -127,17 +166,18 @@
           <label class="wide">API 调用地址<input id="api-server-url" type="text" readonly placeholder="开启后显示" /></label>
           <button id="copy-api-url" class="secondary" type="button">复制链接</button>
         </div>
-        <p class="field-hint">外部客户端需使用上方令牌；模型填写当前 MiMo 模型，voice 字段填写插件音色名或 ID。</p>
+        <p class="field-hint">外部客户端需使用上方令牌。接口复用当前选中的语音后端；voice 参数仅在后端支持对应音色时生效。</p>
         <p class="field-hint">服务默认只监听本机。需要跨主机访问时，请同时配置防火墙或带 TLS 的反向代理。</p>
-      </article>
+    </section>
 
+    <section class="studio-grid backend-settings-grid">
       <article class="studio-card backend-card api-card span-12" data-backend-scope="mimo">
         <div class="section-head">
           <div>
             <span class="section-kicker">MIMO</span>
             <h2>MiMo 设置</h2>
           </div>
-          <span class="soft-pill">OpenAI-compatible</span>
+          <a class="ghost-link compact-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" rel="noreferrer">MiMo 文档</a>
         </div>
         <div class="form-grid two-col">
           <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
@@ -148,7 +188,10 @@
           <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
         </div>
         <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
-        <p id="test-hint" class="field-hint wide">诊断会生成一段短音频，用来检查 Key、模型、音色和网络。</p>
+        <div class="migration-row">
+          <button id="migrate-old-plugin" class="secondary" type="button">从旧 MiMo 插件迁移</button>
+          <span id="migrate-hint" class="field-hint">读取 astrbot_plugin_mimo_tts_clone 的配置和音色并合并；已有数据不会被覆盖。</span>
+        </div>
       </article>
 
       <article class="studio-card backend-card span-12" data-backend-scope="astrbot">
@@ -222,8 +265,7 @@
       <p class="field-hint">发送前 AI 导演会生成给 MiMo 的隐藏 user 风格指令；开启文本优化时，还会生成仅用于音频朗读的 speech_text。最终聊天文字保持原样，不会被改写。</p>
     </section>
 
-    <section class="studio-grid routing-settings-grid">
-      <article class="studio-card routing-card span-7" data-backend-scope="mimo">
+    <section class="studio-card routing-card" data-backend-scope="mimo">
         <div class="section-head">
           <div>
             <span class="section-kicker">EMOTION</span>
@@ -232,22 +274,6 @@
         </div>
         <label class="studio-switch"><input id="emotion-routing-enabled" type="checkbox" /><span>启用自动情绪路由</span></label>
         <div id="emotion-defaults" class="emotion-grid"></div>
-      </article>
-      <article class="studio-card routing-card span-5" data-backend-scope="shared">
-        <div class="section-head">
-          <div>
-            <span class="section-kicker">SEGMENT</span>
-            <h2>长文本分段</h2>
-          </div>
-        </div>
-        <div class="switch-grid segment-settings-grid">
-          <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用长文本分段</span></label>
-          <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
-          <label>最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
-          <label>每 1 秒语音等待（毫秒）<input id="segment-delay-per-audio-second-ms" type="number" min="0" max="2000" step="50" /><small>700 表示下一条 10 秒就等待 7 秒；第一条始终立即发送。</small></label>
-          <label>备用固定等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>关闭智能等待或读不到音频时才使用；正常情况下不会叠加。</small></label>
-        </div>
-      </article>
     </section>
 
     <section class="studio-card voice-workbench" data-backend-scope="mimo">

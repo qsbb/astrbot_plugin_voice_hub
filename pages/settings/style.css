@@ -351,8 +351,9 @@ p { margin: 0; }
   align-items: center;
 }
 
-.status-board .migration-row {
+.status-board .status-hint {
   grid-column: 1 / -1;
+  margin: 0;
 }
 
 .readiness-list {
@@ -488,6 +489,11 @@ h2 {
   color: var(--muted);
   font-size: 13px;
   font-weight: 850;
+}
+
+.backend-choice-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .trigger-mode-option {
@@ -775,6 +781,60 @@ button.danger {
   margin-top: 14px;
 }
 
+.service-state-banner {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(57, 198, 178, .24);
+  border-radius: var(--radius-md);
+  background: rgba(57, 198, 178, .08);
+}
+
+.service-state-banner strong,
+.service-state-banner small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.service-state-banner small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.delivery-settings-grid {
+  grid-template-columns: 1fr;
+}
+
+.delivery-note {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--studio-gold);
+  background: rgba(232, 189, 98, .08);
+}
+
+.delivery-note span {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.output-cleanup-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.integration-card > .studio-switch {
+  max-width: 620px;
+}
+
+.compact-link {
+  align-self: center;
+  white-space: nowrap;
+}
+
 .api-link-row {
   display: flex;
   align-items: flex-end;
@@ -809,21 +869,14 @@ button.danger {
 }
 
 .backend-settings-grid,
-.routing-settings-grid {
+.voice-core-grid {
   align-items: start;
 }
 
 .backend-card,
-.routing-card {
+.routing-card,
+.voice-core-grid > .studio-card {
   margin-bottom: 0;
-}
-
-.routing-settings-grid:has(> .span-7[hidden]) > .span-5:not([hidden]) {
-  grid-column: 1 / -1;
-}
-
-.segment-settings-grid {
-  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
 }
 
 .emotion-grid {
@@ -1278,6 +1331,18 @@ select:focus {
   .preview-row,
   .audio-frame {
     grid-template-columns: 1fr;
+  }
+
+  .backend-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-state-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .service-state-banner small {
+    grid-column: 2;
   }
 
   .section-head,

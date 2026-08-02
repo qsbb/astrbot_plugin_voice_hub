@@ -40,3 +40,23 @@ class ConfigSchemaTests(unittest.TestCase):
         self.assertTrue(schema["api_server_token"]["secret"])
         self.assertEqual(schema["api_server_rate_limit_per_minute"]["default"], 30)
         self.assertEqual(schema["api_server_max_input_chars"]["default"], 500)
+
+    def test_backend_is_primary_and_provider_fields_are_scoped(self):
+        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(next(iter(schema)), "tts_backend")
+        self.assertEqual(schema["tts_backend"]["options"], ["mimo", "astrbot"])
+        self.assertIn("仅 AstrBot 后端", schema["astrbot_tts_provider_id"]["description"])
+        for key in (
+            "api_key",
+            "base_url",
+            "model",
+            "output_format",
+            "default_context",
+            "emotion_routing_enabled",
+            "max_text_chars",
+            "max_voice_file_mb",
+            "max_concurrency",
+        ):
+            self.assertIn("仅 MiMo 后端", schema[key]["description"])

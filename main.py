@@ -69,7 +69,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.2"
+__version__ = "0.8.3"
 
 
 @register(
@@ -81,6 +81,7 @@ __version__ = "0.8.2"
 class MimoTTSClonePlugin(PagesAPIMixin, Star):
     PLUGIN_HEALTH_CONTRACT = "plugin.health@1.0"
     TTS_HANDLED_EVENT_KEY = "mimo_tts_handled"
+    TTS_TOOL_NAME = "voice_hub_speak"
     VOICE_DECISION_EVENT_KEY = "voice_hub.delivery_decision"
     DELIVERY_PLAN_EVENT_KEY = "conversation_flow.delivery_plan"
     TOOL_INTERRUPT_EVENT_KEY = "voice_hub.tool_interrupt_token"
@@ -411,7 +412,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         style_director_enabled: bool | None = None,
     ) -> list[pathlib.Path]:
         """Public service helper for Pages and other plugins."""
-        cleaned = clean_tts_text(text)
+        cleaned = clean_tts_text(text, preserve_newlines=True)
         if not cleaned:
             raise RuntimeError("请输入要合成的文本")
 
@@ -437,7 +438,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             style_director_enabled=style_director_enabled,
         )
         final_text = tts_result.speech_text or cleaned
-        segments = self._split_for_tts(final_text) if split else [final_text]
+        segments = (
+            self._split_for_tts(final_text, force_structure=True)
+            if split
+            else [clean_tts_text(final_text)]
+        )
         return [
             await self._synthesize_text_to_file(
                 segment, voice, context=tts_result.context
@@ -473,7 +478,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     "或在 AstrBot 中启用 TTS"
                 )
 
-        segments = self._split_for_tts(text) if split else [text]
+        segments = (
+            self._split_for_tts(text, force_structure=True)
+            if split
+            else [clean_tts_text(text)]
+        )
         results: list[pathlib.Path] = []
         for segment in segments:
             audio_path = await provider.get_audio(segment)
@@ -671,6 +680,183 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         return str(fallback[0])
 
     @staticmethod
+    def _normalize_tool_segments(
+        text: str, segments: Any
+    ) -> tuple[list[dict[str, str]], str]:
+        normalized: list[dict[str, str]] = []
+        if isinstance(segments, list):
+            for item in segments:
+                if not isinstance(item, dict):
+                    continue
+                segment_text = str(item.get("text") or "")
+                if not segment_text.strip():
+                    continue
+                normalized.append(
+                    {
+                        "text": segment_text,
+                        "emotion": str(item.get("emotion") or "").strip(),
+                        "voice": str(item.get("voice") or "").strip(),
+                        "style": str(item.get("style") or "").strip(),
+                    }
+                )
+        if normalized:
+            return normalized, "structured_segments"
+        fallback = str(text or "")
+        if not fallback.strip():
+            return [], "text"
+        return [
+            {"text": fallback, "emotion": "", "voice": "", "style": ""}
+        ], "text"
+
+    def _prepare_tool_segments(
+        self,
+        text: str,
+        segments: Any,
+        *,
+        emotion: str,
+        voice: str,
+        style: str,
+    ) -> tuple[list[dict[str, str]], dict[str, Any]]:
+        requested, source = self._normalize_tool_segments(text, segments)
+        prepared: list[dict[str, str]] = []
+        explicit_paragraphs = 0
+        for index, item in enumerate(requested):
+            raw_text = item["text"]
+            if self.plugin_config.replace_url_in_tts and contains_url(raw_text):
+                raw_text = replace_urls_for_tts(raw_text)
+            paragraph_count = len(
+                split_tts_text(
+                    raw_text,
+                    max_chars=0,
+                    max_segments=0,
+                    preserve_structure=True,
+                )
+            )
+            explicit_paragraphs += max(0, paragraph_count - 1)
+            chunks = self._split_for_tts(raw_text, force_structure=True)
+            for chunk_index, chunk in enumerate(chunks):
+                prepared.append(
+                    {
+                        "text": chunk,
+                        "emotion": item["emotion"] or emotion,
+                        "voice": item["voice"] or voice,
+                        "style": item["style"] or style,
+                        "source_index": str(index),
+                        "chunk_index": str(chunk_index),
+                    }
+                )
+
+        diagnostics = {
+            "source": source,
+            "requested_count": len(requested),
+            "prepared_count": len(prepared),
+            "explicit_paragraph_boundaries": explicit_paragraphs,
+            "input_chars": sum(len(item["text"]) for item in requested),
+            "input_newlines": sum(item["text"].count("\n") for item in requested),
+            "segment_threshold_chars": self.plugin_config.segment_threshold_chars,
+            "segment_enabled": self.plugin_config.segment_enabled,
+        }
+        return prepared, diagnostics
+
+    async def _run_tts_tool(
+        self,
+        event: AstrMessageEvent,
+        *,
+        text: str = "",
+        segments: Any = None,
+        emotion: str = "neutral",
+        voice: str = "",
+        style: str = "",
+    ):
+        prepared, diagnostics = self._prepare_tool_segments(
+            str(text or ""),
+            segments,
+            emotion=str(emotion or "neutral"),
+            voice=str(voice or "").strip(),
+            style=str(style or "").strip(),
+        )
+        if not prepared:
+            yield "empty text"
+            return
+
+        request_context = ensure_context(event, PHASE_LLM_REQUEST)
+        self._register_tool_delivery_request(event, request_context)
+        interrupt_tokens = self._delivery_interrupt_tokens(event)
+        outputs: list[pathlib.Path] = []
+        diagnostic_event(
+            "tts.tool.request",
+            "统一朗读工具开始处理",
+            details=diagnostics,
+        )
+        try:
+            if self._interrupt_cancelled(interrupt_tokens):
+                yield self._voice_cancelled_status()
+                return
+
+            for item in prepared:
+                if self._interrupt_cancelled(interrupt_tokens):
+                    self._remove_cancelled_outputs(outputs)
+                    yield self._voice_cancelled_status()
+                    return
+                try:
+                    generated = await self.synthesize_text(
+                        item["text"],
+                        voice_name=item["voice"] or None,
+                        emotion=item["emotion"] or None,
+                        context=item["style"],
+                        user_id=str(
+                            getattr(event, "get_sender_id", lambda: "")() or ""
+                        ).strip(),
+                        group_id=str(
+                            getattr(event, "unified_msg_origin", "") or ""
+                        ).strip()
+                        or self._conversation_id(event),
+                        split=False,
+                        style_director_enabled=False,
+                    )
+                except Exception as exc:
+                    yield f"tts failed: {exc}"
+                    return
+                outputs.extend(generated)
+
+            if self._interrupt_cancelled(interrupt_tokens):
+                self._remove_cancelled_outputs(outputs)
+                yield self._voice_cancelled_status()
+                return
+
+            sent = 0
+            for segment_index, output in enumerate(outputs):
+                if not await self._wait_for_segment_delay(
+                    segment_index,
+                    interrupt_tokens,
+                    pending_output=output,
+                ):
+                    self._remove_cancelled_outputs(outputs[sent:])
+                    yield self._voice_cancelled_status()
+                    return
+                await self._send_audio_result(event, output)
+                sent += 1
+                if sent == 1:
+                    self._mark_tts_handled(event)
+            if hasattr(event, "clear_result"):
+                event.clear_result()
+            diagnostic_event(
+                "tts.tool.completed",
+                "统一朗读工具处理完成",
+                details={**diagnostics, "sent_count": sent},
+            )
+            if sent == 0:
+                yield "no audio generated"
+            else:
+                yield (
+                    f"audio already sent to user ({sent} segment"
+                    + ("s" if sent != 1 else "")
+                    + "); do not resend it via other tools"
+                )
+        finally:
+            self._finish_tool_delivery_request(event, interrupt_tokens)
+
+    @staticmethod
     def _llm_tool_name(tool: Any) -> str:
         if isinstance(tool, dict):
             function = tool.get("function")
@@ -684,13 +870,19 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             getattr(function, "name", None) or getattr(tool, "name", None) or ""
         ).strip()
 
-    def _filter_tts_llm_tool(self, request: Any) -> int:
+    def _filter_tts_llm_tool(
+        self, request: Any, *, remove_unified: bool = False
+    ) -> int:
         tools = getattr(request, "tools", None)
         if not tools:
             return 0
         original = list(tools)
+        stale_name = "mimo_tts_speak"
         request.tools = [
-            tool for tool in original if self._llm_tool_name(tool) != "mimo_tts_speak"
+            tool
+            for tool in original
+            if self._llm_tool_name(tool) != stale_name
+            and (not remove_unified or self._llm_tool_name(tool) != self.TTS_TOOL_NAME)
         ]
         return len(original) - len(request.tools)
 
@@ -719,9 +911,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 "VOICE_REQUEST_FILTER_STARTED",
             )
             if plugin.plugin_config.tts_trigger_mode != "probability":
+                plugin._filter_tts_llm_tool(request)
                 plugin._register_tool_delivery_request(event, request_context)
                 return
-            removed = plugin._filter_tts_llm_tool(request)
+            removed = plugin._filter_tts_llm_tool(request, remove_unified=True)
             if removed:
                 plugin.logger.info(
                     "[voice-hub] probability mode filtered %s TTS LLM tool(s)", removed
@@ -732,109 +925,54 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
     if hasattr(filter, "llm_tool"):
 
-        @filter.llm_tool(name="mimo_tts_speak")
-        async def mimo_tts_speak(
+        @filter.llm_tool(name="voice_hub_speak")
+        async def voice_hub_speak(
             self,
             event: AstrMessageEvent,
-            text: str,
+            text: str = "",
+            segments: list[dict[str, str]] | None = None,
             emotion: str = "neutral",
             voice: str = "",
             style: str = "",
         ):
-            """Generate AND automatically send MiMo TTS audio to the user.
+            """Generate and send speech through the configured voice-hub backend.
 
-            This tool handles the full delivery: it synthesizes speech and directly sends the
-            audio message to the user. After calling it, DO NOT call send_message_to_user (or
-            any other send tool) to resend the same audio — that would produce a duplicate.
-            The audio is already in the user's chat when this tool returns.
+            Use this single tool for explicit voice requests. The plugin chooses MiMo or the
+            configured AstrBot TTS provider from its settings, then sends every generated audio
+            segment itself. Do not call another send tool for the same response.
 
-            Call this tool when the user explicitly requests speech or audio, or when voice
-            delivery clearly improves the response. Do not call it for an ordinary text reply.
-            For long text, decide whether voice delivery is suitable before calling; the plugin
-            handles any required segmentation. Generate `style` directly from the requested
-            delivery and text instead of asking the user to provide a style. URLs in the text
-            are replaced with a spoken placeholder (e.g. "这个网址") before synthesis when
-            replace_url_in_tts is on, so the audio says "this URL" instead of reading out
-            the raw address; the original URL is still sent to the user via the text reply.
+            `text` is kept for compatibility with simple callers. For structured long text,
+            prefer `segments`: each item must contain `text` and may override `emotion`, `voice`,
+            or `style`. Preserve user-visible blank lines and numbered paragraphs in either form;
+            the plugin sends explicit paragraphs separately and only splits one oversized paragraph
+            at sentence boundaries. No extra LLM call is made for segmentation or style direction.
 
             Args:
-                text(string): Complete text to convert to speech.
-                emotion(string): Optional emotion, one of happy, sad, angry, neutral.
-                voice(string): Optional voice name or voice id.
-                style(string): Temporary delivery instruction authored directly by the LLM.
+                text(string): Complete text to read when `segments` is omitted. Keep internal
+                    newlines and blank lines unchanged.
+                segments(array): Optional ordered objects with `text` and optional `emotion`,
+                    `voice`, and `style` overrides.
+                emotion(string): Default emotion, one of happy, sad, angry, neutral.
+                voice(string): Default voice name or voice id.
+                style(string): Default temporary delivery instruction.
 
             Returns:
-                string: A short status line confirming the audio has been sent, e.g.
-                "audio already sent to user (1 segment)". The audio file path is internal
-                and must NOT be re-sent via other tools.
+                string: Status confirming that audio was sent. The internal audio paths must not
+                    be passed to another send tool.
             """
-            # AstrBot 热重载后 self 可能是旧实例或 None，重定向到当前实例
             plugin = MimoTTSClonePlugin._current_instance or self
             if not isinstance(plugin, MimoTTSClonePlugin):
                 yield "tts plugin is initializing, please try again"
                 return
-            content = str(text or "").strip()
-            if not content:
-                yield "empty text"
-                return
-            if plugin.plugin_config.replace_url_in_tts and contains_url(content):
-                content = replace_urls_for_tts(content)
-            request_context = ensure_context(event, PHASE_LLM_REQUEST)
-            plugin._register_tool_delivery_request(event, request_context)
-            interrupt_tokens = plugin._delivery_interrupt_tokens(event)
-            outputs: list[pathlib.Path] = []
-            try:
-                if plugin._interrupt_cancelled(interrupt_tokens):
-                    yield plugin._voice_cancelled_status()
-                    return
-                try:
-                    outputs = await plugin.synthesize_text(
-                        content,
-                        voice_name=str(voice or "").strip() or None,
-                        emotion=emotion,
-                        context=style,
-                        user_id=str(
-                            getattr(event, "get_sender_id", lambda: "")() or ""
-                        ).strip(),
-                        group_id=str(
-                            getattr(event, "unified_msg_origin", "") or ""
-                        ).strip()
-                        or plugin._conversation_id(event),
-                        style_director_enabled=False,
-                    )
-                except Exception as exc:
-                    yield f"tts failed: {exc}"
-                    return
-                if plugin._interrupt_cancelled(interrupt_tokens):
-                    plugin._remove_cancelled_outputs(outputs)
-                    yield plugin._voice_cancelled_status()
-                    return
-                sent = 0
-                for segment_index, output in enumerate(outputs):
-                    if not await plugin._wait_for_segment_delay(
-                        segment_index,
-                        interrupt_tokens,
-                        pending_output=output,
-                    ):
-                        yield plugin._voice_cancelled_status()
-                        return
-                    await plugin._send_audio_result(event, output)
-                    sent += 1
-                    if sent == 1:
-                        plugin._mark_tts_handled(event)
-                if hasattr(event, "clear_result"):
-                    event.clear_result()
-                if sent == 0:
-                    yield "no audio generated"
-                else:
-                    yield (
-                        f"audio already sent to user ({sent} segment"
-                        + ("s" if sent != 1 else "")
-                        + "); do not resend it via other tools"
-                    )
-                return
-            finally:
-                plugin._finish_tool_delivery_request(event, interrupt_tokens)
+            async for status in plugin._run_tts_tool(
+                event,
+                text=text,
+                segments=segments,
+                emotion=emotion,
+                voice=voice,
+                style=style,
+            ):
+                yield status
 
     @classmethod
     def _mark_tts_handled(cls, event: AstrMessageEvent) -> None:
@@ -1413,15 +1551,21 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             self.plugin_config.ai_style_director_mode,
         )
 
-    def _split_for_tts(self, text: str) -> list[str]:
-        if not self.plugin_config.segment_enabled:
+    def _split_for_tts(self, text: str, *, force_structure: bool = False) -> list[str]:
+        if not self.plugin_config.segment_enabled and not force_structure:
             return [text]
         if len(text) < self.plugin_config.segment_threshold_chars:
-            return [text]
+            if not force_structure:
+                return [text]
         return split_tts_text(
             text,
-            max_chars=self.plugin_config.segment_threshold_chars,
+            max_chars=(
+                self.plugin_config.segment_threshold_chars
+                if self.plugin_config.segment_enabled
+                else 0
+            ),
             max_segments=self.plugin_config.segment_max_segments,
+            preserve_structure=True,
         )
 
     def _audio_component(self, audio_path: pathlib.Path):
@@ -1549,7 +1693,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 raw_text = str(raw_text or "")
                 if plugin.plugin_config.replace_url_in_tts and contains_url(raw_text):
                     raw_text = replace_urls_for_tts(raw_text)
-                cleaned = clean_tts_text(raw_text)
+                cleaned = clean_tts_text(raw_text, preserve_newlines=True)
                 if cleaned:
                     texts.append(cleaned)
             if not texts:
@@ -1769,7 +1913,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         unwrapped = 0
         for tool in tools:
-            if getattr(tool, "name", "") != "mimo_tts_speak":
+            if getattr(tool, "name", "") != self.TTS_TOOL_NAME:
                 continue
             original = getattr(tool, "handler", None)
             while isinstance(original, functools.partial):
@@ -1850,7 +1994,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             self.logger.debug("[voice-hub] failed to reassign handlers list: %s", exc)
 
     def _cleanup_llm_tools(self) -> None:
-        tool_names = {"mimo_tts_speak"}
+        # The old name is removed as stale runtime state after upgrading from 0.8.2;
+        # it is not registered as a compatibility alias.
+        tool_names = {self.TTS_TOOL_NAME, "mimo_tts_speak"}
 
         for method_name in (
             "remove_llm_tool",

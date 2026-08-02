@@ -811,7 +811,21 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(preview["group"]["blacklist_count"], 1)
             self.assertIn("黑名单", preview["summary"])
 
-    def test_probability_mode_filters_only_mimo_tts_tool(self):
+    def test_disabled_length_segmentation_still_preserves_explicit_tool_paragraphs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"segment_enabled": False}
+            )
+
+            parts = plugin._split_for_tts(
+                "第一喵：第一段。\n\n第二喵：第二段。",
+                force_structure=True,
+            )
+
+            self.assertEqual(parts, ["第一喵：第一段。", "第二喵：第二段。"])
+
+    def test_probability_mode_filters_only_voice_hub_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
@@ -819,7 +833,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             )
             request = types.SimpleNamespace(
                 tools=[
-                    {"type": "function", "function": {"name": "mimo_tts_speak"}},
+                    {"type": "function", "function": {"name": "voice_hub_speak"}},
                     {"type": "function", "function": {"name": "web_search"}},
                 ]
             )
@@ -830,43 +844,44 @@ class ConfigPersistenceTests(unittest.TestCase):
                 [tool["function"]["name"] for tool in request.tools], ["web_search"]
             )
 
-    def test_llm_decides_mode_preserves_mimo_tts_tool(self):
+    def test_llm_decides_mode_preserves_voice_hub_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
                 _Context(), {"tts_trigger_mode": "llm_decides"}
             )
-            tools = [{"type": "function", "function": {"name": "mimo_tts_speak"}}]
+            tools = [
+                {"type": "function", "function": {"name": "voice_hub_speak"}},
+                {"type": "function", "function": {"name": "mimo_tts_speak"}},
+            ]
             request = types.SimpleNamespace(tools=list(tools))
 
             asyncio.run(plugin.filter_tts_tool_for_probability_mode(object(), request))
 
-            self.assertEqual(request.tools, tools)
+            self.assertEqual(request.tools, tools[:1])
 
-    def test_mimo_tts_speak_llm_tool_is_available_when_supported(self):
-        self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))
+    def test_voice_hub_speak_llm_tool_is_available_when_supported(self):
+        self.assertTrue(hasattr(self.module.MimoTTSClonePlugin, "voice_hub_speak"))
+        self.assertFalse(hasattr(self.module.MimoTTSClonePlugin, "mimo_tts_speak"))
 
-    def test_mimo_tts_speak_avoids_reserved_context_argument(self):
+    def test_voice_hub_speak_avoids_reserved_context_argument(self):
         params = inspect.signature(
-            self.module.MimoTTSClonePlugin.mimo_tts_speak
+            self.module.MimoTTSClonePlugin.voice_hub_speak
         ).parameters
 
         self.assertNotIn("context", params)
         self.assertIn("style", params)
 
-    def test_mimo_tts_speak_docstring_defines_llm_calling_boundaries(self):
-        docstring = inspect.getdoc(self.module.MimoTTSClonePlugin.mimo_tts_speak)
+    def test_voice_hub_speak_docstring_defines_llm_calling_boundaries(self):
+        docstring = inspect.getdoc(self.module.MimoTTSClonePlugin.voice_hub_speak)
 
-        self.assertIn("Do not call it for an ordinary text reply", docstring)
-        self.assertIn(
-            "For long text, decide whether voice delivery is suitable", docstring
-        )
-        self.assertIn("Generate `style` directly", docstring)
-        # 防止 LLM 调用工具后再用 send_message_to_user 重发同一音频
-        self.assertIn("DO NOT call send_message_to_user", docstring)
-        self.assertIn("already in the user's chat", docstring)
+        self.assertIn("Use this single tool for explicit voice requests", docstring)
+        self.assertIn("For structured long text", docstring)
+        self.assertIn("structured long text", docstring)
+        self.assertIn("blank lines", docstring)
+        self.assertIn("Do not call another send tool", docstring)
 
-    def test_mimo_tts_speak_marks_event_and_disables_secondary_style_director(self):
+    def test_voice_hub_speak_marks_event_and_disables_secondary_style_director(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -894,7 +909,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             async def invoke():
                 return [
                     item
-                    async for item in plugin.mimo_tts_speak(event, "???", style="??")
+                    async for item in plugin.voice_hub_speak(event, "???", style="??")
                 ]
 
             result = asyncio.run(invoke())
@@ -912,7 +927,59 @@ class ConfigPersistenceTests(unittest.TestCase):
                 ],
             )
 
-    def test_mimo_tts_speak_does_not_mark_event_when_first_audio_send_fails(self):
+    def test_voice_hub_speak_accepts_structured_segments_and_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            extras = {}
+            calls = []
+            sent = []
+            event = types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_sender_id=lambda: "user-a",
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_extra=lambda key: extras.get(key),
+                clear_result=lambda: None,
+            )
+
+            async def fake_synthesize_text(text, **kwargs):
+                calls.append((text, kwargs))
+                return [Path(tmp) / f"voice-{len(calls)}.wav"]
+
+            async def fake_send_audio_result(current_event, output):
+                sent.append(output)
+
+            plugin.synthesize_text = fake_synthesize_text
+            plugin._send_audio_result = fake_send_audio_result
+
+            async def invoke():
+                return [
+                    item
+                    async for item in plugin.voice_hub_speak(
+                        event,
+                        segments=[
+                            {"text": "第一段。", "emotion": "happy"},
+                            {"text": "第二段。", "voice": "旁白", "style": "放慢"},
+                        ],
+                    )
+                ]
+
+            result = asyncio.run(invoke())
+
+            self.assertEqual([call[0] for call in calls], ["第一段。", "第二段。"])
+            self.assertEqual(calls[0][1]["emotion"], "happy")
+            self.assertEqual(calls[1][1]["voice_name"], "旁白")
+            self.assertEqual(calls[1][1]["context"], "放慢")
+            self.assertTrue(all(call[1]["split"] is False for call in calls))
+            self.assertEqual(len(sent), 2)
+            self.assertEqual(
+                result,
+                [
+                    "audio already sent to user (2 segments); do not resend it via other tools"
+                ],
+            )
+
+    def test_voice_hub_speak_does_not_mark_event_when_first_audio_send_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -934,14 +1001,14 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._send_audio_result = fake_send_audio_result
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "测试")]
+                return [item async for item in plugin.voice_hub_speak(event, "测试")]
 
             with self.assertRaisesRegex(RuntimeError, "send failed"):
                 asyncio.run(invoke())
 
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
 
-    def test_mimo_tts_speak_does_not_mark_event_when_no_audio_is_generated(self):
+    def test_voice_hub_speak_does_not_mark_event_when_no_audio_is_generated(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -959,14 +1026,14 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin.synthesize_text = fake_synthesize_text
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "测试")]
+                return [item async for item in plugin.voice_hub_speak(event, "测试")]
 
             result = asyncio.run(invoke())
 
             self.assertEqual(result, ["no audio generated"])
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
 
-    def test_mimo_tts_speak_keeps_event_marked_after_later_audio_send_fails(self):
+    def test_voice_hub_speak_keeps_event_marked_after_later_audio_send_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -991,7 +1058,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._send_audio_result = fake_send_audio_result
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "长文本")]
+                return [item async for item in plugin.voice_hub_speak(event, "长文本")]
 
             with self.assertRaisesRegex(RuntimeError, "send failed"):
                 asyncio.run(invoke())
@@ -999,7 +1066,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
             self.assertEqual(len(sent), 2)
 
-    def test_mimo_tts_speak_discards_audio_cancelled_during_synthesis(self):
+    def test_voice_hub_speak_discards_audio_cancelled_during_synthesis(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -1031,7 +1098,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._send_audio_result = fake_send_audio_result
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+                return [item async for item in plugin.voice_hub_speak(event, "test")]
 
             result = asyncio.run(invoke())
 
@@ -1040,7 +1107,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertTrue(token["completed"])
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
 
-    def test_mimo_tts_speak_stops_before_next_segment_when_cancelled(self):
+    def test_voice_hub_speak_stops_before_next_segment_when_cancelled(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -1072,7 +1139,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._send_audio_result = fake_send_audio_result
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+                return [item async for item in plugin.voice_hub_speak(event, "test")]
 
             result = asyncio.run(invoke())
 
@@ -1080,7 +1147,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(sent, [Path(tmp) / "one.wav"])
             self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
 
-    def test_mimo_tts_speak_cancellation_returns_control_without_stopping_event(self):
+    def test_voice_hub_speak_cancellation_returns_control_without_stopping_event(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -1109,7 +1176,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin.synthesize_text = fake_synthesize_text
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+                return [item async for item in plugin.voice_hub_speak(event, "test")]
 
             result = asyncio.run(invoke())
 
@@ -1118,7 +1185,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(stopped, [])
             self.assertTrue(token["completed"])
 
-    def test_mimo_tts_speak_applies_delay_before_later_segments(self):
+    def test_voice_hub_speak_applies_delay_before_later_segments(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(_Context(), {})
@@ -1144,7 +1211,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             plugin._wait_for_segment_delay = waits
 
             async def invoke():
-                return [item async for item in plugin.mimo_tts_speak(event, "test")]
+                return [item async for item in plugin.voice_hub_speak(event, "test")]
 
             result = asyncio.run(invoke())
 
@@ -1655,7 +1722,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             # clean_tts_text 仍会移除网址，但不应做替换
             self.assertNotIn("这个网址", captured["text"])
 
-    def test_mimo_tts_speak_replaces_url_when_replace_url_on(self):
+    def test_voice_hub_speak_replaces_url_when_replace_url_on(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
@@ -1681,7 +1748,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             async def invoke():
                 return [
                     item
-                    async for item in plugin.mimo_tts_speak(
+                    async for item in plugin.voice_hub_speak(
                         event, "请看 https://example.com 这个网页"
                     )
                 ]
@@ -1693,7 +1760,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("这个网页", captured["text"])
             self.assertIn("audio already sent", result[0])
 
-    def test_mimo_tts_speak_keeps_url_when_replace_url_off(self):
+    def test_voice_hub_speak_keeps_url_when_replace_url_off(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             plugin = self.module.MimoTTSClonePlugin(
@@ -1719,7 +1786,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             async def invoke():
                 return [
                     item
-                    async for item in plugin.mimo_tts_speak(
+                    async for item in plugin.voice_hub_speak(
                         event, "请看 https://example.com 这个网页"
                     )
                 ]
@@ -1885,15 +1952,15 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(len(star_handlers_registry.handlers), 1)
             self.assertIs(star_handlers_registry.handlers[0], other_handler)
 
-    def test_terminate_removes_mimo_tts_tool_from_func_tool_manager(self):
-        """terminate() 应从 func_tool_manager 移除 mimo_tts_speak 工具。"""
+    def test_terminate_removes_voice_hub_tool_from_func_tool_manager(self):
+        """terminate() 应从 func_tool_manager 移除 voice_hub_speak 工具。"""
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
             ctx = _Context()
-            mimo_tool = types.SimpleNamespace(name="mimo_tts_speak", handler=None)
+            voice_tool = types.SimpleNamespace(name="voice_hub_speak", handler=None)
             other_tool = types.SimpleNamespace(name="web_search", handler=None)
             ctx._func_tool_manager = types.SimpleNamespace(
-                tools=[mimo_tool, other_tool]
+                tools=[voice_tool, other_tool]
             )
             plugin = self.module.MimoTTSClonePlugin(ctx, {})
 
@@ -1913,7 +1980,7 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             asyncio.run(plugin.terminate())
 
-            self.assertIn("mimo_tts_speak", removed)
+            self.assertIn("voice_hub_speak", removed)
 
     def test_terminate_silently_skips_when_registry_not_importable(self):
         """registry 不可导入时 terminate() 应静默跳过，不抛异常。"""
@@ -1939,7 +2006,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 _Context(), {"tts_trigger_mode": "probability"}
             )
             request = types.SimpleNamespace(
-                tools=[{"type": "function", "function": {"name": "mimo_tts_speak"}}]
+                tools=[{"type": "function", "function": {"name": "voice_hub_speak"}}]
             )
 
             # 模拟 9 层 partial 套娃（类似生产环境中 11 were given 的情况）
@@ -1973,7 +2040,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             # 不应抛出 TypeError
             asyncio.run(stacked(event))
 
-    def test_mimo_tts_speak_redirects_none_self_to_current_instance(self):
+    def test_voice_hub_speak_redirects_none_self_to_current_instance(self):
         """self=None 时，LLM 工具应重定向到 _current_instance。"""
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp
@@ -1981,9 +2048,9 @@ class ConfigPersistenceTests(unittest.TestCase):
 
             # 模拟 self=None 的调用（通过 unbound function）
             unbound = (
-                self.module.MimoTTSClonePlugin.mimo_tts_speak.__wrapped__
-                if hasattr(self.module.MimoTTSClonePlugin.mimo_tts_speak, "__wrapped__")
-                else self.module.MimoTTSClonePlugin.mimo_tts_speak
+                self.module.MimoTTSClonePlugin.voice_hub_speak.__wrapped__
+                if hasattr(self.module.MimoTTSClonePlugin.voice_hub_speak, "__wrapped__")
+                else self.module.MimoTTSClonePlugin.voice_hub_speak
             )
 
             extras = {}

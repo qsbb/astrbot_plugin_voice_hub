@@ -55,7 +55,7 @@
 | 自动语音化 | 概率模式下普通 LLM 回复可按概率转语音，支持群聊/私聊黑白名单和管理员绕过，默认关闭 |
 | 试听诊断 | Pages 内一键诊断 Key、模型、音色和网络链路 |
 | 输出清理 | 按保留天数和最大文件数自动清理生成音频 |
-| LLM 工具与插件复用 | 保留 `mimo_tts_speak` 工具，并暴露 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 方法 |
+| LLM 工具与插件复用 | 统一提供 `voice_hub_speak` 工具，并暴露 `synthesize_text()`、`list_available_voices()`、`resolve_voice_id()` 方法 |
 | 可取消交付 | 消费言的交付令牌，在合成前后和逐段发送前检查中断；取消时停止尚未发送的旧语音，并把状态交回当前 LLM，不由声终止整轮。 |
 | 完整长音频 | 插件服务与外部 API 会校验并合并全部兼容 WAV 分段，不再只返回第一段 |
 
@@ -122,16 +122,27 @@ pip install -r requirements.txt
 
 ## 调用方式
 
-插件不注册 TTS 聊天命令，也不解析 `/tts`、`/朗读`、`/语音` 或音色管理命令。语音生成通过概率自动 TTS、`mimo_tts_speak` LLM 工具、Pages 试听工作台或插件服务方法触发。
+插件不注册 TTS 聊天命令，也不解析 `/tts`、`/朗读`、`/语音` 或音色管理命令。语音生成通过概率自动 TTS、`voice_hub_speak` LLM 工具、Pages 试听工作台或插件服务方法触发。
 
 `tts_trigger_mode` 是聊天 TTS 的唯一运行模式，两种模式互斥：
 
-- `probability`：从当前 LLM 请求中过滤 `mimo_tts_speak`，普通 LLM 回复完成后沿用原版 `auto_tts_probability` 自动语音流程。权限判断、概率抽取、结果识别、文本清洗、音色与情绪路由、分段合成和回复链处理均保持原版逻辑。
-- `llm_decides`：向 LLM 保留 `mimo_tts_speak`，由主 LLM 判断是否适合发送语音，并直接提供文本、情绪、音色和风格；该模式完全跳过概率自动 TTS。
+- `probability`：从当前 LLM 请求中过滤 `voice_hub_speak`，普通 LLM 回复完成后沿用原版 `auto_tts_probability` 自动语音流程。权限判断、概率抽取、结果识别、文本清洗、音色与情绪路由、分段合成和回复链处理均保持原版逻辑。
+- `llm_decides`：向 LLM 保留唯一的 `voice_hub_speak`，由主 LLM 判断是否适合发送语音，并直接提供文本、结构化段落、情绪、音色和风格；该模式完全跳过概率自动 TTS。
 
 `auto_tts_enabled` 仅作为旧配置兼容字段，不再是独立开关。旧配置缺少 `tts_trigger_mode` 时，`auto_tts_enabled=true` 迁移为 `probability`，`auto_tts_enabled=false` 迁移为 `llm_decides`；新配置保存时会自动同步该兼容字段。
 
-`mimo_tts_speak` 工具参数为 `text`、`emotion`、`voice`、`style`。工具调用直接使用主 LLM 给出的风格并关闭插件的二次 AI 风格导演；至少成功发送一段音频后才标记当前事件，避免自动 TTS 重复处理，同时确保合成或首次发送失败时不会错误阻止后续处理。
+`voice_hub_speak` 是唯一的模型可见朗读工具。它兼容旧的 `text` 参数，并支持 `segments` 数组；每个元素包含 `text`，可选覆盖 `emotion`、`voice`、`style`。传入完整 `text` 时，必须保留内部换行和空行。声会优先按显式空行或编号段落分别合成和发送，只有单个段落过长时才按句界兜底。工具直接使用主 LLM 给出的风格并关闭插件的二次 AI 风格导演；至少成功发送一段音频后才标记当前事件，避免自动 TTS 重复处理，同时确保合成或首次发送失败时不会错误阻止后续处理。
+
+工具示例：
+
+```json
+{
+  "segments": [
+    {"text": "第一喵：先说第一部分。", "emotion": "happy"},
+    {"text": "第二喵：再说第二部分。", "style": "放慢一点"}
+  ]
+}
+```
 
 ## 推荐配置
 
@@ -142,7 +153,7 @@ pip install -r requirements.txt
 | `auto_tts_probability` | `0.1` - `0.3` | 仅概率模式生效，避免群聊中过度刷屏 |
 | `llm_tts_judge_enabled` | `false` | 仅概率模式生效。开启后让主 LLM 在回复开头输出朗读意愿标记（`<TTS:yes>`/`<TTS:no:原因>`），太长、含代码、羞耻尴尬或纯功能性内容主动跳过，适合朗读的简短口语直接转语音（不再受概率限制）；标记自动剥离对用户不可见；LLM 未输出标记时退回概率逻辑 |
 | `max_voice_file_mb` | `10` | 越大请求体越大，速度也可能变慢 |
-| `segment_enabled` | `true` | 长文本更稳定 |
+| `segment_enabled` | `true` | 启用单段超长时的句界兜底；显式段落仍保持独立 |
 | `output_retention_days` | `7` | 防止长期运行占用磁盘 |
 | `output_max_files` | `100` | 小型机器人通常足够 |
 
@@ -163,11 +174,11 @@ pip install -r requirements.txt
 
 可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空则使用当前默认 LLM。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
 
-建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。`mimo_tts_speak` LLM 工具不会再次调用该导演，避免工具链中的二次风格改写。
+建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。`voice_hub_speak` LLM 工具不会再次调用该导演，避免工具链中的二次风格改写。
 
 ## 自动语音访问控制
 
-访问控制只作用于“普通 LLM 回复自动语音化”，不会影响 `mimo_tts_speak` LLM 工具或其他插件主动调用 `text_to_speech()`。LLM 工具处理过的事件会被标记，自动语音化会跳过该事件。
+访问控制只作用于“普通 LLM 回复自动语音化”，不会影响 `voice_hub_speak` LLM 工具或其他插件主动调用 `text_to_speech()`。LLM 工具处理过的事件会被标记，自动语音化会跳过该事件。
 
 规则顺序如下：
 
@@ -223,7 +234,7 @@ audio_path = await plugin.text_to_speech(
 
 如果配合 `astrbot_plugin_daily_sharing` 使用，可以在每日分享 Pages 里选择语音 provider：
 
-- `calibrated_tool`：点击“校准语音”，让每日分享自动命中本插件的 `mimo_tts_speak` LLM 工具。工具参数为 `text`、`emotion`、`voice`、`style`；工具会关闭二次 AI 风格导演并标记事件，防止自动 TTS 重复处理。
+- `calibrated_tool`：点击“校准语音”，让每日分享自动命中本插件的 `voice_hub_speak` LLM 工具。工具参数为 `text`、`segments`、`emotion`、`voice`、`style`；工具会关闭二次 AI 风格导演并标记事件，防止自动 TTS 重复处理。
 - `generic_plugin`：手动配置插件名 `astrbot_plugin_voice_hub`，方法路径 `text_to_speech`，文本参数 `text`，结果字段留空即可。
 
 ## 插件信息
@@ -266,7 +277,7 @@ node --check pages/settings/app.js
 - 私聊白名单为空：私聊默认不受白名单限制。
 - 私聊白名单非空但未命中：私聊普通 LLM 回复不会自动语音化。
 - 管理员在黑名单命中场景下仍可自动语音化。
-- `mimo_tts_speak` 工具生成语音时不触发二次 AI 风格导演，并会让自动 TTS 跳过同一事件。
+- `voice_hub_speak` 工具生成语音时不触发二次 AI 风格导演，并会让自动 TTS 跳过同一事件。
 - 用户在工具合成或逐段发送期间补充消息后，旧语音停止继续交付且不留下已合成临时结果。
 - 长文本经 `text_to_speech()` 与外部 API 调用时包含完整内容；不兼容 WAV 分段返回明确错误而非首段。
 - `/tts`、`/朗读`、`/语音` 及 TTS 音色管理聊天命令均不会被插件注册或解析。

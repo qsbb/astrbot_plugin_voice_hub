@@ -112,16 +112,19 @@
   "segment_enabled": {
     "type": "bool",
     "description": "启用长文本分段合成",
+    "hint": "统一朗读工具会保留显式空行和编号段落；此开关只控制单段过长时是否按句界兜底。",
     "default": true
   },
   "segment_threshold_chars": {
     "type": "int",
-    "description": "分段阈值字符数",
+    "description": "单段句界兜底阈值字符数",
+    "hint": "显式段落低于此长度时保持一段；只有超过此长度的单段才按句界继续切分。",
     "default": 180
   },
   "segment_max_segments": {
     "type": "int",
-    "description": "最大分段数",
+    "description": "单段兜底最大分段数",
+    "hint": "仅用于没有显式段落的单段句界兜底；不会为了达到上限而合并显式编号段落。",
     "default": 6
   },
   "segment_delay_per_audio_second_ms": {
@@ -171,7 +174,7 @@
     "type": "string",
     "description": "TTS 触发方式",
     "options": ["probability", "llm_decides"],
-    "hint": "probability=过滤 mimo_tts_speak 工具并按概率自动语音化；llm_decides=只允许 LLM 自主调用工具，不执行概率自动 TTS。旧配置未填写时按 probability 处理。",
+    "hint": "probability=过滤 voice_hub_speak 工具并按概率自动语音化；llm_decides=只向 LLM 提供唯一的 voice_hub_speak 工具，不执行概率自动 TTS。旧配置未填写时按 probability 处理。",
     "default": "probability"
   },
   "auto_tts_probability": {

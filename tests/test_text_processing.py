@@ -27,6 +27,37 @@ class TextProcessingTests(unittest.TestCase):
             clean_tts_text(text), "[whisper] 这里低声说。 (笑) 然后正常说。"
         )
 
+    def test_clean_tts_text_can_preserve_paragraph_boundaries(self):
+        text = "第一段。\n\n第二段。"
+
+        self.assertEqual(
+            clean_tts_text(text, preserve_newlines=True), "第一段。\n\n第二段。"
+        )
+
+    def test_split_tts_text_preserves_explicit_paragraphs(self):
+        text = "第一喵：先说第一段。\n\n第二喵：再说第二段。"
+
+        self.assertEqual(
+            split_tts_text(text, max_chars=180, max_segments=1),
+            ["第一喵：先说第一段。", "第二喵：再说第二段。"],
+        )
+
+    def test_split_tts_text_recognizes_numbered_lines(self):
+        text = "第一喵：第一段。\n第二喵：第二段。\n第三喵：第三段。"
+
+        self.assertEqual(
+            split_tts_text(text, max_chars=180),
+            ["第一喵：第一段。", "第二喵：第二段。", "第三喵：第三段。"],
+        )
+
+    def test_split_tts_text_only_splits_oversized_paragraph(self):
+        text = "第一句内容很长。第二句内容也很长。第三句继续说明。"
+
+        parts = split_tts_text(text, max_chars=10, max_segments=6)
+
+        self.assertGreater(len(parts), 1)
+        self.assertEqual("".join(parts), text)
+
     def test_split_tts_text_keeps_punctuation_and_limits_segments(self):
         parts = split_tts_text(
             "第一句很短。第二句也很短！第三句继续？第四句结束。",

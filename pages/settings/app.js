@@ -61,6 +61,18 @@ let state = {
 };
 let lastUploadedVoiceId = '';
 
+const EMOTION_LABELS = {
+  happy: '开心',
+  sad: '难过',
+  angry: '生气',
+  neutral: '平静',
+};
+
+function emotionLabel(emotion) {
+  const key = String(emotion || '');
+  return EMOTION_LABELS[key] || key || '未设置';
+}
+
 function toast(message, type = 'ok') {
   const el = $('toast');
   el.textContent = message;
@@ -90,6 +102,17 @@ function markDirty() {
 
 function markClean() {
   setActionState('配置已同步', 'is-clean');
+}
+
+function setPageLoading(loading) {
+  const shell = document.querySelector('.studio-shell');
+  if (!shell) return;
+  if (loading) {
+    shell.setAttribute('aria-busy', 'true');
+    setActionState('正在读取配置…', 'is-loading');
+    return;
+  }
+  shell.removeAttribute('aria-busy');
 }
 
 function setUploadHint(message, type = 'info') {
@@ -215,7 +238,7 @@ function fillEmotionSelect(select, includeAuto = false) {
   state.emotions.forEach(emotion => {
     const option = document.createElement('option');
     option.value = emotion;
-    option.textContent = emotion;
+    option.textContent = emotionLabel(emotion);
     select.appendChild(option);
   });
 }
@@ -253,7 +276,7 @@ function updateStatus() {
   $('model-status').textContent = backend === 'astrbot' ? 'AstrBot TTS' : 'MiMo TTS';
   $('emotion-status').textContent = triggerMode === 'llm_decides' ? 'LLM 决定' : '概率触发';
   $('segment-status').textContent = state.config.segment_enabled === false ? '仅结构' : '结构优先';
-  $('hero-voice-count').textContent = 'READY';
+  $('hero-voice-count').textContent = '就绪';
 }
 
 function renderReadiness() {
@@ -402,9 +425,13 @@ function updateTriggerModeUI() {
   const selected = document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || 'probability';
   const probabilityMode = selected === 'probability';
   $('auto-tts-probability').disabled = !probabilityMode;
+  $('probability-settings').hidden = !probabilityMode;
   $('auto-tts-probability-field').classList.toggle('is-disabled', !probabilityMode);
   $('llm-tts-judge-enabled').disabled = !probabilityMode;
   $('llm-tts-judge-field').classList.toggle('is-disabled', !probabilityMode);
+  $('trigger-mode-note').textContent = probabilityMode
+    ? '当前按概率把普通回复转成语音；下面两项只在此模式生效。'
+    : '当前由 LLM 决定何时调用语音工具；概率设置已收起，也不会自动把普通回复转成语音。';
 }
 
 function updateTtsBackendUI() {
@@ -418,8 +445,28 @@ function updateTtsBackendUI() {
     ? '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。'
     : '诊断会检查 MiMo Key、模型、音色和网络，并在完成后清理测试文件。';
   $('test-hint').className = 'field-hint status-hint';
+  $('backend-active-note').textContent = backend === 'astrbot'
+    ? '当前只显示 AstrBot 内置 TTS 的专属设置；MiMo 的 Key、音色和导演设置已收起。'
+    : '当前只显示 MiMo 的专属设置；AstrBot 提供商设置已收起。';
   updateStatus();
   renderReadiness();
+}
+
+function updateApiServerUI() {
+  const enabled = $('api-server-enabled').checked;
+  $('api-server-settings').hidden = !enabled;
+  $('api-server-state-hint').textContent = enabled
+    ? '外部接口已开启；保存后请用下方地址和令牌访问。'
+    : '外部接口未开启；连接设置已收起。';
+  updateApiServerUrl();
+}
+
+function updateAiDirectorUI() {
+  const enabled = $('ai-style-director-enabled').checked;
+  $('ai-style-director-settings').hidden = !enabled;
+  $('ai-director-state-hint').textContent = enabled
+    ? 'AI 调整已开启；下面可以选择模型和调整方式。'
+    : 'AI 调整未开启；语音会使用情绪和音色自带的风格。';
 }
 
 async function migrateOldPlugin() {
@@ -440,26 +487,17 @@ async function migrateOldPlugin() {
   toast(`迁移成功：${res.message || '已完成'}${detail}`);
 }
 
-async function loadTtsProviders(selectedId) {
-  try {
-    const res = await bridge.apiGet('list_tts_providers');
-    const select = $('astrbot-tts-provider-id');
-    select.innerHTML = '<option value="">使用 AstrBot 默认</option>';
-    state.ttsProviders = res && res.success && Array.isArray(res.providers) ? res.providers : [];
-    if (state.ttsProviders.length) {
-      for (const p of state.ttsProviders) {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.id || p.type} (${p.type})`;
-        if (p.id === selectedId) opt.selected = true;
-        select.appendChild(opt);
-      }
-    }
-    renderReadiness();
-  } catch (e) {
-    state.ttsProviders = [];
-    renderReadiness();
+function renderTtsProviders(selectedId) {
+  const select = $('astrbot-tts-provider-id');
+  select.innerHTML = '<option value="">使用 AstrBot 默认</option>';
+  for (const provider of state.ttsProviders) {
+    const option = document.createElement('option');
+    option.value = provider.id;
+    option.textContent = `${provider.id || provider.type} (${provider.type})`;
+    if (provider.id === selectedId) option.selected = true;
+    select.appendChild(option);
   }
+  renderReadiness();
 }
 
 function updateApiServerUrl() {
@@ -525,7 +563,7 @@ function applyState(payload) {
     : 'mimo';
   document.querySelector(`input[name="tts-backend"][value="${ttsBackend}"]`).checked = true;
   updateTtsBackendUI();
-  loadTtsProviders(state.config.astrbot_tts_provider_id || '');
+  renderTtsProviders(state.config.astrbot_tts_provider_id || '');
   $('auto-tts-group-whitelist').value = (state.config.auto_tts_group_whitelist || []).join('\n');
   $('auto-tts-group-blacklist').value = (state.config.auto_tts_group_blacklist || []).join('\n');
   $('auto-tts-private-whitelist').value = (state.config.auto_tts_private_whitelist || []).join('\n');
@@ -542,12 +580,13 @@ function applyState(payload) {
     : '填写独立访问令牌';
   $('api-server-rate-limit').value = state.config.api_server_rate_limit_per_minute ?? 30;
   $('api-server-max-input-chars').value = state.config.api_server_max_input_chars ?? 500;
-  updateApiServerUrl();
+  updateApiServerUI();
   $('output-retention-days').value = state.config.output_retention_days ?? 7;
   $('output-max-files').value = state.config.output_max_files ?? 100;
   $('emotion-routing-enabled').checked = state.config.emotion_routing_enabled !== false;
   $('ai-style-director-enabled').checked = state.config.ai_style_director_enabled === true;
   $('ai-style-director-provider-id').value = state.config.ai_style_director_provider_id || '';
+  updateAiDirectorUI();
   renderProviderSelect();
   $('ai-style-director-prompt').value = state.config.ai_style_director_prompt || '';
   $('ai-style-director-mode').value = state.config.ai_style_director_mode || 'direct';
@@ -569,6 +608,7 @@ function applyState(payload) {
   renderReadiness();
   renderAccessControl();
   markClean();
+  setPageLoading(false);
   updateActionAvailability();
 }
 
@@ -579,18 +619,20 @@ function renderEmotionDefaults() {
 
   state.emotions.forEach(emotion => {
     const selected = defaults[emotion] || '';
+    const safeEmotion = escapeHtml(emotion);
+    const safeEmotionLabel = escapeHtml(emotionLabel(emotion));
     const options = ['<option value="">未设置</option>'].concat(
       state.voices.map(voice => (
-        `<option value="${voice.id}" ${voice.id === selected ? 'selected' : ''}>${escapeHtml(voice.name)}</option>`
+        `<option value="${escapeHtml(voice.id)}" ${voice.id === selected ? 'selected' : ''}>${escapeHtml(voice.name)}</option>`
       ))
     ).join('');
 
     const card = document.createElement('div');
     card.className = 'emotion-card';
     card.innerHTML = `
-      <strong>${emotion}</strong>
+      <strong>${safeEmotionLabel}</strong>
       <span class="voice-meta">${selected ? '已绑定情绪默认音色' : '跟随用户/群/全局默认'}</span>
-      <select data-emotion="${emotion}">${options}</select>
+      <select data-emotion="${safeEmotion}">${options}</select>
     `;
     wrap.appendChild(card);
   });
@@ -615,7 +657,8 @@ function renderVoices() {
     const disabled = !voice.enabled;
     const emotionDefaults = Object.entries(state.defaults.emotion_defaults || {})
       .filter(([, voiceId]) => voiceId === voice.id)
-      .map(([emotion]) => emotion);
+      .map(([emotion]) => emotionLabel(emotion));
+    const safeVoiceId = escapeHtml(voice.id);
 
     const card = document.createElement('div');
     card.className = `voice-card${disabled ? ' is-disabled' : ''}`;
@@ -629,15 +672,15 @@ function renderVoices() {
         <div class="voice-meta">${escapeHtml(voice.description || '无说明')} · ${escapeHtml(voice.id)}</div>
       </div>
       <div class="tag-row">
-        <span class="tag">建议情绪：${escapeHtml(voice.emotion || '未设置')}</span>
+        <span class="tag">建议情绪：${escapeHtml(emotionLabel(voice.emotion))}</span>
         <span class="tag">情绪默认：${escapeHtml(emotionDefaults.join(', ') || '无')}</span>
         ${voice.style_tags ? `<span class="tag">标签：${escapeHtml(voice.style_tags)}</span>` : ''}
       </div>
       <div class="voice-meta">风格指令：${escapeHtml(voice.style_context || '无')}</div>
       <div class="voice-actions">
-        <button data-action="default" data-id="${voice.id}">设为默认</button>
-        <button data-action="toggle" data-id="${voice.id}">${disabled ? '启用' : '禁用'}</button>
-        <button class="danger" data-action="delete" data-id="${voice.id}">删除</button>
+        <button data-action="default" data-id="${safeVoiceId}">设为默认</button>
+        <button data-action="toggle" data-id="${safeVoiceId}">${disabled ? '启用' : '禁用'}</button>
+        <button class="danger" data-action="delete" data-id="${safeVoiceId}">删除</button>
       </div>
     `;
     list.appendChild(card);
@@ -657,30 +700,40 @@ function renderVoices() {
 }
 
 async function refresh() {
-  const [rawPayload, rawProvidersPayload] = await Promise.all([
+  const [rawPayload, rawProvidersPayload, rawTtsProvidersPayload] = await Promise.all([
     bridge.apiGet('get_config'),
     bridge.apiGet('list_ai_providers').catch(() => ({ success: false, providers: [] })),
+    bridge.apiGet('list_tts_providers').catch(() => ({ success: false, providers: [] })),
   ]);
   const payload = parseJsonResponse(rawPayload);
   const providersPayload = parseJsonResponse(rawProvidersPayload);
+  const ttsProvidersPayload = parseJsonResponse(rawTtsProvidersPayload);
   if (!payload || !payload.success) throw new Error((payload && payload.error) || '加载配置失败');
   state.providers = providersPayload && providersPayload.success ? providersPayload.providers || [] : [];
+  state.ttsProviders = ttsProvidersPayload && ttsProvidersPayload.success && Array.isArray(ttsProvidersPayload.providers)
+    ? ttsProvidersPayload.providers
+    : [];
   applyState(payload);
 }
 
 async function saveConfig() {
-  const res = parseJsonResponse(await bridge.apiPost('save_config', configPayload()));
-  if (!res.success) throw new Error(res.error || '保存失败');
-  state.config = res.config || state.config;
-  if (res.warning) {
-    updateStatus();
-    markClean();
-    setActionState('配置已保存到插件本地文件', 'is-dirty');
-    toast(res.warning, 'warn');
-    return;
+  setActionState('正在保存…', 'is-loading');
+  try {
+    const res = parseJsonResponse(await bridge.apiPost('save_config', configPayload()));
+    if (!res || !res.success) throw new Error((res && res.error) || '保存失败');
+    state.config = res.config || state.config;
+    if (res.warning) {
+      updateStatus();
+      setActionState('已保存到本地；运行时同步失败', 'is-warning');
+      toast(res.warning, 'warn');
+      return;
+    }
+    await refresh();
+    toast('配置已保存');
+  } catch (error) {
+    setActionState('保存失败，改动仍未保存', 'is-error');
+    throw error;
   }
-  await refresh();
-  toast('配置已保存');
 }
 
 function validateVoiceUpload() {
@@ -853,7 +906,7 @@ async function preview() {
       setPreviewHint('音频已生成；当前页面环境阻止自动播放，请手动点击播放器播放。', 'warn');
     });
   }
-  toast(`试听生成成功，情绪：${res.emotion || 'neutral'}`);
+  toast(`试听生成成功，情绪：${emotionLabel(res.emotion || 'neutral')}`);
 }
 
 async function testConnection() {
@@ -938,6 +991,9 @@ function bindConfigDirtyState() {
     el.addEventListener('input', updateApiServerUrl);
   });
 
+
+  $('api-server-enabled').addEventListener('change', updateApiServerUI);
+  $('ai-style-director-enabled').addEventListener('change', updateAiDirectorUI);
   document.querySelectorAll('input[name="tts-trigger-mode"]').forEach(input => {
     input.addEventListener('change', () => {
       updateTriggerModeUI();
@@ -983,6 +1039,7 @@ function bindProviderSelect() {
 }
 
 async function init() {
+  setPageLoading(true);
   bridge = await resolveBridge();
   await bridge.ready();
   bind('save-config', saveConfig, '保存中...');
@@ -1020,7 +1077,13 @@ async function init() {
     }
   });
 
-  await refresh();
+  try {
+    await refresh();
+  } catch (error) {
+    setPageLoading(false);
+    setActionState('读取失败，请刷新页面重试', 'is-error');
+    throw error;
+  }
 }
 
 init().catch(error => toast(extractErrorMessage(error), 'err'));

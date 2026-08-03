@@ -6,6 +6,7 @@ import json
 import pathlib
 import random
 import re
+import shutil
 import time
 import wave
 from typing import Any
@@ -27,8 +28,10 @@ except Exception:  # pragma: no cover
 
 from .core.audio_codec import (
     AudioMergeError,
+    PCMOutputValidationError,
     encode_voice_file_data_url,
     estimate_base64_chars,
+    inspect_pcm16_wav,
     merge_wav_files,
 )
 from .core.api_server import MimoTTSApiServer
@@ -69,7 +72,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.4"
+__version__ = "0.8.5"
 
 
 @register(
@@ -87,6 +90,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     TOOL_INTERRUPT_EVENT_KEY = "voice_hub.tool_interrupt_token"
     VOICE_DELIVERY_CONTRACT_NAME = "voice.delivery"
     VOICE_DELIVERY_CONTRACT_VERSION = "1.0"
+    VOICE_AUDIO_OUTPUT_CONTRACT_NAME = "voice.audio_output"
+    VOICE_AUDIO_OUTPUT_CONTRACT_VERSION = "1.0"
+    VOICE_AUDIO_OUTPUT_CAPABILITY = "render_pcm_wav"
+    VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS = 60.0
     _current_instance: Any = None
     _api_server: Any = None
     # LLM 朗读意愿判断标记：<TTS:yes> 或 <TTS:no:原因>，仅匹配回复开头
@@ -678,6 +685,158 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 "AstrBot TTS provider did not return one complete audio file."
             )
         return str(fallback[0])
+
+    def voice_audio_output_contract(self) -> dict[str, object]:
+        """Declare event-free PCM WAV rendering for explicit consumers."""
+        return {
+            "name": self.VOICE_AUDIO_OUTPUT_CONTRACT_NAME,
+            "version": self.VOICE_AUDIO_OUTPUT_CONTRACT_VERSION,
+            "plugin": "astrbot_plugin_voice_hub",
+            "capabilities": (self.VOICE_AUDIO_OUTPUT_CAPABILITY,),
+            "method": "render_pcm_wav",
+            "timeout_seconds": self.VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS,
+            "read_only_input": True,
+            "sends_message": False,
+            "request_schema": {
+                "type": "object",
+                "required": ("text",),
+                "additionalProperties": False,
+                "properties": {
+                    "text": {"type": "string", "minLength": 1},
+                    "emotion": {"type": "string", "default": ""},
+                    "voice": {"type": "string", "default": ""},
+                    "context": {"type": "string", "default": ""},
+                    "session_id": {"type": "string", "default": ""},
+                },
+            },
+            "response_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": (
+                    "contract_name",
+                    "contract_version",
+                    "capability",
+                    "status",
+                    "error_code",
+                    "path",
+                    "container",
+                    "encoding",
+                    "sample_rate",
+                    "channels",
+                    "sample_width",
+                    "frame_count",
+                    "duration_ms",
+                    "ownership",
+                    "consumer_may_delete",
+                ),
+                "status_values": ("ok", "unavailable", "error"),
+                "error_codes": (
+                    "",
+                    "invalid_request",
+                    "no_audio_output",
+                    "timeout",
+                    "unsupported_audio_format",
+                    "output_storage_error",
+                    "synthesis_failed",
+                ),
+                "container": "wav",
+                "encoding": "pcm_s16le",
+                "ownership": "provider_managed",
+            },
+        }
+
+    @classmethod
+    def _audio_output_response(
+        cls,
+        status: str,
+        error_code: str,
+        *,
+        path: str = "",
+        metadata: dict[str, int] | None = None,
+    ) -> dict[str, object]:
+        details = metadata or {}
+        return {
+            "contract_name": cls.VOICE_AUDIO_OUTPUT_CONTRACT_NAME,
+            "contract_version": cls.VOICE_AUDIO_OUTPUT_CONTRACT_VERSION,
+            "capability": cls.VOICE_AUDIO_OUTPUT_CAPABILITY,
+            "status": status,
+            "error_code": error_code,
+            "path": path,
+            "container": "wav" if status == "ok" else "",
+            "encoding": "pcm_s16le" if status == "ok" else "",
+            "sample_rate": int(details.get("sample_rate", 0)),
+            "channels": int(details.get("channels", 0)),
+            "sample_width": int(details.get("sample_width", 0)),
+            "frame_count": int(details.get("frame_count", 0)),
+            "duration_ms": int(details.get("duration_ms", 0)),
+            "ownership": "provider_managed",
+            "consumer_may_delete": False,
+        }
+
+    async def render_pcm_wav(
+        self,
+        text: str,
+        *,
+        emotion: str = "",
+        voice: str = "",
+        context: str = "",
+        session_id: str = "",
+    ) -> dict[str, object]:
+        """Render one provider-owned, validated PCM16 WAV without sending it."""
+        values = (text, emotion, voice, context, session_id)
+        if any(not isinstance(value, str) for value in values) or not text.strip():
+            return self._audio_output_response("error", "invalid_request")
+
+        try:
+            rendered = await asyncio.wait_for(
+                self.text_to_speech(
+                    text,
+                    emotion=emotion,
+                    voice=voice,
+                    context=context,
+                    session_id=session_id,
+                ),
+                timeout=self.VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return self._audio_output_response("unavailable", "timeout")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return self._audio_output_response("error", "synthesis_failed")
+
+        if not isinstance(rendered, str) or not rendered.strip():
+            return self._audio_output_response("unavailable", "no_audio_output")
+        source = pathlib.Path(rendered).expanduser()
+        if not source.is_file():
+            return self._audio_output_response("unavailable", "no_audio_output")
+        try:
+            await asyncio.to_thread(inspect_pcm16_wav, source)
+        except PCMOutputValidationError:
+            return self._audio_output_response("error", "unsupported_audio_format")
+
+        output_dir = (pathlib.Path(self.data_dir) / "outputs").resolve()
+        try:
+            source_resolved = source.resolve(strict=True)
+            if source_resolved.parent != output_dir:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                destination = output_dir / f"mimo_tts_contract_{time.time_ns()}.wav"
+                await asyncio.to_thread(shutil.copyfile, source_resolved, destination)
+                managed_path = destination.resolve(strict=True)
+            else:
+                managed_path = source_resolved
+            metadata = await asyncio.to_thread(inspect_pcm16_wav, managed_path)
+            await asyncio.to_thread(self._cleanup_outputs)
+            if not managed_path.is_file():
+                return self._audio_output_response("error", "output_storage_error")
+        except PCMOutputValidationError:
+            return self._audio_output_response("error", "unsupported_audio_format")
+        except OSError:
+            return self._audio_output_response("error", "output_storage_error")
+
+        return self._audio_output_response(
+            "ok", "", path=str(managed_path), metadata=metadata
+        )
 
     @staticmethod
     def _normalize_tool_segments(

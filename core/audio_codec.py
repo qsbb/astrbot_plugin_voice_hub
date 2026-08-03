@@ -15,6 +15,10 @@ class AudioMergeError(RuntimeError):
     """Raised when segmented audio cannot be merged without data loss."""
 
 
+class PCMOutputValidationError(ValueError):
+    """Raised when synthesized output is not a complete PCM16 WAV file."""
+
+
 SUPPORTED_AUDIO_MIME = {
     ".mp3": "audio/mpeg",
     ".wav": "audio/wav",
@@ -107,6 +111,62 @@ def validate_voice_file(
         raise AudioValidationError(
             f"Base64 audio payload too large (max {base64_limit} chars)."
         )
+
+
+def inspect_pcm16_wav(path: Path | str) -> dict[str, int]:
+    """Validate a complete uncompressed PCM16 WAV and return its metadata."""
+    audio_path = Path(path)
+    if not audio_path.is_file():
+        raise PCMOutputValidationError(f"Audio output not found: {audio_path}")
+
+    try:
+        with audio_path.open("rb") as stream:
+            header = stream.read(12)
+        if not header.startswith(b"RIFF") or header[8:12] != b"WAVE":
+            raise PCMOutputValidationError("Audio output is not a RIFF/WAVE file.")
+
+        with wave.open(str(audio_path), "rb") as reader:
+            compression = reader.getcomptype()
+            sample_width = reader.getsampwidth()
+            channels = reader.getnchannels()
+            sample_rate = reader.getframerate()
+            frame_count = reader.getnframes()
+            if compression != "NONE":
+                raise PCMOutputValidationError(
+                    "Audio output is a compressed WAV, not PCM."
+                )
+            if sample_width != 2:
+                raise PCMOutputValidationError("Audio output is not 16-bit PCM.")
+            if channels <= 0 or sample_rate <= 0 or frame_count <= 0:
+                raise PCMOutputValidationError(
+                    "Audio output has invalid channel, rate, or frame metadata."
+                )
+
+            bytes_per_frame = channels * sample_width
+            frames_read = 0
+            while frames_read < frame_count:
+                chunk = reader.readframes(min(8192, frame_count - frames_read))
+                if not chunk or len(chunk) % bytes_per_frame:
+                    raise PCMOutputValidationError(
+                        "Audio output contains truncated PCM frames."
+                    )
+                frames_read += len(chunk) // bytes_per_frame
+            if frames_read != frame_count:
+                raise PCMOutputValidationError(
+                    "Audio output frame count does not match its WAV header."
+                )
+    except PCMOutputValidationError:
+        raise
+    except (EOFError, OSError, wave.Error) as exc:
+        raise PCMOutputValidationError(f"Invalid PCM WAV output: {exc}") from exc
+
+    return {
+        "sample_rate": sample_rate,
+        "channels": channels,
+        "sample_width": sample_width,
+        "frame_count": frame_count,
+        "duration_ms": round(frame_count * 1000 / sample_rate),
+    }
 
 
 def encode_voice_file_data_url(

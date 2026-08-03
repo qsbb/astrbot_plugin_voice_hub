@@ -678,6 +678,149 @@ class ConfigPersistenceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Invalid WAV segment"):
                 asyncio.run(plugin.text_to_speech("long text"))
 
+    def test_voice_audio_output_contract_declares_event_free_pcm_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            contract = plugin.voice_audio_output_contract()
+
+            self.assertEqual(contract["name"], "voice.audio_output")
+            self.assertEqual(contract["version"], "1.0")
+            self.assertEqual(contract["capabilities"], ("render_pcm_wav",))
+            self.assertEqual(contract["method"], "render_pcm_wav")
+            self.assertEqual(contract["timeout_seconds"], 60.0)
+            self.assertTrue(contract["read_only_input"])
+            self.assertFalse(contract["sends_message"])
+
+    def test_render_pcm_wav_returns_provider_owned_validated_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            source = Path(tmp) / "external.wav"
+            with wave.open(str(source), "wb") as writer:
+                writer.setnchannels(2)
+                writer.setsampwidth(2)
+                writer.setframerate(24000)
+                writer.writeframes(b"\x00\x01\x02\x03" * 240)
+
+            async def fake_text_to_speech(text, **kwargs):
+                self.assertEqual(text, "hello")
+                self.assertEqual(kwargs["emotion"], "happy")
+                self.assertEqual(kwargs["voice"], "voice-a")
+                return str(source)
+
+            plugin.text_to_speech = fake_text_to_speech
+            result = asyncio.run(
+                plugin.render_pcm_wav("hello", emotion="happy", voice="voice-a")
+            )
+
+            managed = Path(result["path"])
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["error_code"], "")
+            self.assertEqual(result["container"], "wav")
+            self.assertEqual(result["encoding"], "pcm_s16le")
+            self.assertEqual(result["sample_rate"], 24000)
+            self.assertEqual(result["channels"], 2)
+            self.assertEqual(result["sample_width"], 2)
+            self.assertEqual(result["frame_count"], 240)
+            self.assertEqual(result["duration_ms"], 10)
+            self.assertEqual(result["ownership"], "provider_managed")
+            self.assertFalse(result["consumer_may_delete"])
+            self.assertEqual(managed.parent, (Path(tmp) / "outputs").resolve())
+            self.assertTrue(managed.is_file())
+            self.assertTrue(source.is_file())
+
+    def test_render_pcm_wav_reports_invalid_empty_and_failed_outputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            invalid = asyncio.run(plugin.render_pcm_wav(""))
+            self.assertEqual((invalid["status"], invalid["error_code"]), (
+                "error",
+                "invalid_request",
+            ))
+
+            async def empty_output(text, **kwargs):
+                return ""
+
+            plugin.text_to_speech = empty_output
+            empty = asyncio.run(plugin.render_pcm_wav("hello"))
+            self.assertEqual((empty["status"], empty["error_code"]), (
+                "unavailable",
+                "no_audio_output",
+            ))
+
+            mp3 = Path(tmp) / "voice.mp3"
+            mp3.write_bytes(b"ID3not-pcm")
+
+            async def mp3_output(text, **kwargs):
+                return str(mp3)
+
+            plugin.text_to_speech = mp3_output
+            unsupported = asyncio.run(plugin.render_pcm_wav("hello"))
+            self.assertEqual(
+                (unsupported["status"], unsupported["error_code"]),
+                ("error", "unsupported_audio_format"),
+            )
+
+            async def failed_output(text, **kwargs):
+                raise RuntimeError("provider failed")
+
+            plugin.text_to_speech = failed_output
+            failed = asyncio.run(plugin.render_pcm_wav("hello"))
+            self.assertEqual(
+                (failed["status"], failed["error_code"]),
+                ("error", "synthesis_failed"),
+            )
+
+            valid = Path(tmp) / "valid.wav"
+            with wave.open(str(valid), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(16000)
+                writer.writeframes(b"\x00\x01" * 8)
+
+            async def valid_output(text, **kwargs):
+                return str(valid)
+
+            plugin.text_to_speech = valid_output
+            with patch.object(
+                self.module.shutil,
+                "copyfile",
+                side_effect=PermissionError("read-only output directory"),
+            ):
+                storage_error = asyncio.run(plugin.render_pcm_wav("hello"))
+            self.assertEqual(
+                (storage_error["status"], storage_error["error_code"]),
+                ("error", "output_storage_error"),
+            )
+
+    def test_render_pcm_wav_timeout_and_cancellation_are_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            async def slow_output(text, **kwargs):
+                await asyncio.sleep(1)
+                return ""
+
+            plugin.text_to_speech = slow_output
+            with patch.object(plugin, "VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS", 0.01):
+                timed_out = asyncio.run(plugin.render_pcm_wav("hello"))
+            self.assertEqual(
+                (timed_out["status"], timed_out["error_code"]),
+                ("unavailable", "timeout"),
+            )
+
+            async def cancelled_output(text, **kwargs):
+                raise asyncio.CancelledError
+
+            plugin.text_to_speech = cancelled_output
+            with self.assertRaises(asyncio.CancelledError):
+                asyncio.run(plugin.render_pcm_wav("hello"))
+
     def test_auto_tts_scope_whitelist_and_blacklist(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

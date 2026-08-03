@@ -99,6 +99,8 @@ flowchart LR
 - `MiMo 设置`：仅 MiMo 模式显示 Key、模型、AI 导演、情绪路由、旧配置迁移、音色库和试听工作台。
 - `AstrBot 设置`：仅 AstrBot 模式显示 TTS 提供商选择，不占用 MiMo 配置区域。
 
+页面采用“凝心溯溪”系列的深色低干扰样式，栏目、运行状态和内置情绪名称优先显示中文；`happy`、`sad`、`angry`、`neutral` 等内部值保持不变，不影响旧配置。打开或刷新页面时，插件配置、AI 服务商和 TTS 提供商会在同一轮并行读取，单个可选列表读取失败不会阻断主配置展示。
+
 ## 安装
 
 1. 将本仓库放入 AstrBot 插件目录。
@@ -232,6 +234,65 @@ audio_path = await plugin.text_to_speech(
 ```
 
 这些方法会复用同一套清洗、情绪解析、默认音色优先级、分段和输出清理逻辑。
+
+### PCM WAV 跨插件契约
+
+Quest Bridge 等需要自己负责传输、取消和播放的消费方，应使用事件无关的
+`voice.audio_output@1.0`，不要使用会参与 AstrBot 消息交付的 `voice.delivery@1.0`。
+消费方按插件 ID `astrbot_plugin_voice_hub` 取得实例后，必须先校验
+`voice_audio_output_contract()` 的契约名、主版本和 `render_pcm_wav` capability，再调用：
+
+```python
+result = await plugin.render_pcm_wav(
+    "晚上好，欢迎回来。",
+    emotion="happy",
+    voice="心夏",
+    context="自然、轻柔、清晰",
+    session_id="quest-session-123",
+)
+```
+
+1.0 请求中 `text` 是唯一必填字段；`emotion`、`voice`、`context`、`session_id`
+均为可选字符串，不接受未知字段。提供方固定使用 60 秒超时，外部取消会原样传播
+`asyncio.CancelledError`。成功响应示例：
+
+```json
+{
+  "contract_name": "voice.audio_output",
+  "contract_version": "1.0",
+  "capability": "render_pcm_wav",
+  "status": "ok",
+  "error_code": "",
+  "path": ".../outputs/mimo_tts_contract_123.wav",
+  "container": "wav",
+  "encoding": "pcm_s16le",
+  "sample_rate": 24000,
+  "channels": 1,
+  "sample_width": 2,
+  "frame_count": 24000,
+  "duration_ms": 1000,
+  "ownership": "provider_managed",
+  "consumer_may_delete": false
+}
+```
+
+成功前会按文件内容校验 RIFF/WAVE、无压缩 PCM、16-bit 采样和完整帧数据；
+`sample_rate` 与 `channels` 是实际值，不保证已经是 Quest 所需的 mono/24000Hz，消费方应在读取后
+自行下混与重采样。文件由声复制或保存在自己的 `outputs` 目录，并沿用现有保留天数与数量清理；
+消费方只读，不得移动或删除。
+
+失败响应仍包含同一组固定字段，音频字段为空或为 0：
+
+- `unavailable/no_audio_output`：后端没有产生可读文件，可以降级为文字；
+- `unavailable/timeout`：60 秒内未完成，可以降级为文字并稍后重试；
+- `error/invalid_request`：请求字段类型或必填文本错误；
+- `error/unsupported_audio_format`：返回了 MP3、压缩/非 16-bit/损坏或截断 WAV；
+- `error/output_storage_error`：无法把外部临时文件纳入声的输出目录；
+- `error/synthesis_failed`：TTS 后端、分段合并或其他合成步骤失败。
+
+旧 `text_to_speech()` 为兼容接口，返回值只有文件路径，AstrBot TTS 后端可能返回 MP3，
+因此不能把它当作 PCM 保证。契约缺失、主版本不兼容、声明畸形、调用异常或响应字段不完整时，
+消费方应把语音能力视为不可用并保留文字回复，不得猜测其他方法。
 
 如果配合 `astrbot_plugin_daily_sharing` 使用，可以在每日分享 Pages 里选择语音 provider：
 

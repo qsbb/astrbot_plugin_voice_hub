@@ -7,8 +7,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from astrbot_plugin_voice_hub.core.audio_codec import (
     AudioMergeError,
     AudioValidationError,
+    PCMOutputValidationError,
     encode_voice_file_data_url,
     estimate_base64_chars,
+    inspect_pcm16_wav,
     merge_wav_files,
     sniff_audio_format,
 )
@@ -153,3 +155,38 @@ class AudioCodecTests(unittest.TestCase):
                 merge_wav_files([first, second], merged)
 
             self.assertFalse(merged.exists())
+
+    def test_inspect_pcm16_wav_returns_actual_metadata(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sample = Path(temp_dir) / "voice.wav"
+            self._write_wav(sample, b"\x00\x01" * 240, frame_rate=24000)
+
+            metadata = inspect_pcm16_wav(sample)
+
+            self.assertEqual(metadata["sample_rate"], 24000)
+            self.assertEqual(metadata["channels"], 1)
+            self.assertEqual(metadata["sample_width"], 2)
+            self.assertEqual(metadata["frame_count"], 240)
+            self.assertEqual(metadata["duration_ms"], 10)
+
+    def test_inspect_pcm16_wav_rejects_non_pcm16_and_truncated_frames(self):
+        import tempfile
+        import wave
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            eight_bit = Path(temp_dir) / "eight-bit.wav"
+            with wave.open(str(eight_bit), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(16000)
+                writer.writeframes(b"\x00" * 8)
+            with self.assertRaisesRegex(PCMOutputValidationError, "16-bit"):
+                inspect_pcm16_wav(eight_bit)
+
+            truncated = Path(temp_dir) / "truncated.wav"
+            self._write_wav(truncated, b"\x00\x01" * 8)
+            truncated.write_bytes(truncated.read_bytes()[:-3])
+            with self.assertRaisesRegex(PCMOutputValidationError, "truncated"):
+                inspect_pcm16_wav(truncated)

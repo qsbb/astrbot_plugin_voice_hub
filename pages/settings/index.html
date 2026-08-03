@@ -8,16 +8,16 @@
 </head>
 <body>
   <div class="top-gradient-highlight" aria-hidden="true"></div>
-  <main class="studio-shell">
+  <main class="studio-shell" aria-busy="true">
     <header class="studio-hero">
       <section class="hero-copy">
-        <span class="eyebrow"><span class="pulse-dot"></span> UNIFIED VOICE CENTER</span>
+        <span class="eyebrow"><span class="pulse-dot"></span> 凝心溯溪 · 声</span>
         <h1>声 · 统一语音中心</h1>
         <p>统一管理朗读触发、结构化分段、发送节奏与语音后端。通用能力始终可见，后端专属配置只在选中后展开。</p>
         <div class="hero-actions">
           <button id="save-config" class="primary">保存全部配置</button>
           <button id="test-connection" class="secondary">诊断当前后端</button>
-          <span id="save-state" class="action-state">配置已同步</span>
+          <span id="save-state" class="action-state is-loading" role="status" aria-live="polite">正在读取配置…</span>
           <a class="ghost-link" href="#backend-selection">选择语音后端</a>
         </div>
       </section>
@@ -28,7 +28,7 @@
         </div>
         <div class="signal-card">
           <span>统一工具</span>
-          <strong id="hero-voice-count">READY</strong>
+          <strong id="hero-voice-count">就绪</strong>
         </div>
         <div class="signal-card">
           <span>触发策略</span>
@@ -66,17 +66,17 @@
 
     <section class="studio-card status-board" aria-label="工作台状态">
       <div>
-        <span class="section-kicker">READINESS</span>
+        <span class="section-kicker">运行状态</span>
         <h2>工作台状态</h2>
       </div>
       <div id="readiness-list" class="readiness-list"></div>
-      <p id="test-hint" class="field-hint status-hint">诊断会按当前后端生成一段短音频，并在完成后清理测试文件。</p>
+      <p id="test-hint" class="field-hint status-hint" aria-live="polite">诊断会按当前后端生成一段短音频，并在完成后清理测试文件。</p>
     </section>
 
     <section id="backend-selection" class="studio-card backend-selector-card" data-backend-scope="shared">
       <div class="section-head">
         <div>
-          <span class="section-kicker">VOICE BACKEND</span>
+          <span class="section-kicker">合成后端</span>
           <h2>语音后端</h2>
         </div>
         <span class="soft-pill">独立选择</span>
@@ -86,13 +86,14 @@
         <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
         <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
       </fieldset>
+      <p id="backend-active-note" class="field-hint selection-note" aria-live="polite">当前显示 MiMo 专属设置；AstrBot 专属设置已收起。</p>
     </section>
 
     <section class="studio-grid voice-core-grid">
       <article class="studio-card core-controls-card span-7" data-backend-scope="shared">
         <div class="section-head">
           <div>
-            <span class="section-kicker">UNIFIED DELIVERY</span>
+            <span class="section-kicker">朗读触发</span>
             <h2>统一朗读与触发</h2>
           </div>
           <span class="soft-pill">voice_hub_speak</span>
@@ -111,9 +112,11 @@
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="probability" /><span><strong>概率触发</strong><small>不向 LLM 提供语音工具，普通回复按下方概率自动转语音。</small></span></label>
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="llm_decides" /><span><strong>LLM 自主决定</strong><small>只允许 LLM 调用语音工具，不执行概率自动 TTS。</small></span></label>
           </fieldset>
-          <p class="field-hint">触发方式是唯一开关：概率触发会执行自动 TTS，LLM 自主决定只开放语音工具。</p>
-          <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
-          <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>LLM 情绪化朗读判断<small>仅概率触发下生效。让主 LLM 在回复开头输出朗读意愿标记，太长、含代码、羞耻尴尬或纯功能性内容主动跳过，适合朗读的简短口语直接转语音。标记自动剥离，用户不可见。</small></span></label>
+          <p id="trigger-mode-note" class="field-hint selection-note" aria-live="polite">当前按概率把普通回复转成语音；下面两项只在此模式生效。</p>
+          <div id="probability-settings" class="conditional-settings">
+            <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
+            <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>让 LLM 判断这条回复适不适合朗读<small>适合朗读的简短口语直接转语音；太长、含代码或纯功能性内容会跳过。判断标记会自动删除，用户看不到。</small></span></label>
+          </div>
         </div>
         <div class="switch-stack">
           <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
@@ -124,7 +127,7 @@
       <article class="studio-card delivery-card span-5" data-backend-scope="shared">
         <div class="section-head">
           <div>
-            <span class="section-kicker">SEGMENT & CANCEL</span>
+            <span class="section-kicker">分段与取消</span>
             <h2>分段、等待与取消</h2>
           </div>
           <span class="soft-pill">结构优先</span>
@@ -147,12 +150,14 @@
     <section class="studio-card integration-card" data-backend-scope="shared">
       <div class="section-head">
         <div>
-          <span class="section-kicker">EXTERNAL API</span>
+          <span class="section-kicker">外部接口</span>
           <h2>外部语音接口</h2>
         </div>
         <span class="soft-pill">复用当前后端</span>
       </div>
       <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
+      <p id="api-server-state-hint" class="field-hint selection-note" aria-live="polite">外部接口未开启；下面的连接设置已收起。</p>
+      <div id="api-server-settings" class="conditional-settings" hidden>
         <div class="field-row">
           <label>API 监听地址<input id="api-server-host" type="text" placeholder="127.0.0.1" /></label>
           <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
@@ -168,13 +173,14 @@
         </div>
         <p class="field-hint">外部客户端需使用上方令牌。接口复用当前选中的语音后端；voice 参数仅在后端支持对应音色时生效。</p>
         <p class="field-hint">服务默认只监听本机。需要跨主机访问时，请同时配置防火墙或带 TLS 的反向代理。</p>
+      </div>
     </section>
 
     <section class="studio-grid backend-settings-grid">
       <article class="studio-card backend-card api-card span-12" data-backend-scope="mimo">
         <div class="section-head">
           <div>
-            <span class="section-kicker">MIMO</span>
+            <span class="section-kicker">MiMo 后端</span>
             <h2>MiMo 设置</h2>
           </div>
           <a class="ghost-link compact-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" rel="noreferrer">MiMo 文档</a>
@@ -194,10 +200,10 @@
         </div>
       </article>
 
-      <article class="studio-card backend-card span-12" data-backend-scope="astrbot">
+      <article class="studio-card backend-card span-12" data-backend-scope="astrbot" hidden>
         <div class="section-head">
           <div>
-            <span class="section-kicker">ASTRBOT</span>
+            <span class="section-kicker">AstrBot 后端</span>
             <h2>AstrBot 设置</h2>
           </div>
           <span class="soft-pill">内置 TTS</span>
@@ -214,7 +220,7 @@
     <section class="studio-card access-card" data-backend-scope="shared">
       <div class="section-head">
         <div>
-          <span class="section-kicker">AUTO TTS ACCESS</span>
+          <span class="section-kicker">使用范围</span>
           <h2>自动语音访问控制</h2>
         </div>
         <span class="soft-pill">管理员优先</span>
@@ -236,13 +242,15 @@
     <section class="studio-card director-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
-          <span class="section-kicker">AI STYLE DIRECTOR</span>
+          <span class="section-kicker">风格导演</span>
           <h2>AI 风格导演</h2>
         </div>
         <span class="soft-pill">隐藏控制提示</span>
       </div>
-      <div class="switch-grid">
-        <label class="studio-switch"><input id="ai-style-director-enabled" type="checkbox" /><span>启用 AI 生成拟人化风格指令</span></label>
+      <label class="studio-switch"><input id="ai-style-director-enabled" type="checkbox" /><span>让 AI 调整说话方式</span></label>
+      <p id="ai-director-state-hint" class="field-hint selection-note" aria-live="polite">AI 调整未开启；语音会使用情绪和音色自带的风格。</p>
+      <div id="ai-style-director-settings" class="conditional-settings" hidden>
+        <div class="switch-grid">
         <label>AI 服务商
           <select id="ai-style-director-provider-select">
             <option value="">当前默认 LLM</option>
@@ -260,15 +268,16 @@
         <label class="studio-switch"><input id="ai-style-director-optimize-text" type="checkbox" /><span>优化音频朗读文本，剔除口头填充并加入自然停顿</span></label>
         <label class="studio-switch"><input id="ai-style-director-fallback" type="checkbox" /><span>AI 失败时回退到情绪/默认风格</span></label>
         <label class="studio-switch"><input id="ai-style-director-debug-log" type="checkbox" /><span>在日志中显示 AI 导演结果</span></label>
+        </div>
+        <label class="wide">导演提示词模板<textarea id="ai-style-director-prompt" rows="4" placeholder="留空使用内置模板。可用变量：{max_chars}。建议输出 JSON：style_context + speech_text"></textarea></label>
+        <p class="field-hint">发送前，AI 会为 MiMo 生成一条用户看不到的说话方式说明。开启文本优化后，只会调整拿去朗读的副本，聊天里的原文字不会改变。</p>
       </div>
-      <label class="wide">导演提示词模板<textarea id="ai-style-director-prompt" rows="4" placeholder="留空使用内置模板。可用变量：{max_chars}。建议输出 JSON：style_context + speech_text"></textarea></label>
-      <p class="field-hint">发送前 AI 导演会生成给 MiMo 的隐藏 user 风格指令；开启文本优化时，还会生成仅用于音频朗读的 speech_text。最终聊天文字保持原样，不会被改写。</p>
     </section>
 
     <section class="studio-card routing-card" data-backend-scope="mimo">
         <div class="section-head">
           <div>
-            <span class="section-kicker">EMOTION</span>
+            <span class="section-kicker">情绪路由</span>
             <h2>情绪路由</h2>
           </div>
         </div>
@@ -279,7 +288,7 @@
     <section class="studio-card voice-workbench" data-backend-scope="mimo">
       <div class="section-head">
         <div>
-          <span class="section-kicker">VOICE LIBRARY</span>
+          <span class="section-kicker">音色管理</span>
           <h2>音色库</h2>
         </div>
         <span id="voice-count" class="soft-pill">0 个音色</span>
@@ -311,7 +320,7 @@
     <section class="studio-card preview-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
-          <span class="section-kicker">PREVIEW</span>
+          <span class="section-kicker">试听</span>
           <h2>试听工作台</h2>
         </div>
       </div>
@@ -329,7 +338,7 @@
       </div>
     </section>
   </main>
-  <div id="toast" class="toast"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
   <script src="./app.js"></script>
 </body>

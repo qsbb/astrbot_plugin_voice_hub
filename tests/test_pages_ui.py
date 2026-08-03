@@ -12,7 +12,7 @@ class PagesUITests(unittest.TestCase):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertIn("凝心溯溪-声", html)
-        self.assertIn("UNIFIED VOICE CENTER", html)
+        self.assertIn("凝心溯溪 · 声", html)
         self.assertIn("声 · 统一语音中心", html)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
@@ -24,9 +24,9 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("--hue", css)
         self.assertIn("--primary", css)
         self.assertIn("color-scheme: dark", css)
-        self.assertIn("--page-bg: #07131f", css)
-        self.assertIn("--card-bg: #10283b", css)
-        self.assertIn("--primary: #39c6b2", css)
+        self.assertIn("--page-bg: #07111d", css)
+        self.assertIn("--card-bg: #0d1b2a", css)
+        self.assertIn("--primary: #5dd6c0", css)
         self.assertIn("--radius-xl: 16px", css)
         self.assertIn("card-rise", css)
         self.assertIn("wave-breathe", css)
@@ -123,9 +123,9 @@ class PagesUITests(unittest.TestCase):
         self.assertIn('name="tts-trigger-mode" value="llm_decides"', html)
         self.assertIn("不向 LLM 提供语音工具", html)
         self.assertIn("只允许 LLM 调用语音工具", html)
-        self.assertIn("触发方式是唯一开关", html)
+        self.assertIn("当前按概率把普通回复转成语音", html)
         self.assertIn('id="llm-tts-judge-enabled"', html)
-        self.assertIn("LLM 情绪化朗读判断", html)
+        self.assertIn("让 LLM 判断这条回复适不适合朗读", html)
         self.assertIn("llm-tts-judge-field", css)
         self.assertNotIn('id="auto-tts-enabled"', html)
         self.assertNotIn("auto-tts-enabled", js)
@@ -147,6 +147,30 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("auto_tts_group_whitelist: listValue", js)
         self.assertIn("admin_users: listValue", js)
         self.assertIn("parseJsonResponse(await bridge.apiPost", js)
+
+    def test_settings_uses_chinese_labels_and_safe_dynamic_attributes(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("运行状态", html)
+        self.assertIn("合成后端", html)
+        self.assertIn("音色管理", html)
+        self.assertNotIn(">READY<", html)
+        self.assertIn("const EMOTION_LABELS", js)
+        self.assertIn("option.textContent = emotionLabel(emotion)", js)
+        self.assertIn('data-id="${safeVoiceId}"', js)
+        self.assertIn('data-emotion="${safeEmotion}"', js)
+
+    def test_settings_loads_all_provider_lists_in_one_refresh(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+        refresh = js.split("async function refresh()", 1)[1].split(
+            "async function saveConfig()", 1
+        )[0]
+        self.assertIn("bridge.apiGet('list_ai_providers')", refresh)
+        self.assertIn("bridge.apiGet('list_tts_providers')", refresh)
+        self.assertNotIn("async function loadTtsProviders", js)
+        self.assertIn("function renderTtsProviders", js)
 
     def test_settings_layout_covers_status_and_api_fields(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
@@ -233,6 +257,35 @@ class PagesUITests(unittest.TestCase):
         self.assertNotIn("voice-workbench.is-muted", css)
         self.assertIn("$('test-connection').textContent", js)
         self.assertIn("renderReadiness();", js)
+
+    def test_settings_hides_inactive_advanced_fields_and_reports_failures(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+        self.assertIn('role="status" aria-live="polite"', html)
+        self.assertIn('data-backend-scope="astrbot" hidden', html)
+        self.assertIn('id="probability-settings" class="conditional-settings"', html)
+        self.assertIn('id="api-server-settings" class="conditional-settings" hidden', html)
+        self.assertIn('id="ai-style-director-settings" class="conditional-settings" hidden', html)
+        self.assertIn("$('probability-settings').hidden = !probabilityMode", js)
+        self.assertIn("$('api-server-settings').hidden = !enabled", js)
+        self.assertIn("$('ai-style-director-settings').hidden = !enabled", js)
+        self.assertIn("function setPageLoading", js)
+        self.assertIn("保存失败，改动仍未保存", js)
+        self.assertIn("读取失败，请刷新页面重试", js)
+        self.assertRegex(
+            css,
+            r"\.conditional-settings\[hidden\]\s*\{[^}]*display:\s*none;",
+        )
+
+    def test_settings_mobile_layout_stacks_api_link_and_toast(self):
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        mobile = css.split("@media (max-width: 760px)", 1)[1]
+        self.assertRegex(
+            mobile, r"\.api-link-row\s*\{[^}]*flex-direction:\s*column;"
+        )
+        self.assertRegex(mobile, r"\.toast\s*\{[^}]*left:\s*10px;")
 
     def test_settings_separates_shared_delivery_from_mimo_emotion(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")

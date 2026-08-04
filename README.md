@@ -134,6 +134,8 @@ pip install -r requirements.txt
 
 `auto_tts_enabled` 仅作为旧配置兼容字段，不再是独立开关。旧配置缺少 `tts_trigger_mode` 时，`auto_tts_enabled=true` 迁移为 `probability`，`auto_tts_enabled=false` 迁移为 `llm_decides`；新配置保存时会自动同步该兼容字段。
 
+
+工具直接发送语音后，声会在同一事件的最终结果阶段清理模型复述的纯内部完成占位符（例如 `<audio already sent>`）。清理必须同时满足“语音已成功发送”和“结果只含已知占位符”，不会删除正常正文、混合回复或未成功发送语音时的错误信息。
 `voice_hub_speak` 是唯一的模型可见朗读工具。它兼容旧的 `text` 参数，并支持 `segments` 数组；每个元素包含 `text`，可选覆盖 `emotion`、`voice`、`style`。传入完整 `text` 时，必须保留内部换行和空行。声会优先按显式空行或编号段落分别合成和发送，只有单个段落过长时才按句界兜底。工具直接使用主 LLM 给出的风格并关闭插件的二次 AI 风格导演；至少成功发送一段音频后才标记当前事件，避免自动 TTS 重复处理，同时确保合成或首次发送失败时不会错误阻止后续处理。
 
 工具示例：

@@ -1515,6 +1515,70 @@ class ConfigPersistenceTests(unittest.TestCase):
             log_args = plugin.logger.infos[-1]
             self.assertIn("event already handled", log_args[0] % log_args[1:])
 
+    def test_auto_tts_clears_tool_completion_placeholder_after_direct_send(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"tts_trigger_mode": "llm_decides"}
+            )
+            from astrbot.api.message_components import Plain
+
+            plain = Plain()
+            plain.text = "<audio already sent>"
+            result = types.SimpleNamespace(chain=[plain])
+            cleared = []
+            event = types.SimpleNamespace(
+                get_extra=lambda key: (
+                    True if key == plugin.TTS_HANDLED_EVENT_KEY else None
+                ),
+                get_result=lambda: result,
+                clear_result=lambda: cleared.append(True),
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            self.assertEqual(cleared, [True])
+
+    def test_internal_tts_completion_filter_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            from astrbot.api.message_components import Plain
+
+            def invoke(texts, *, handled=True):
+                components = []
+                for text in texts:
+                    plain = Plain()
+                    plain.text = text
+                    components.append(plain)
+                result = types.SimpleNamespace(chain=components)
+                cleared = []
+                event = types.SimpleNamespace(
+                    get_extra=lambda key: (
+                        handled if key == plugin.TTS_HANDLED_EVENT_KEY else None
+                    ),
+                    clear_result=lambda: cleared.append(True),
+                )
+                matched = plugin._clear_internal_tts_completion(event, result)
+                return matched, cleared
+
+            self.assertEqual(
+                invoke(
+                    [
+                        "audio already sent to user (2 segments); "
+                        "do not resend it via other tools"
+                    ]
+                ),
+                (True, [True]),
+            )
+            self.assertEqual(invoke(["<audio already sent"]), (False, []))
+            self.assertEqual(invoke(["<audio already sent>"], handled=False), (False, []))
+            self.assertEqual(
+                invoke(["Here is the requested audio.", "<audio already sent>"]),
+                (False, []),
+            )
+            self.assertEqual(invoke(["Here is the requested audio."]), (False, []))
+
     def test_llm_tts_judge_config_defaults_false_and_parses_bool(self):
         from astrbot_plugin_voice_hub.core.config import normalize_config
 

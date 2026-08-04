@@ -72,7 +72,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.5"
+__version__ = "0.8.6"
 
 
 @register(
@@ -99,6 +99,14 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     # LLM 朗读意愿判断标记：<TTS:yes> 或 <TTS:no:原因>，仅匹配回复开头
     _TTS_JUDGE_MARKER_RE = re.compile(
         r"^\s*<TTS:(yes|no)(?::[^>]*?)?>\s*", re.IGNORECASE
+    )
+    _TTS_COMPLETION_PLACEHOLDER_RE = re.compile(
+        r"^\s*<?\s*audio\s+already\s+sent"
+        r"(?:\s+to\s+(?:the\s+)?user)?"
+        r"(?:\s*\(\s*\d+\s+segments?\s*\))?"
+        r"(?:\s*;\s*do\s+not\s+resend\s+it\s+via\s+other\s+tools)?"
+        r"\s*>?\s*[.!\u3002\uFF01]?\s*$",
+        re.IGNORECASE,
     )
     _TTS_JUDGE_PROMPT = (
         "【语音朗读意愿判断】\n"
@@ -1152,6 +1160,39 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 pass
         return bool(getattr(event, cls.TTS_HANDLED_EVENT_KEY, False))
 
+    def _clear_internal_tts_completion(self, event: AstrMessageEvent, result: Any) -> bool:
+        """Remove a tool completion placeholder after audio was sent directly."""
+        if not self._is_tts_handled(event):
+            return False
+        chain = getattr(result, "chain", None)
+        if not isinstance(chain, list) or not chain:
+            return False
+
+        texts: list[str] = []
+        for component in chain:
+            if not self._is_plain_component(component):
+                return False
+            text = str(getattr(component, "text", "") or "").strip()
+            if text:
+                texts.append(text)
+        if not texts:
+            return False
+        candidate = "\n".join(texts).strip()
+        if candidate.startswith("<") or candidate.endswith(">"):
+            if not (candidate.startswith("<") and candidate.endswith(">")):
+                return False
+            candidate = candidate[1:-1].strip()
+        texts = [candidate]
+        if not self._TTS_COMPLETION_PLACEHOLDER_RE.fullmatch("\n".join(texts)):
+            return False
+
+        clear_result = getattr(event, "clear_result", None)
+        if callable(clear_result):
+            clear_result()
+        else:
+            chain.clear()
+        return True
+
     @staticmethod
     def _event_extra(event: AstrMessageEvent, key: str) -> Any:
         getter = getattr(event, "get_extra", None)
@@ -1832,6 +1873,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         try:
             get_result = getattr(event, "get_result", None)
             result = get_result() if callable(get_result) else None
+            if plugin._clear_internal_tts_completion(event, result):
+                plugin.logger.info(
+                    "[voice-hub] suppressed internal tts completion placeholder"
+                )
+                return
             is_stopped = getattr(event, "is_stopped", None)
             if callable(is_stopped) and is_stopped():
                 plugin.logger.info("[voice-hub] auto tts skipped: event stopped upstream")

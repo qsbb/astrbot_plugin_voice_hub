@@ -72,7 +72,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 
 
 @register(
@@ -207,8 +207,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         return {
             "name": "series.diagnostics",
             "version": "1.0",
-            "plugin": "astrbot_plugin_voice_hub",
-            "capabilities": ("read", "clear"),
+            "series_id": "ningxin_suxi",
+            "plugin_id": "astrbot_plugin_voice_hub",
+            "plugin_name": "声",
+            "capabilities": ("read", "clear", "read_events", "clear_events"),
             "storage": "memory_only",
             "astrbot_log_propagation": False,
         }

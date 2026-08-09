@@ -192,24 +192,24 @@ pip install -r requirements.txt
 - 未命中黑名单后，如果对应范围的白名单非空，则必须命中白名单才会自动语音化。
 - 如果对应范围的白名单为空，则该范围默认放行。
 - 群聊白名单/黑名单与私聊白名单/黑名单互相独立；只填群聊白名单不会启用私聊白名单限制。
-- 名单支持纯 ID 或完整 UMO，例如 `123456789`、`aiocqhttp:GroupMessage:123456789`、`aiocqhttp:FriendMessage:3325363511`。
+- 名单支持纯 ID 或完整 UMO，例如 `<平台用户ID>`、`aiocqhttp:GroupMessage:<群ID>`、`aiocqhttp:FriendMessage:<平台用户ID>`。
 
 示例配置：
 
 ```text
 admin_users:
-3325363511
+<管理员平台用户ID>
 
 auto_tts_group_whitelist:
-123456789
+<允许自动语音的群ID>
 
 auto_tts_group_blacklist:
-aiocqhttp:GroupMessage:987654321
+aiocqhttp:GroupMessage:<禁止自动语音的群ID>
 
 auto_tts_private_whitelist:
 
 auto_tts_private_blacklist:
-10001
+<禁止自动语音的平台用户ID>
 ```
 
 Pages 会在“自动语音访问控制”模块显示当前规则预览；AstrBot 日志中也会显示自动语音化被放行、跳过或拦截的原因，便于确认规则是否生效。

@@ -471,9 +471,45 @@ class PagesAPIMixin:
         """通过 HTTP 调用本地 API server，验证可达性和响应。"""
         import aiohttp
 
-        port = self.plugin_config.api_server_port
-        url = f"http://127.0.0.1:{port}/v1/audio/speech"
         started = asyncio.get_running_loop().time()
+        token = str(self.plugin_config.api_server_token or "").strip()
+        if not token:
+            return {
+                "ok": False,
+                "elapsed_ms": 0,
+                "error_code": "api_token_missing",
+                "error": "外部 API Token 未配置，服务不会启动",
+            }
+
+        # 保存配置会异步替换监听实例。等待端口实际完成绑定，避免立即诊断误报。
+        self._ensure_api_server()
+        server = getattr(type(self), "_api_server", None)
+        if server is not None and not server.running:
+            wait_until_started = getattr(server, "wait_until_started", None)
+            if callable(wait_until_started):
+                await wait_until_started(timeout=5.0)
+        server = getattr(type(self), "_api_server", None)
+        if server is None or not server.running:
+            elapsed_ms = round(
+                (asyncio.get_running_loop().time() - started) * 1000
+            )
+            start_error = str(getattr(server, "start_error", "") or "").strip()
+            detail = f"：{start_error}" if start_error else ""
+            return {
+                "ok": False,
+                "elapsed_ms": elapsed_ms,
+                "error_code": "api_server_not_ready",
+                "error": f"外部 API 服务尚未成功监听{detail}",
+            }
+
+        configured_host = str(self.plugin_config.api_server_host or "").strip()
+        # 通配地址只能用于监听；本插件自诊断通过相应回环地址访问。
+        host = "127.0.0.1" if configured_host in {"", "0.0.0.0"} else configured_host
+        if host == "::":
+            host = "::1"
+        url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        port = self.plugin_config.api_server_port
+        url = f"http://{url_host}:{port}/v1/audio/speech"
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -484,7 +520,7 @@ class PagesAPIMixin:
                         "voice": voice_selector or "",
                     },
                     headers={
-                        "Authorization": f"Bearer {self.plugin_config.api_server_token}"
+                        "Authorization": f"Bearer {token}"
                     },
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
@@ -510,12 +546,29 @@ class PagesAPIMixin:
                         "elapsed_ms": elapsed_ms,
                         "size": len(audio_bytes),
                     }
+        except aiohttp.ClientConnectorError as exc:
+            elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
+            return {
+                "ok": False,
+                "elapsed_ms": elapsed_ms,
+                "error_code": "api_server_unreachable",
+                "error": f"无法连接 {url}：{exc}",
+            }
+        except TimeoutError:
+            elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
+            return {
+                "ok": False,
+                "elapsed_ms": elapsed_ms,
+                "error_code": "api_server_timeout",
+                "error": f"请求 {url} 超时",
+            }
         except Exception as exc:
             elapsed_ms = round((asyncio.get_running_loop().time() - started) * 1000)
             return {
                 "ok": False,
                 "elapsed_ms": elapsed_ms,
-                "error": str(exc),
+                "error_code": "api_server_request_failed",
+                "error": str(exc) or type(exc).__name__,
             }
 
     async def _pages_list_tts_providers(self):

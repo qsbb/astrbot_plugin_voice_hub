@@ -4,7 +4,7 @@ short_desc: 凝心溯溪系列语音模块：双 TTS 后端、多音色管理、
 desc: >
   凝心溯溪系列语音模块：支持 MiMo 音色克隆与 AstrBot 内置 TTS 切换、多音色管理、
   AI 语音导演、概率自动语音、OpenAI 兼容外部 API，以及 Pages 可视化管理。
-version: 0.8.8
+version: 0.8.9
 author: 凌溪
 author_desc: >
   凝心溯溪系列插件作者，关注自然对话、多模态交互与可控的智能体协作。

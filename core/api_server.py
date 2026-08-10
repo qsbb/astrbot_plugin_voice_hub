@@ -47,6 +47,9 @@ class MimoTTSApiServer:
         self._site: web.TCPSite | None = None
         self._app: web.Application | None = None
         self._task: asyncio.Task | None = None
+        self._started = False
+        self._start_complete = asyncio.Event()
+        self._start_error = ""
 
     def _build_app(self) -> web.Application:
         app = web.Application(client_max_size=1024 * 1024)
@@ -60,6 +63,9 @@ class MimoTTSApiServer:
             return
         if not self.api_token:
             raise RuntimeError("api server token is required")
+        self._started = False
+        self._start_error = ""
+        self._start_complete.clear()
         self._app = self._build_app()
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
@@ -67,6 +73,7 @@ class MimoTTSApiServer:
         try:
             await self._site.start()
         except OSError as exc:
+            self._start_error = str(exc)
             # 端口可能已被另一个 server 实例占用（__init__ task 与钩子 fallback 竞态）
             self.logger.warning(
                 "[voice-hub] api server failed to bind %s:%s: %s",
@@ -78,6 +85,9 @@ class MimoTTSApiServer:
             self._runner = None
             self._site = None
             return
+        finally:
+            self._start_complete.set()
+        self._started = True
         self.logger.info(
             "[voice-hub] api server listening on http://%s:%s/v1/audio/speech",
             self.host,
@@ -87,6 +97,7 @@ class MimoTTSApiServer:
     async def stop(self) -> None:
         site = self._site
         runner = self._runner
+        self._started = False
         self._site = None
         self._runner = None
         self._app = None
@@ -103,7 +114,20 @@ class MimoTTSApiServer:
 
     @property
     def running(self) -> bool:
-        return self._runner is not None and self._site is not None
+        return self._started and self._runner is not None and self._site is not None
+
+    @property
+    def start_error(self) -> str:
+        return self._start_error
+
+    async def wait_until_started(self, timeout: float = 5.0) -> bool:
+        if self.running:
+            return True
+        try:
+            await asyncio.wait_for(self._start_complete.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return self.running
 
     # ----- handlers -----
 

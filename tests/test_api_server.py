@@ -6,6 +6,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -77,6 +78,68 @@ class ApiServerTests(unittest.TestCase):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
         }
+
+    def test_running_waits_until_socket_bind_completes(self):
+        async def run():
+            server = MimoTTSApiServer(_FakePlugin(), api_token="test-token")
+            bind_gate = asyncio.Event()
+
+            async def delayed_start():
+                await bind_gate.wait()
+
+            runner = types.SimpleNamespace(
+                setup=AsyncMock(), cleanup=AsyncMock()
+            )
+            site = types.SimpleNamespace(
+                start=delayed_start, stop=AsyncMock()
+            )
+            with patch(
+                "astrbot_plugin_voice_hub.core.api_server.web.AppRunner",
+                return_value=runner,
+            ), patch(
+                "astrbot_plugin_voice_hub.core.api_server.web.TCPSite",
+                return_value=site,
+            ):
+                start_task = asyncio.create_task(server.start())
+                while server._site is None:
+                    await asyncio.sleep(0)
+                self.assertFalse(server.running)
+
+                wait_task = asyncio.create_task(server.wait_until_started(timeout=1.0))
+                bind_gate.set()
+                await start_task
+
+                self.assertTrue(await wait_task)
+                self.assertTrue(server.running)
+                await server.stop()
+                self.assertFalse(server.running)
+
+        asyncio.run(run())
+
+    def test_bind_failure_completes_wait_with_error(self):
+        async def run():
+            server = MimoTTSApiServer(_FakePlugin(), api_token="test-token")
+            runner = types.SimpleNamespace(
+                setup=AsyncMock(), cleanup=AsyncMock()
+            )
+            site = types.SimpleNamespace(
+                start=AsyncMock(side_effect=OSError("address already in use")),
+                stop=AsyncMock(),
+            )
+            with patch(
+                "astrbot_plugin_voice_hub.core.api_server.web.AppRunner",
+                return_value=runner,
+            ), patch(
+                "astrbot_plugin_voice_hub.core.api_server.web.TCPSite",
+                return_value=site,
+            ):
+                await server.start()
+
+            self.assertFalse(server.running)
+            self.assertFalse(await server.wait_until_started(timeout=0.1))
+            self.assertIn("address already in use", server.start_error)
+
+        asyncio.run(run())
 
     def test_audio_speech_returns_wav(self):
         with tempfile.TemporaryDirectory() as tmp:

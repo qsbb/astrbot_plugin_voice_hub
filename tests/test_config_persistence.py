@@ -305,6 +305,105 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIsNone(plugin.synthesize_text.await_args.kwargs["voice_id"])
             self.assertFalse(plugin.synthesize_text.await_args.kwargs["split"])
 
+    def test_pages_connection_diagnostic_reports_missing_api_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_backend": "astrbot", "api_server_enabled": True},
+            )
+            plugin.synthesize_text = AsyncMock(
+                return_value=[Path(tmp) / "astrbot-diagnostic.wav"]
+            )
+            pages_api = importlib.import_module("astrbot_plugin_voice_hub.pages_api")
+            original_request = pages_api.request
+            pages_api.request = types.SimpleNamespace(
+                get_json=AsyncMock(return_value={"text": "连接测试"})
+            )
+            try:
+                response = asyncio.run(plugin._pages_test_connection())
+            finally:
+                pages_api.request = original_request
+
+            self.assertTrue(response["success"])
+            self.assertEqual(response["api_server"]["error_code"], "api_token_missing")
+            self.assertIn("Token 未配置", response["api_server"]["error"])
+
+    def test_api_diagnostic_uses_configured_host_and_current_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {
+                    "tts_backend": "astrbot",
+                    "api_server_host": "::1",
+                    "api_server_token": "current-token",
+                },
+            )
+            plugin._ensure_api_server = lambda: None
+
+            class _Response:
+                status = 200
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    return None
+
+                async def read(self):
+                    return b"R" * 44
+
+            class _Session:
+                def __init__(self):
+                    self.url = None
+                    self.headers = None
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    return None
+
+                def post(self, url, *, json, headers, timeout):
+                    self.url = url
+                    self.headers = headers
+                    return _Response()
+
+            session = _Session()
+            with patch("aiohttp.ClientSession", return_value=session):
+                with patch.object(
+                    self.module.MimoTTSClonePlugin,
+                    "_api_server",
+                    types.SimpleNamespace(running=True),
+                ):
+                    result = asyncio.run(plugin._diagnose_api_server("hello", ""))
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(session.url, "http://[::1]:9960/v1/audio/speech")
+            self.assertEqual(session.headers["Authorization"], "Bearer current-token")
+
+    def test_api_diagnostic_reports_bind_failure_after_waiting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"api_server_token": "current-token"},
+            )
+            plugin._ensure_api_server = lambda: None
+            server = types.SimpleNamespace(
+                running=False,
+                start_error="address already in use",
+                wait_until_started=AsyncMock(return_value=False),
+            )
+            with patch.object(self.module.MimoTTSClonePlugin, "_api_server", server):
+                result = asyncio.run(plugin._diagnose_api_server("hello", ""))
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error_code"], "api_server_not_ready")
+            self.assertIn("address already in use", result["error"])
+            server.wait_until_started.assert_awaited_once_with(timeout=5.0)
+
     def test_plugin_reads_get_only_native_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

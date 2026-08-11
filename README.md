@@ -239,7 +239,8 @@ audio_path = await plugin.text_to_speech(
 
 ### PCM WAV 跨插件契约
 
-Quest Bridge 等需要自己负责传输、取消和播放的消费方，应使用事件无关的
+[astrbot_plugin_embodiment_bridge](https://github.com/qsbb/astrbot_plugin_embodiment_bridge)
+等需要自己负责传输、取消和播放的消费方，应使用事件无关的
 `voice.audio_output@1.0`，不要使用会参与 AstrBot 消息交付的 `voice.delivery@1.0`。
 消费方按插件 ID `astrbot_plugin_voice_hub` 取得实例后，必须先校验
 `voice_audio_output_contract()` 的契约名、主版本和 `render_pcm_wav` capability，再调用：

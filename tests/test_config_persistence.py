@@ -1614,6 +1614,63 @@ class ConfigPersistenceTests(unittest.TestCase):
             log_args = plugin.logger.infos[-1]
             self.assertIn("event already handled", log_args[0] % log_args[1:])
 
+    def test_external_record_in_result_chain_skips_auto_tts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "auto_tts_probability": 1.0},
+            )
+            plugin.synthesize_text = AsyncMock(
+                side_effect=AssertionError("external audio must not synthesize")
+            )
+
+            # Use a class named Record because the test AstrBot stub does not
+            # expose a runtime Record type.
+            record = type("Record", (), {})()
+            plain = type("Plain", (), {"text": "已有语音"})()
+            result = types.SimpleNamespace(
+                chain=[plain, record],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: "已有语音",
+            )
+            extras = {}
+            event = types.SimpleNamespace(
+                get_extra=lambda key: extras.get(key),
+                set_extra=lambda key, value: extras.__setitem__(key, value),
+                get_sender_id=lambda: "user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                get_result=lambda: result,
+            )
+
+            asyncio.run(plugin.auto_tts_reply(event))
+
+            plugin.synthesize_text.assert_not_awaited()
+            decision = extras[plugin.VOICE_DECISION_EVENT_KEY]
+            self.assertFalse(decision["requested"])
+            self.assertEqual(decision["reason"], "external_audio_present")
+            context = extras["ningxin.request_context.v1"]
+            self.assertIn(
+                "external_audio_present",
+                context["diagnostics"]["voice_hub"]["reasons"],
+            )
+
+    def test_file_component_is_not_treated_as_external_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(),
+                {"tts_trigger_mode": "probability", "auto_tts_probability": 1.0},
+            )
+            plain = type("Plain", (), {"text": "需要朗读"})()
+            file_component = type("File", (), {})()
+            result = types.SimpleNamespace(
+                chain=[plain, file_component],
+                is_llm_result=lambda: True,
+                get_plain_text=lambda: "需要朗读",
+            )
+            self.assertFalse(plugin._has_external_audio(result))
+
     def test_auto_tts_clears_tool_completion_placeholder_after_direct_send(self):
         with tempfile.TemporaryDirectory() as tmp:
             _StarTools.data_dir = tmp

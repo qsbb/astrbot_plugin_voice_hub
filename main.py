@@ -72,7 +72,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.8.9"
+__version__ = "0.8.10"
 
 
 @register(
@@ -1382,6 +1382,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             decision["reason"] = "reply mode text_only"
         elif result is None or not getattr(result, "chain", None):
             decision["reason"] = "no result chain"
+        elif self._has_external_audio(result):
+            # 其他插件已经把语音放进结果链时，声只观察并跳过自动合成。
+            # 普通 File 不会命中 _has_external_audio，避免图片/附件被误判。
+            decision["reason"] = "external_audio_present"
         else:
             is_llm_result = getattr(result, "is_llm_result", None)
             if callable(is_llm_result) and not is_llm_result():
@@ -1422,6 +1426,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             "voice_requested",
             bool(decision.get("requested")),
         )
+        if decision.get("reason") == "external_audio_present":
+            add_reason(request_context, OWNER_VOICE_HUB, "external_audio_present")
         add_reason(
             request_context,
             OWNER_VOICE_HUB,
@@ -1782,6 +1788,32 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if Plain is not None and isinstance(component, Plain):
             return True
         return component.__class__.__name__ == "Plain"
+
+    @staticmethod
+    def _is_audio_component(component: Any) -> bool:
+        """识别结果链中已经交付的音频，避免重复 TTS。
+
+        ``File`` 可能代表图片、文档或其他附件，不能因为它携带文件路径就
+        当成语音。优先使用 AstrBot 的 ``Record`` 类型；在不同版本没有导出
+        该类型时，仅接受明确命名为 ``Record``/``Audio`` 的组件类。
+        """
+        if component is None:
+            return False
+        if isinstance(Record, type) and Record is not object:
+            try:
+                if isinstance(component, Record):
+                    return True
+            except TypeError:
+                pass
+        return component.__class__.__name__.casefold() in {"record", "audio"}
+
+    @classmethod
+    def _has_external_audio(cls, result: Any) -> bool:
+        chain = getattr(result, "chain", None)
+        return bool(
+            isinstance(chain, (list, tuple))
+            and any(cls._is_audio_component(component) for component in chain)
+        )
 
     def _inject_tts_judge_prompt(self, request: Any) -> None:
         """向 LLM 请求注入朗读意愿判断指令。

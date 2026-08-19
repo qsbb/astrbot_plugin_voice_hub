@@ -49,6 +49,20 @@ async function resolveBridge() {
   return await waitForAstrBotBridge() || fallbackBridge();
 }
 
+async function waitForBridgeReady(candidate, timeoutMs = 3000) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve(candidate.ready()),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('页面连接超时，请刷新后重试')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let state = {
   config: {},
   voices: [],
@@ -1038,10 +1052,17 @@ function bindProviderSelect() {
   $('ai-style-director-provider-id').addEventListener('input', renderProviderSelect);
 }
 
-async function init() {
-  setPageLoading(true);
-  bridge = await resolveBridge();
-  await bridge.ready();
+function bindPreviewPlaybackState() {
+  const audio = $('preview-audio');
+  const frame = audio.closest('.audio-frame');
+  if (!frame) return;
+  audio.addEventListener('play', () => frame.classList.add('is-playing'));
+  ['pause', 'ended', 'emptied'].forEach(eventName => {
+    audio.addEventListener(eventName, () => frame.classList.remove('is-playing'));
+  });
+}
+
+function bindPageEvents() {
   bind('save-config', saveConfig, '保存中...');
   bind('upload-voice', uploadVoice, '上传中...');
   bind('preview-btn', preview, '生成中...');
@@ -1055,6 +1076,7 @@ async function init() {
   bindConfigDirtyState();
   bindActionAvailability();
   bindProviderSelect();
+  bindPreviewPlaybackState();
   updateActionAvailability();
 
   $('voice-list').addEventListener('click', async event => {
@@ -1076,8 +1098,15 @@ async function init() {
       toast(extractErrorMessage(error), 'err');
     }
   });
+}
+
+async function init() {
+  setPageLoading(true);
+  bridge = await resolveBridge();
+  bindPageEvents();
 
   try {
+    await waitForBridgeReady(bridge);
     await refresh();
   } catch (error) {
     setPageLoading(false);

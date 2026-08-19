@@ -202,6 +202,28 @@ class PagesUITests(unittest.TestCase):
         studio_hover = css.split(".studio-card:hover", 1)[1].split("}", 1)[0]
         self.assertNotIn("transform", studio_hover)
 
+    def test_settings_motion_and_focus_are_input_aware(self):
+        css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("@media (hover: hover) and (pointer: fine)", css)
+        self.assertIn("button:active:not(:disabled)", css)
+        self.assertIn("button:focus-visible", css)
+        self.assertIn(".drop-zone:focus-within", css)
+        self.assertIn(".audio-frame.is-playing .wave-bars span", css)
+        self.assertNotRegex(css, r"(?m)^\.wave-bars span\s*\{[^}]*animation:")
+        self.assertIn("function bindPreviewPlaybackState", js)
+        self.assertIn("frame.classList.add('is-playing')", js)
+        self.assertIn("frame.classList.remove('is-playing')", js)
+
+    def test_settings_binds_controls_before_bounded_bridge_ready(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        init = js.split("async function init()", 1)[1]
+
+        self.assertIn("async function waitForBridgeReady", js)
+        self.assertIn("页面连接超时，请刷新后重试", js)
+        self.assertLess(init.index("bindPageEvents();"), init.index("await waitForBridgeReady(bridge);"))
+
     def test_settings_switch_copy_wraps_without_clipping(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
         switch = css.split(".studio-switch {", 1)[1].split("}", 1)[0]

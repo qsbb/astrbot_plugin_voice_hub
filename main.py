@@ -38,6 +38,7 @@ from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import EmotionRouter, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
+from .core.model_router import resolve_provider_id as resolve_routed_provider_id
 from .core.request_context import (
     OWNER_CONVERSATION_FLOW,
     OWNER_VOICE_HUB,
@@ -72,7 +73,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 
 @register(
@@ -479,8 +480,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         except ImportError as exc:
             raise RuntimeError("当前 AstrBot 版本不支持 TTS 提供商调用") from exc
 
-        provider = None
         provider_id = self.plugin_config.astrbot_tts_provider_id.strip()
+        if not provider_id:
+            provider_id = await self._resolve_core_model_provider("tts")
+        provider = None
         if provider_id:
             provider = self.context.get_provider_by_id(provider_id)
             if provider is None:
@@ -505,6 +508,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             audio_path = await provider.get_audio(segment)
             results.append(pathlib.Path(audio_path))
         return results
+
+    async def _resolve_core_model_provider(self, kind: str) -> str:
+        """Use 核's optional model router before AstrBot's native default."""
+        return await resolve_routed_provider_id(self.context, kind)
 
     def list_astrbot_tts_providers(self) -> list[dict[str, str]]:
         """列出 AstrBot 已配置的 TTS 提供商。
@@ -1426,6 +1433,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             "voice_requested",
             bool(decision.get("requested")),
         )
+
         if decision.get("reason") == "external_audio_present":
             add_reason(request_context, OWNER_VOICE_HUB, "external_audio_present")
         add_reason(
@@ -1436,6 +1444,37 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             else "VOICE_DELIVERY_SKIPPED",
         )
         return decision
+
+    def series_control_contract(self):
+        from .series_control import contract
+        return contract(self)
+
+    def series_control_schema(self):
+        from .series_control import schema
+        return schema(self)
+
+    def series_control_snapshot(self):
+        from .series_control import snapshot
+        return snapshot(self)
+
+    def series_control_set_mode(self, mode):
+        from .series_control import set_mode
+        return set_mode(self, mode)
+
+    def validate_series_control_patch(self, patch, *, expected_revision):
+        from .series_control import validate
+        return validate(self, patch, expected_revision=expected_revision)
+
+    def apply_series_control_patch(self, patch, *, expected_revision):
+        from .series_control import apply
+        return apply(self, patch, expected_revision=expected_revision)
+
+    def reset_series_control_override(self, fields=None, *, expected_revision=None):
+        from .series_control import reset
+        return reset(self, fields, expected_revision=expected_revision)
+
+    def build_plugin_config(self, config):
+        return build_plugin_config(config)
 
     @classmethod
     def _delivery_plan(cls, event: AstrMessageEvent) -> dict[str, Any]:
@@ -1661,6 +1700,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         directive = ""
         speech_text = text
+        style_provider_id = self.plugin_config.ai_style_director_provider_id.strip()
+        if not style_provider_id:
+            style_provider_id = await self._resolve_core_model_provider("conversation")
         try:
             plan = await generate_style_plan(
                 self.context,
@@ -1676,7 +1718,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     max_speech_chars=self.plugin_config.max_text_chars,
                 ),
                 template=self.plugin_config.ai_style_director_prompt,
-                provider_id=self.plugin_config.ai_style_director_provider_id,
+                provider_id=style_provider_id,
             )
             directive = plan.style_context
             speech_text = plan.speech_text or text
@@ -1685,7 +1727,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             fallback_enabled = self.plugin_config.ai_style_director_fallback_to_emotion
             self.logger.warning(
                 "[voice-hub] style director failed: provider=%s voice=%s(%s) emotion=%s error_type=%s fallback=%s",
-                self.plugin_config.ai_style_director_provider_id or "default",
+                style_provider_id or "default",
                 clip_log_text(voice.name),
                 clip_log_text(voice.id),
                 clip_log_text(emotion or "neutral"),

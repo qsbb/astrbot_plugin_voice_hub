@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## 0.9.1 - 2026-08-21
+
+- 接入 `series.control@1.0`，支持声的非秘密语音运行策略统一接管。
+
+- AstrBot TTS 与 AI 语音导演在未配置本插件 Provider 时读取核的 `series.model_router@1.0`；核不可用时继续回退 AstrBot 原生默认。
+
 ## 0.9.0 - 2026-08-19
 
 - 发布设置页可访问性、Bridge 恢复与动效优化。

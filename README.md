@@ -1,8 +1,10 @@
 # 凝心溯溪-声
 
-> 凝心溯溪系列统一语音中心：集中管理朗读触发、结构化分段、发送节奏、取消语义、输出清理和 TTS 后端；MiMo 音色克隆与 AstrBot 内置 TTS 作为可切换的后端能力按需展开。
+![凝心溯溪-声](assets/readme-hero.svg)
 
-> **凝心溯溪系列** 当前完整插件清单为知、言、序、情、境、声、核：各插件职责独立、互不冲突，可按需组合使用，覆盖知识学习、对话调节、身份管理、关系状态、环境感知、语音与更新管理。
+> 凝心溯溪系列语音模块：集中管理朗读触发、结构化分段、发送节奏、取消语义、输出清理和 TTS 后端；MiMo 音色克隆与 AstrBot 内置 TTS 作为可切换的后端能力按需展开。
+
+> **凝心溯溪系列** 当前完整插件清单为知、言、序、情、境、声、核、临：各插件职责独立、互不冲突，可按需组合使用，覆盖知识学习、对话调节、身份管理、关系状态、环境感知、语音、更新管理与具身桥接。
 
 | 字 | 模块 | 说明 |
 |----|------|------|
@@ -13,6 +15,7 @@
 | [境](https://github.com/qsbb/astrbot_plugin_environment_awareness) | 环境感知 | 时间、天气、空气质量、预警与环境关心候选 |
 | [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 双 TTS 后端、多音色管理、AI 导演（本插件） |
 | [核](https://github.com/qsbb/astrbot_plugin_update_manager) | 更新管理 | 安全检查、计划、串行更新与回滚 |
+| [临](https://github.com/qsbb/astrbot_plugin_embodiment_bridge) | 具身桥接 | Quest 客户端桥接、实时对话与空间感知 |
 
 - 仓库：<https://github.com/qsbb/astrbot_plugin_voice_hub>
 - MiMo 官方文档：<https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5>
@@ -62,7 +65,7 @@
 
 ## 取消与长文本保证
 
-与“言”同时安装时，声优先消费 `conversation_flow.delivery_plan@1` 中的逻辑分段和可取消
+与“言”同时安装时，声优先消费 `conversation_flow.delivery_plan@1.0` 中的逻辑分段和可取消
 令牌。用户在合成或分段发送期间补充新消息后，言会取消旧令牌；声在开始合成、每段合成完成、
 每段发送前后都检查状态，尚未发送的旧语音会停止发送，并将取消状态回传给当前 LLM；声不会主动清空或终止整轮。已经发送的音频无法撤回，Provider 服务端
 已经开始的推理也不一定能被取消。
@@ -187,7 +190,7 @@ pip install -r requirements.txt
 
 开启后，插件会先调用 AstrBot LLM，为待朗读文本生成一份隐藏的音频导演方案：`style_context` 会作为 MiMo `user` 消息参与合成，`speech_text` 只作为音频朗读文本使用。最终聊天文字仍保持原样，不会被改写。
 
-可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空则使用当前默认 LLM。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
+可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空时优先读取“核”的 `series.model_router@1.0` 路由，核未安装或路由不可用时回退当前默认 LLM。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
 
 建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。`voice_hub_speak` LLM 工具不会再次调用该导演，避免工具链中的二次风格改写。
 
@@ -328,6 +331,14 @@ result = await plugin.render_pcm_wav(
 | Pages 页面目录 | `pages/settings/` |
 | 许可证 | `MIT` |
 
+## 系列控制
+
+声提供 `series.control@1.0`，供凝心溯溪“核”统一管理少量非秘密语音运行策略。可接管字段为 `segment_enabled`、`segment_threshold_chars`、`segment_max_segments`、`reply_mode`、`tts_trigger_mode`；MiMo API Key、外部 API Token、音色数据、黑白名单与管理员等秘密或权限字段不属于该契约。
+
+覆盖快照由声在插件数据目录的 `series-control.json` 中原子保存；核不可用、契约不兼容、revision 冲突或写入失败时，声回滚并继续使用自身配置。关闭统一接管后无需重启即可恢复原生配置。
+
+AstrBot TTS 与发送前 AI 导演在未显式配置本插件 Provider 时，会先读取核的只读契约 `series.model_router@1.0`；核未安装、契约不兼容或路由不可用时，继续回退 AstrBot 原生默认提供商。插件内显式配置的提供商始终优先，不会被核改写。
+
 ## 系列诊断日志
 
 - 诊断会捕获本插件自有 logger 的 `DEBUG` 到 `CRITICAL` 事件；内存缓冲最多保留 1000 条，日志页单次最多读取 1000 条、浏览器最多暂存 10000 条。每条记录由“核”先显示插件中文名，再显示时间、级别和事件。
@@ -342,7 +353,7 @@ result = await plugin.render_pcm_wav(
 
 ```bash
 python -B -m unittest discover -s tests -v
-python -B -m py_compile main.py pages_api.py core/audio_codec.py core/config.py core/emotion.py core/mimo_official_client.py core/pages_upload.py core/style_director.py core/synthesis_context.py core/text_processing.py core/voice_store.py
+python -B -m py_compile main.py pages_api.py series_control.py core/audio_codec.py core/config.py core/emotion.py core/mimo_official_client.py core/model_router.py core/pages_upload.py core/style_director.py core/synthesis_context.py core/text_processing.py core/voice_store.py
 node --check pages/settings/app.js
 ```
 

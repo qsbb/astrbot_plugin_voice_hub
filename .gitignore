@@ -10,3 +10,8 @@ data/
 voice_refs/
 outputs/
 .superpowers/
+
+# 本地备份/临时文件（勿提交）
+*.bak
+*.bak_*
+*.orig

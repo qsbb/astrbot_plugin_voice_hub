@@ -804,22 +804,44 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if any(not isinstance(value, str) for value in values) or not text.strip():
             return self._audio_output_response("error", "invalid_request")
 
-        try:
-            rendered = await asyncio.wait_for(
-                self.text_to_speech(
-                    text,
-                    emotion=emotion,
-                    voice=voice,
-                    context=context,
-                    session_id=session_id,
-                ),
-                timeout=self.VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            return self._audio_output_response("unavailable", "timeout")
-        except asyncio.CancelledError:
-            raise
-        except Exception:
+        rendered: str | None = None
+        timed_out = False
+        for attempt in range(2):
+            try:
+                rendered = await asyncio.wait_for(
+                    self.text_to_speech(
+                        text,
+                        emotion=emotion,
+                        voice=voice,
+                        context=context,
+                        session_id=session_id,
+                    ),
+                    timeout=self.VOICE_AUDIO_OUTPUT_TIMEOUT_SECONDS,
+                )
+                break
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError as exc:
+                timed_out = True
+                self.logger.warning(
+                    "[voice-hub] render_pcm_wav timed out (attempt %d/2): %s",
+                    attempt + 1,
+                    exc,
+                )
+                break
+            except Exception as exc:
+                self.logger.warning(
+                    "[voice-hub] render_pcm_wav synthesis failed "
+                    "(attempt %d/2): %s: %s",
+                    attempt + 1,
+                    type(exc).__name__,
+                    exc,
+                )
+                if attempt < 1:
+                    await asyncio.sleep(0.4)
+        if rendered is None:
+            if timed_out:
+                return self._audio_output_response("unavailable", "timeout")
             return self._audio_output_response("error", "synthesis_failed")
 
         if not isinstance(rendered, str) or not rendered.strip():

@@ -2655,5 +2655,319 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertNotIn("upstream failed", repr(result))
 
 
+    def test_webui_voice_management_contract_declares_full_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            contract = plugin.webui_panels_contract()
+            panels = {panel["id"]: panel for panel in contract["panels"]}
+
+            self.assertEqual(set(panels), {"voices", "config"})
+            self.assertEqual(panels["voices"]["actions"][0]["id"], "preview_voice")
+            actions = {
+                action["id"]: action for action in panels["voices"]["actions"]
+            }
+            self.assertTrue(
+                {
+                    "create_voice",
+                    "update_voice",
+                    "delete_voice",
+                    "set_default_voice",
+                    "set_emotion_voice",
+                }
+                <= set(actions)
+            )
+            create = actions["create_voice"]
+            self.assertEqual(create["min_role"], "admin")
+            self.assertEqual(create["effect"], "non_idempotent")
+            self.assertTrue(create["idempotency_required"])
+            file_field = next(
+                field for field in create["payload_fields"] if field["name"] == "file"
+            )
+            self.assertEqual(file_field["type"], "file")
+            self.assertTrue(file_field["required"])
+            self.assertEqual(actions["delete_voice"]["min_role"], "owner")
+            self.assertEqual(actions["delete_voice"]["effect"], "non_idempotent")
+            self.assertTrue(actions["delete_voice"]["idempotency_required"])
+            config_actions = {
+                action["id"]: action for action in panels["config"]["actions"]
+            }
+            self.assertIn("save_tts_config", config_actions)
+            self.assertIn("test_connection", config_actions)
+            api_key_field = next(
+                field
+                for field in config_actions["save_tts_config"]["payload_fields"]
+                if field["name"] == "api_key"
+            )
+            self.assertTrue(api_key_field["secret"])
+
+    def test_webui_voice_crud_defaults_and_emotion_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+            sample = Path(tmp) / "sample.wav"
+            with wave.open(str(sample), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(16000)
+                writer.writeframes(b"\x00\x00" * 1600)
+            audio_bytes = sample.read_bytes()
+
+            created = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "create_voice",
+                    {
+                        "file": {
+                            "artifact_id": "artifact-a",
+                            "filename": "sample.wav",
+                            "mime": "audio/wav",
+                            "size": len(audio_bytes),
+                            "data": audio_bytes,
+                        },
+                        "name": "测试音色",
+                        "description": "用于测试",
+                        "style_context": "温柔",
+                        "style_tags": "轻声",
+                        "emotion": "neutral",
+                        "consent_confirmed": True,
+                    },
+                    {"role": "admin"},
+                )
+            )
+            self.assertTrue(created["success"])
+            voice_id = created["voice"]["id"]
+            self.assertNotIn("audio_path", repr(created))
+            self.assertNotIn(str(tmp), repr(created))
+
+            updated = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "update_voice",
+                    {
+                        "voice_id": voice_id,
+                        "name": "更新后的音色",
+                        "enabled": "false",
+                        "emotion": "__clear__",
+                    },
+                    {"role": "admin"},
+                )
+            )
+            self.assertTrue(updated["success"])
+            self.assertEqual(updated["voice"]["name"], "更新后的音色")
+            self.assertFalse(updated["voice"]["enabled"])
+            self.assertEqual(updated["voice"]["emotion"], "")
+
+            defaulted = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "set_default_voice",
+                    {"scope": "global", "voice_id": voice_id},
+                    {"role": "admin"},
+                )
+            )
+            self.assertTrue(defaulted["success"])
+            self.assertEqual(
+                defaulted["defaults"]["global_default_voice_id"], voice_id
+            )
+
+            mapped = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "set_emotion_voice",
+                    {"emotion": "happy", "voice_id": voice_id},
+                    {"role": "admin"},
+                )
+            )
+            self.assertTrue(mapped["success"])
+            self.assertEqual(
+                plugin.voice_store.defaults()["emotion_defaults"]["happy"], voice_id
+            )
+
+            forbidden = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "delete_voice",
+                    {"voice_id": voice_id},
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(forbidden["error"], "ROLE_FORBIDDEN")
+
+            deleted = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "delete_voice",
+                    {"voice_id": voice_id},
+                    {"role": "owner"},
+                )
+            )
+            self.assertTrue(deleted["success"])
+            self.assertIsNone(plugin.voice_store.get_voice(voice_id))
+
+    def test_webui_voice_create_and_update_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+            missing_file = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "create_voice",
+                    {"name": "no-file", "consent_confirmed": True},
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(missing_file["error"], "INVALID_PAYLOAD")
+
+            no_consent = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "create_voice",
+                    {
+                        "file": {
+                            "filename": "sample.wav",
+                            "mime": "audio/wav",
+                            "data": b"RIFF",
+                        },
+                        "name": "no-consent",
+                        "consent_confirmed": False,
+                    },
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(no_consent["error"], "CONSENT_REQUIRED")
+
+            invalid_audio = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "create_voice",
+                    {
+                        "file": {
+                            "filename": "sample.wav",
+                            "mime": "audio/wav",
+                            "data": b"not-a-wave",
+                        },
+                        "name": "bad-audio",
+                        "consent_confirmed": True,
+                    },
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(invalid_audio["error"], "INVALID_AUDIO")
+            self.assertNotIn("audio_path", repr(invalid_audio))
+
+            unknown_voice = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "update_voice",
+                    {"voice_id": "missing", "name": "x"},
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(unknown_voice["error"], "VOICE_NOT_FOUND")
+
+            no_changes = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "update_voice",
+                    {"voice_id": "missing"},
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(no_changes["error"], "VOICE_NOT_FOUND")
+
+            invalid_emotion = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "set_emotion_voice",
+                    {"emotion": "excited", "voice_id": ""},
+                    {"role": "admin"},
+                )
+            )
+            self.assertEqual(invalid_emotion["error"], "INVALID_EMOTION")
+
+            self.assertEqual(
+                asyncio.run(
+                    plugin.webui_panel_action("unknown", "preview_voice", {})
+                )["error"],
+                "UNKNOWN_PANEL",
+            )
+            self.assertEqual(
+                asyncio.run(
+                    plugin.webui_panel_action("voices", "unknown_action", {})
+                )["error"],
+                "UNKNOWN_ACTION",
+            )
+
+    def test_webui_config_save_and_connection_test_are_redacted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"api_key": "old-secret"}
+            )
+
+            saved = asyncio.run(
+                plugin.webui_panel_action(
+                    "config",
+                    "save_tts_config",
+                    {
+                        "tts_backend": "astrbot",
+                        "api_key": "new-super-secret",
+                        "max_text_chars": "42",
+                        "auto_tts_enabled": "false",
+                        "ai_style_director_enabled": "true",
+                    },
+                    {"role": "admin"},
+                )
+            )
+            self.assertTrue(saved["success"])
+            self.assertEqual(plugin.config["tts_backend"], "astrbot")
+            self.assertEqual(plugin.config["api_key"], "new-super-secret")
+            self.assertEqual(plugin.config["max_text_chars"], 42)
+            self.assertFalse(plugin.config["auto_tts_enabled"])
+            self.assertTrue(plugin.config["ai_style_director_enabled"])
+            self.assertNotIn("new-super-secret", repr(saved))
+            self.assertNotIn("old-secret", repr(saved))
+
+            output = Path(tmp) / "connection.wav"
+            with wave.open(str(output), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(16000)
+                writer.writeframes(b"\x00\x00" * 1600)
+
+            async def pass_connection(text, **kwargs):
+                return [output]
+
+            plugin.synthesize_text = pass_connection
+            connected = asyncio.run(
+                plugin.webui_panel_action(
+                    "config", "test_connection", {}, {"role": "admin"}
+                )
+            )
+            self.assertTrue(connected["success"])
+            self.assertEqual(connected["backend"], "astrbot")
+            self.assertFalse(output.exists())
+
+            async def fail_connection(text, **kwargs):
+                raise RuntimeError("API Key=super-secret provider /private/path failed")
+
+            plugin.synthesize_text = fail_connection
+            failed = asyncio.run(
+                plugin.webui_panel_action(
+                    "config",
+                    "test_connection",
+                    {"text": "hello"},
+                    {"role": "admin"},
+                )
+            )
+            self.assertFalse(failed["success"])
+            self.assertEqual(failed["error"], "PROVIDER_UNAVAILABLE")
+            self.assertNotIn("super-secret", repr(failed))
+            self.assertNotIn("/private/path", repr(failed))
+
+
 if __name__ == "__main__":
     unittest.main()

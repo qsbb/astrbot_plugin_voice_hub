@@ -65,7 +65,8 @@ from .core.text_processing import (
     split_tts_text,
 )
 from .core.voice_store import VoiceProfile, VoiceStore
-from .pages_api import PagesAPIMixin, VoicePreviewError
+from .pages_api import PagesAPIMixin
+from .series_webui import SeriesWebUIPanels
 from .series_diagnostics import (
     diagnostic_clear as clear_diagnostic_events,
     diagnostic_event,
@@ -164,6 +165,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             emotion_contexts=self.plugin_config.emotion_contexts
         )
         self.voice_store = VoiceStore(self.data_dir)
+        self._series_webui = SeriesWebUIPanels(self)
         self._tts_sem = asyncio.Semaphore(self.plugin_config.max_concurrency)
         self._style_director_cache: dict[Any, TTSContextResult] = {}
         MimoTTSClonePlugin._current_instance = self
@@ -1485,189 +1487,31 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         )
         return decision
 
-    def _webui_preview_action(self) -> dict[str, object]:
-        """声明 managed 面板的受控试听动作，字段选项来自当前启用音色。"""
-        try:
-            max_text_chars = max(
-                1, int(getattr(self.plugin_config, "max_text_chars", 500) or 500)
-            )
-        except (TypeError, ValueError):
-            max_text_chars = 500
-        voice_options = [
-            [voice.id, voice.name or voice.id]
-            for voice in self.voice_store.list_voices(include_disabled=False)
-        ]
-        return {
-            "id": "preview_voice",
-            "label": "生成试听",
-            "confirm": "使用所选音色生成试听音频？",
-            "effect": "idempotent",
-            "revision_required": False,
-            "idempotency_required": False,
-            "min_role": "admin",
-            "payload_fields": [
-                {
-                    "name": "text",
-                    "label": "试听文本",
-                    "type": "text",
-                    "required": True,
-                    "max_length": max_text_chars,
-                    "hint": f"最多 {max_text_chars} 字",
-                },
-                {
-                    "name": "voice",
-                    "label": "音色",
-                    "type": "select",
-                    "required": True,
-                    "options": voice_options,
-                },
-                {
-                    "name": "emotion",
-                    "label": "情绪",
-                    "type": "select",
-                    "required": False,
-                    "options": [["", "自动"]]
-                    + [[emotion, emotion] for emotion in SUPPORTED_EMOTIONS],
-                },
-            ],
-        }
+    def _series_webui_panels(self) -> SeriesWebUIPanels:
+        """惰性获取 managed 面板适配层，兼容测试与热重载路径。"""
+        adapter = getattr(self, "_series_webui", None)
+        if adapter is None:
+            adapter = SeriesWebUIPanels(self)
+            self._series_webui = adapter
+        return adapter
 
     def webui_panels_contract(self) -> dict[str, object]:
-        """series.webui@2.0：核接管时提供音色总览与受控试听。"""
-        return {
-            "name": "series.webui@2.0",
-            "version": "2.0",
-            "plugin_id": "astrbot_plugin_voice_hub",
-            "series_id": "ningxin_suxi",
-            "standalone": {"available": True, "pages": ["settings"]},
-            "managed": {"supported": True, "level": "actions"},
-            "capabilities": [
-                "artifacts",
-                "audio_preview",
-                "generic_actions",
-                "generic_table",
-                "idempotency",
-                "revision",
-            ],
-            "state_owner": "plugin",
-            "preferred_surface": "dual",
-            "panels": [
-                {
-                    "id": "voices",
-                    "title": "音色总览",
-                    "description": "查看音色、默认映射、就绪状态并生成试听",
-                    "actions": [self._webui_preview_action()],
-                }
-            ],
-        }
+        """series.webui@2.0：核接管声的完整日常管理面。"""
+        return self._series_webui_panels().contract()
 
     def webui_panel_data(self, panel: str) -> dict[str, object]:
-        if panel != "voices":
-            return {"success": False, "error": "UNKNOWN_PANEL"}
-        payload = self._pages_payload()
-        defaults = (
-            payload.get("defaults")
-            if isinstance(payload.get("defaults"), dict)
-            else {}
-        )
-        default_ids = {str(value) for value in defaults.values() if value}
-        rows = []
-        for voice in payload.get("voices") or []:
-            if not isinstance(voice, dict):
-                continue
-            voice_id = str(voice.get("id") or "")
-            rows.append(
-                {
-                    "name": str(voice.get("name") or voice_id or "未命名"),
-                    "id": voice_id,
-                    "enabled": "是" if voice.get("enabled") else "否",
-                    "default": "是" if voice_id in default_ids else "",
-                }
-            )
-        readiness = (
-            payload.get("readiness")
-            if isinstance(payload.get("readiness"), dict)
-            else {}
-        )
-        description = (
-            f"{len(rows)} 个音色 · API Key={'已配置' if readiness.get('api_key') else '未配置'} · "
-            f"音色就绪={'是' if readiness.get('voices') else '否'}"
-        )
-        response: dict[str, object] = {
-            "success": True,
-            "title": "音色总览",
-            "description": description,
-            "columns": [
-                {"key": "name", "label": "音色"},
-                {"key": "id", "label": "ID"},
-                {"key": "enabled", "label": "启用"},
-                {"key": "default", "label": "默认"},
-            ],
-            "rows": rows,
-            "actions": [self._webui_preview_action()],
-        }
-        preview_audio = getattr(self, "_webui_voice_preview", None)
-        if isinstance(preview_audio, dict) and isinstance(
-            preview_audio.get("data"), (bytes, bytearray)
-        ):
-            response["audio"] = dict(preview_audio)
-        return response
+        return self._series_webui_panels().panel_data(panel)
 
     async def webui_panel_action(
-        self, panel: str, action: str, payload: dict
+        self,
+        panel: str,
+        action: str,
+        payload: dict[str, object],
+        context: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        if panel != "voices":
-            return {
-                "success": False,
-                "error": "UNKNOWN_PANEL",
-                "message": "未知面板",
-            }
-        if action != "preview_voice":
-            return {
-                "success": False,
-                "error": "UNKNOWN_ACTION",
-                "message": "未知动作",
-            }
-        if not isinstance(payload, dict):
-            return {
-                "success": False,
-                "error": "INVALID_PAYLOAD",
-                "message": "试听参数无效",
-            }
-        try:
-            preview = await self._synthesize_preview_audio(
-                text=payload.get("text"),
-                voice_selector=payload.get("voice"),
-                emotion=payload.get("emotion", ""),
-            )
-        except VoicePreviewError as exc:
-            return {
-                "success": False,
-                "error": exc.code,
-                "message": exc.message,
-            }
-        except Exception:
-            self.logger.warning("[voice-hub] managed voice preview failed")
-            return {
-                "success": False,
-                "error": "PREVIEW_FAILED",
-                "message": "试听生成失败",
-            }
-
-        audio = dict(preview["audio"])
-        self._webui_voice_preview = audio
-        voice = preview.get("voice")
-        public_voice = {
-            "id": str(voice.get("id") or "") if isinstance(voice, dict) else "",
-            "name": str(voice.get("name") or "") if isinstance(voice, dict) else "",
-        }
-        return {
-            "success": True,
-            "message": "试听已生成",
-            "audio": audio,
-            "voice": public_voice,
-            "emotion": str(preview.get("emotion") or "neutral"),
-        }
+        return await self._series_webui_panels().panel_action(
+            panel, action, payload, context
+        )
 
     def series_control_contract(self):
         from .series_control import contract

@@ -7,32 +7,35 @@ MOJIBAKE_MARKERS = ("闂", "闁", "閻", "濮", "閸", "濞", "缂", "閺")
 
 
 class PagesUITests(unittest.TestCase):
-    def test_settings_page_uses_firefly_inspired_studio_shell(self):
+    def test_settings_page_uses_glass_aurora_shared_shell(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+        shared = (PAGES_DIR / "series-ui.css").read_text(encoding="utf-8")
 
         self.assertIn("凝心溯溪-声", html)
         self.assertIn("凝心溯溪 · 声", html)
         self.assertIn("声 · 统一语音中心", html)
+        self.assertIn('data-series-ui="1"', html)
+        self.assertIn('<link rel="stylesheet" href="./series-ui.css" />', html)
+        self.assertIn('<link rel="stylesheet" href="./style.css" />', html)
+        self.assertLess(
+            html.index('<link rel="stylesheet" href="./series-ui.css" />'),
+            html.index('<link rel="stylesheet" href="./style.css" />'),
+        )
+        self.assertIn('<script src="./series-ui.js"></script>', html)
+        self.assertIn("凝心 UI 1.0 — Glass Aurora", shared)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)
         self.assertIn("top-gradient-highlight", html)
         self.assertIn("统一朗读与触发", html)
         self.assertIn("诊断当前后端", html)
-        self.assertIn("--studio-gold", css)
-        self.assertIn("--hue", css)
-        self.assertIn("--primary", css)
-        self.assertIn("color-scheme: dark", css)
-        self.assertIn("--page-bg: #07111d", css)
-        self.assertIn("--card-bg: #0d1b2a", css)
-        self.assertIn("--primary: #5dd6c0", css)
-        self.assertIn("--radius-xl: 16px", css)
+        self.assertIn("var(--si-", css)
+        self.assertNotIn("color-scheme: dark", css)
         self.assertIn("card-rise", css)
         self.assertIn("wave-breathe", css)
         self.assertIn("prefers-reduced-motion", css)
         self.assertNotIn("backdrop-filter: blur", css)
-        self.assertIn("--amber", css)
         self.assertIn("upload-fields", html)
         self.assertIn("voice-upload-actions", html)
         self.assertIn("repeat(auto-fit", css)

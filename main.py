@@ -73,7 +73,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 
 @register(
@@ -1466,6 +1466,64 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             else "VOICE_DELIVERY_SKIPPED",
         )
         return decision
+
+    def webui_panels_contract(self) -> dict[str, object]:
+        """series.webui@1.0：核统一接管时提供只读音色总览。"""
+        return {
+            "name": "series.webui@1.0",
+            "version": "1.0",
+            "plugin_id": "astrbot_plugin_voice_hub",
+            "series_id": "ningxin_suxi",
+            "standalone": {"available": True, "pages": ["settings"]},
+            "panels": [
+                {
+                    "id": "voices",
+                    "title": "音色总览",
+                    "description": "只读查看音色、默认映射与就绪状态",
+                }
+            ],
+        }
+
+    def webui_panel_data(self, panel: str) -> dict[str, object]:
+        if panel != "voices":
+            return {"success": False, "error": "UNKNOWN_PANEL"}
+        payload = self._pages_payload()
+        defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+        default_ids = {str(value) for value in defaults.values() if value}
+        rows = []
+        for voice in payload.get("voices") or []:
+            if not isinstance(voice, dict):
+                continue
+            voice_id = str(voice.get("id") or "")
+            rows.append(
+                {
+                    "name": str(voice.get("name") or voice_id or "未命名"),
+                    "id": voice_id,
+                    "enabled": "是" if voice.get("enabled") else "否",
+                    "default": "是" if voice_id in default_ids else "",
+                }
+            )
+        readiness = payload.get("readiness") if isinstance(payload.get("readiness"), dict) else {}
+        description = (
+            f"{len(rows)} 个音色 · API Key={'已配置' if readiness.get('api_key') else '未配置'} · "
+            f"音色就绪={'是' if readiness.get('voices') else '否'}"
+        )
+        return {
+            "success": True,
+            "title": "音色总览",
+            "description": description,
+            "columns": [
+                {"key": "name", "label": "音色"},
+                {"key": "id", "label": "ID"},
+                {"key": "enabled", "label": "启用"},
+                {"key": "default", "label": "默认"},
+            ],
+            "rows": rows,
+            "actions": [],
+        }
+
+    def webui_panel_action(self, panel: str, action: str, payload: dict) -> dict[str, object]:
+        return {"success": False, "error": "UNKNOWN_ACTION"}
 
     def series_control_contract(self):
         from .series_control import contract

@@ -18,6 +18,16 @@ from .core.pages_upload import store_voice_sample
 from .core.text_processing import clean_tts_text
 
 
+class VoicePreviewError(RuntimeError):
+    """Page 与 managed panel 共用的可公开试听错误。"""
+
+    def __init__(self, code: str, message: str, *, status: int = 400) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status = status
+
+
 class PagesAPIMixin:
     @staticmethod
     def _pages_error(message: str, status: int = 400, detail: str = ""):
@@ -25,6 +35,141 @@ class PagesAPIMixin:
         if detail:
             payload["detail"] = detail
         return jsonify(payload), status
+
+    @staticmethod
+    def _voice_preview_runtime_error(message: str) -> VoicePreviewError:
+        """把后端异常压缩为稳定的公开错误，不把 provider 细节带到面板。"""
+        raw = str(message or "")
+        lowered = raw.lower()
+        if (
+            "api key" in lowered
+            or "provider" in lowered
+            or "提供商" in raw
+        ):
+            return VoicePreviewError(
+                "PROVIDER_UNAVAILABLE",
+                "TTS 服务未配置或不可用",
+                status=503,
+            )
+        if "文本过长" in raw:
+            return VoicePreviewError(
+                "TEXT_TOO_LONG", "文本过长，请缩短试听文本"
+            )
+        return VoicePreviewError(
+            "PREVIEW_FAILED",
+            "试听生成失败",
+            status=502,
+        )
+
+    async def _synthesize_preview_audio(
+        self,
+        *,
+        text: Any,
+        voice_selector: Any,
+        emotion: Any = "",
+        context: Any = "",
+    ) -> dict[str, Any]:
+        """Page 与 managed panel 共用的试听合成核心。"""
+        if not isinstance(text, str):
+            raise VoicePreviewError("INVALID_TEXT", "请输入试听文本")
+        cleaned_text = clean_tts_text(text)
+        if not cleaned_text:
+            raise VoicePreviewError("INVALID_TEXT", "请输入试听文本")
+
+        try:
+            max_text_chars = max(
+                1, int(getattr(self.plugin_config, "max_text_chars", 500) or 500)
+            )
+        except (TypeError, ValueError):
+            max_text_chars = 500
+        if len(cleaned_text) > max_text_chars:
+            raise VoicePreviewError(
+                "TEXT_TOO_LONG", f"文本过长，最多 {max_text_chars} 字"
+            )
+
+        if not isinstance(voice_selector, str) or not voice_selector.strip():
+            raise VoicePreviewError("INVALID_VOICE", "请选择音色")
+        voice = self.voice_store.find_voice(voice_selector.strip())
+        if voice is None:
+            raise VoicePreviewError("VOICE_NOT_AVAILABLE", "所选音色不可用")
+
+        if emotion is None:
+            requested_emotion = ""
+        elif isinstance(emotion, str):
+            requested_emotion = emotion.strip()
+        else:
+            raise VoicePreviewError("INVALID_EMOTION", "不支持的情绪")
+        if requested_emotion and normalize_emotion(requested_emotion) is None:
+            raise VoicePreviewError("INVALID_EMOTION", "不支持的情绪")
+
+        if context is None:
+            command_context = ""
+        elif isinstance(context, str):
+            command_context = context
+        else:
+            raise VoicePreviewError("INVALID_CONTEXT", "试听参数无效")
+
+        backend = str(getattr(self.plugin_config, "tts_backend", "mimo") or "mimo")
+        if backend == "mimo" and not str(
+            getattr(self.plugin_config, "api_key", "") or ""
+        ).strip():
+            raise VoicePreviewError(
+                "PROVIDER_UNAVAILABLE",
+                "TTS 服务未配置或不可用",
+                status=503,
+            )
+
+        resolved_emotion = self._resolve_emotion(
+            cleaned_text, requested_emotion or None
+        )
+        try:
+            outputs = await self.synthesize_text(
+                cleaned_text,
+                voice_id=voice.id,
+                emotion=resolved_emotion,
+                context=command_context,
+                split=False,
+            )
+        except AudioValidationError:
+            raise VoicePreviewError(
+                "REFERENCE_AUDIO_UNAVAILABLE", "参考音频不可用"
+            ) from None
+        except RuntimeError as exc:
+            raise self._voice_preview_runtime_error(str(exc)) from None
+        except Exception:
+            raise VoicePreviewError(
+                "PREVIEW_FAILED",
+                "试听生成失败",
+                status=502,
+            ) from None
+
+        try:
+            if len(outputs) != 1:
+                raise ValueError("preview returned unexpected output count")
+            output_path = pathlib.Path(outputs[0])
+            raw = await asyncio.to_thread(output_path.read_bytes)
+        except (TypeError, ValueError, OSError):
+            raise VoicePreviewError(
+                "PREVIEW_FAILED",
+                "试听生成失败",
+                status=502,
+            ) from None
+        if not raw:
+            raise VoicePreviewError(
+                "PREVIEW_FAILED",
+                "试听生成失败",
+                status=502,
+            )
+
+        return {
+            "audio": {
+                "filename": "voice-preview.wav",
+                "mime": "audio/wav",
+                "data": raw,
+            },
+            "voice": voice.to_dict(),
+            "emotion": resolved_emotion,
+        }
 
     def _register_pages_web_api(self) -> None:
         register_web_api = getattr(self.context, "register_web_api", None)
@@ -370,50 +515,26 @@ class PagesAPIMixin:
 
     async def _pages_synthesize_preview(self):
         data = await request.get_json(force=True) or {}
-        text = clean_tts_text(str(data.get("text") or ""))
-        voice_selector = str(data.get("voice_id") or data.get("voice") or "").strip()
-        requested_emotion = str(data.get("emotion") or "").strip()
-        command_context = str(data.get("context") or "")
-        if not text:
-            return jsonify({"success": False, "error": "请输入试听文本"}), 400
-
-        emotion = self._resolve_emotion(text, requested_emotion)
-        voice = self._select_voice(voice_selector or None, emotion=emotion)
-        if voice is None:
-            return jsonify({"success": False, "error": "没有可用音色"}), 400
-
+        if not isinstance(data, dict):
+            return self._pages_error("试听参数无效", 400)
         try:
-            outputs = await self.synthesize_text(
-                text,
-                voice_id=voice.id,
-                emotion=emotion,
-                context=command_context,
-                split=False,
+            preview = await self._synthesize_preview_audio(
+                text=data.get("text"),
+                voice_selector=data.get("voice_id", data.get("voice")),
+                emotion=data.get("emotion", ""),
+                context=data.get("context", ""),
             )
-        except AudioValidationError as exc:
-            return self._pages_error(f"参考音频不可用：{exc}", 400, str(exc))
-        except RuntimeError as exc:
-            message = str(exc)
-            if "API Key" in message:
-                return self._pages_error(
-                    "MiMo API Key 未配置或未成功保存，请先在页面顶部保存配置。",
-                    400,
-                    message,
-                )
-            if "文本过长" in message or "鏂囨湰杩囬暱" in message:
-                return self._pages_error(message, 400, message)
-            return self._pages_error(f"MiMo 试听生成失败：{message}", 502, message)
-        except Exception as exc:
-            return self._pages_error(f"试听生成异常：{exc}", 502, str(exc))
-        output_path = outputs[0]
-        raw = await asyncio.to_thread(pathlib.Path(output_path).read_bytes)
+        except VoicePreviewError as exc:
+            return self._pages_error(exc.message, exc.status)
+
+        raw = preview["audio"]["data"]
         return jsonify(
             {
                 "success": True,
                 "audio_data": "data:audio/wav;base64,"
                 + base64.b64encode(raw).decode("utf-8"),
-                "voice": voice.to_dict(),
-                "emotion": emotion,
+                "voice": preview["voice"],
+                "emotion": preview["emotion"],
             }
         )
 

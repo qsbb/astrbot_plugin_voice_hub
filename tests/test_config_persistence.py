@@ -2496,6 +2496,164 @@ class ConfigPersistenceTests(unittest.TestCase):
             unwrapped = star_handlers_registry.handlers[0].handler
             self.assertFalse(isinstance(unwrapped, functools.partial))
 
+    def test_webui_voice_preview_contract_declares_series_webui_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"max_text_chars": 12}
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "", True
+            )
+
+            contract = plugin.webui_panels_contract()
+
+            self.assertEqual(contract["name"], "series.webui@2.0")
+            self.assertEqual(contract["version"], "2.0")
+            self.assertIn("audio_preview", contract["capabilities"])
+            self.assertIn("artifacts", contract["capabilities"])
+            self.assertEqual(contract["panels"][0]["id"], "voices")
+            action = contract["panels"][0]["actions"][0]
+            self.assertEqual(action["id"], "preview_voice")
+            self.assertEqual(action["min_role"], "admin")
+            self.assertEqual(action["effect"], "idempotent")
+            self.assertIn("confirm", action)
+            self.assertFalse(action["revision_required"])
+            fields = {field["name"]: field for field in action["payload_fields"]}
+            self.assertEqual(fields["text"]["max_length"], 12)
+            self.assertIn(voice.id, [item[0] for item in fields["voice"]["options"]])
+
+    def test_webui_voice_preview_action_returns_bytes_and_keeps_panel_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"api_key": "mimo-secret", "max_text_chars": 50}
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "", True
+            )
+            output = Path(tmp) / "preview.wav"
+            output.write_bytes(b"RIFF-preview")
+            calls = []
+
+            async def fake_synthesize_text(text, **kwargs):
+                calls.append({"text": text, **kwargs})
+                return [output]
+
+            plugin.synthesize_text = fake_synthesize_text
+
+            result = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "preview_voice",
+                    {"text": " 你好 ", "voice": voice.id, "emotion": "happy"},
+                )
+            )
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["audio"]["filename"], "voice-preview.wav")
+            self.assertEqual(result["audio"]["mime"], "audio/wav")
+            self.assertEqual(result["audio"]["data"], b"RIFF-preview")
+            self.assertNotIn("audio_path", repr(result))
+            self.assertNotIn("mimo-secret", repr(result))
+            self.assertEqual(calls[0]["text"], "你好")
+            self.assertEqual(calls[0]["voice_id"], voice.id)
+            self.assertEqual(calls[0]["emotion"], "happy")
+            self.assertFalse(calls[0]["split"])
+
+            panel = plugin.webui_panel_data("voices")
+
+            self.assertTrue(panel["success"])
+            self.assertEqual(panel["rows"][0]["name"], "旁白")
+            self.assertEqual(panel["rows"][0]["id"], voice.id)
+            self.assertEqual(
+                [column["key"] for column in panel["columns"]],
+                ["name", "id", "enabled", "default"],
+            )
+            self.assertEqual(panel["actions"][0]["id"], "preview_voice")
+            self.assertEqual(panel["audio"]["data"], b"RIFF-preview")
+
+    def test_webui_voice_preview_action_validates_inputs_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"api_key": "mimo-secret", "max_text_chars": 12}
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "", True
+            )
+            calls = []
+
+            async def fake_synthesize_text(text, **kwargs):
+                calls.append((text, kwargs))
+                return [Path(tmp) / "preview.wav"]
+
+            plugin.synthesize_text = fake_synthesize_text
+            cases = (
+                (None, "INVALID_PAYLOAD"),
+                ({"text": "", "voice": voice.id}, "INVALID_TEXT"),
+                ({"text": "hello", "voice": ""}, "INVALID_VOICE"),
+                ({"text": "hello", "voice": "missing"}, "VOICE_NOT_AVAILABLE"),
+                ({"text": "x" * 13, "voice": voice.id}, "TEXT_TOO_LONG"),
+                (
+                    {"text": "hello", "voice": voice.id, "emotion": "excited"},
+                    "INVALID_EMOTION",
+                ),
+            )
+
+            for payload, error_code in cases:
+                with self.subTest(error_code=error_code):
+                    result = asyncio.run(
+                        plugin.webui_panel_action(
+                            "voices", "preview_voice", payload
+                        )
+                    )
+                    self.assertFalse(result["success"])
+                    self.assertEqual(result["error"], error_code)
+
+            self.assertEqual(
+                asyncio.run(
+                    plugin.webui_panel_action("unknown", "preview_voice", {})
+                )["error"],
+                "UNKNOWN_PANEL",
+            )
+            self.assertEqual(
+                asyncio.run(
+                    plugin.webui_panel_action("voices", "unknown_action", {})
+                )["error"],
+                "UNKNOWN_ACTION",
+            )
+            self.assertEqual(calls, [])
+
+    def test_webui_voice_preview_action_hides_provider_failure_details(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            plugin = self.module.MimoTTSClonePlugin(
+                _Context(), {"api_key": "mimo-secret", "max_text_chars": 50}
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "", True
+            )
+
+            async def fail_synthesize_text(text, **kwargs):
+                raise RuntimeError("API Key=super-secret provider upstream failed")
+
+            plugin.synthesize_text = fail_synthesize_text
+
+            result = asyncio.run(
+                plugin.webui_panel_action(
+                    "voices",
+                    "preview_voice",
+                    {"text": "你好", "voice": voice.id},
+                )
+            )
+
+            self.assertFalse(result["success"])
+            self.assertEqual(result["error"], "PROVIDER_UNAVAILABLE")
+            self.assertEqual(result["message"], "TTS 服务未配置或不可用")
+            self.assertNotIn("super-secret", repr(result))
+            self.assertNotIn("upstream failed", repr(result))
+
 
 if __name__ == "__main__":
     unittest.main()

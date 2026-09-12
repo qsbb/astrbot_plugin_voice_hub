@@ -19,8 +19,8 @@ class PagesUITests(unittest.TestCase):
         self.assertIn('<link rel="stylesheet" href="./series-ui.css" />', html)
         self.assertIn('<link rel="stylesheet" href="./style.css" />', html)
         self.assertLess(
-            html.index('<link rel="stylesheet" href="./series-ui.css" />'),
             html.index('<link rel="stylesheet" href="./style.css" />'),
+            html.index('<link rel="stylesheet" href="./series-ui.css" />'),
         )
         self.assertIn('<script src="./series-ui.js"></script>', html)
         self.assertIn("凝心 UI 1.0 — Glass Aurora", shared)

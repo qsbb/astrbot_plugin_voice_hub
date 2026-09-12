@@ -204,6 +204,24 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             "version": __version__,
         }
 
+    def series_module_contract(self) -> dict[str, object]:
+        """series.module@1.0：声明模块身份、独立入口与统一接管能力。"""
+        return {
+            "name": "series.module@1.0",
+            "version": "1.0",
+            "series_id": "ningxin_suxi",
+            "plugin_id": "astrbot_plugin_voice_hub",
+            "display_name": "声",
+            "role": "voice",
+            "standalone": {
+                "available": true,
+                "entry": "/pages/settings",
+                "pages": ["settings"],
+            },
+            "capabilities": ["control", "webui", "diagnostics", "model_router"],
+            "panels": ["voices"],
+        }
+
     def diagnostic_log_contract(self) -> dict[str, object]:
         return {
             "name": "series.diagnostics",

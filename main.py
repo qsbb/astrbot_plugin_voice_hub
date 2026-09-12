@@ -214,7 +214,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             "display_name": "声",
             "role": "voice",
             "standalone": {
-                "available": true,
+                "available": True,
                 "entry": "/pages/settings",
                 "pages": ["settings"],
             },

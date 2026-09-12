@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .model_router import resolve_provider_id as resolve_routed_provider_id
+
 
 DEFAULT_STYLE_DIRECTOR_PROMPT = """你是发送前语音导演，只为 TTS 生成不会展示给用户的音频控制方案。
 请根据待朗读文本、情绪和音色信息，输出严格 JSON：
@@ -163,6 +165,11 @@ async def _call_llm(
     context: Any, prompt: str, system_prompt: str, *, provider_id: str = ""
 ) -> Any:
     provider_id = str(provider_id or "").strip()
+    if not provider_id:
+        try:
+            provider_id = await resolve_routed_provider_id(context, "fast")
+        except Exception:
+            provider_id = ""
     if provider_id:
         provider_getter = getattr(context, "get_provider_by_id", None)
         if callable(provider_getter):

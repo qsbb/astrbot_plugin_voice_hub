@@ -1,5 +1,20 @@
 'use strict';
 
+const notify = (message, type = "ok") => {
+  const mapped = (type === "error" || type === "err") ? "error" : "info";
+  if (window.SeriesUI?.toast) {
+    window.SeriesUI.toast(message, mapped);
+    return;
+  }
+  const fallback = document.querySelector("[data-toast-fallback], #bridge-error, #startup-error, #page-error");
+  if (fallback) {
+    fallback.textContent = String(message || "");
+    fallback.hidden = false;
+  } else {
+    console.error(message);
+  }
+};
+
 const $ = id => document.getElementById(id);
 const BRIDGE_UNAVAILABLE_MESSAGE = '请在 AstrBot 插件管理页中打开本页面。普通浏览器预览只能查看 UI，不能上传、保存或试听。';
 let bridge = null;
@@ -87,14 +102,7 @@ function emotionLabel(emotion) {
   return EMOTION_LABELS[key] || key || '未设置';
 }
 
-function toast(message, type = 'ok') {
-  const el = $('toast');
-  el.textContent = message;
-  el.className = `toast ${type}`;
-  el.style.display = 'block';
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => { el.style.display = 'none'; }, 3000);
-}
+
 
 function extractErrorMessage(error, fallback = '操作失败') {
   const data = error && error.response && error.response.data;
@@ -162,7 +170,7 @@ async function runAction(button, busyText, handler) {
   try {
     await handler();
   } catch (error) {
-    toast(extractErrorMessage(error), 'err');
+    notify(extractErrorMessage(error), 'err');
   } finally {
     setBusy(button, false);
     updateActionAvailability();
@@ -290,7 +298,13 @@ function updateStatus() {
   $('model-status').textContent = backend === 'astrbot' ? 'AstrBot TTS' : 'MiMo TTS';
   $('emotion-status').textContent = triggerMode === 'llm_decides' ? 'LLM 决定' : '概率触发';
   $('segment-status').textContent = state.config.segment_enabled === false ? '仅结构' : '结构优先';
-  $('hero-voice-count').textContent = '就绪';
+  const enabledVoices = Array.isArray(state.voices)
+    ? state.voices.filter(voice => voice.enabled !== false).length
+    : 0;
+  const providerCount = Array.isArray(state.ttsProviders) ? state.ttsProviders.length : 0;
+  $('hero-voice-count').textContent = backend === 'astrbot'
+    ? (providerCount ? `${providerCount} 个提供商` : '未配置')
+    : (enabledVoices ? `${enabledVoices} 个音色` : '未配置');
 }
 
 function renderReadiness() {
@@ -498,7 +512,7 @@ async function migrateOldPlugin() {
   const detail = res.errors && res.errors.length
     ? `（部分错误：${res.errors.join('; ')}）`
     : '';
-  toast(`迁移成功：${res.message || '已完成'}${detail}`);
+  notify(`迁移成功：${res.message || '已完成'}${detail}`);
 }
 
 function renderTtsProviders(selectedId) {
@@ -523,26 +537,30 @@ function updateApiServerUrl() {
     return;
   }
   const port = $('api-server-port').value || '9960';
-  urlField.value = `http://127.0.0.1:${port}/v1`;
+  const host = $('api-server-host').value.trim();
+  const displayHost = (!host || host === '0.0.0.0' || host === '::')
+    ? (location.hostname || '127.0.0.1')
+    : host;
+  urlField.value = `http://${displayHost}:${port}/v1`;
 }
 
 async function copyApiServerUrl() {
   const urlField = $('api-server-url');
   const url = urlField.value;
   if (!url) {
-    toast('请先开启外部 TTS API 开关', 'warn');
+    notify('请先开启外部 TTS API 开关', 'warn');
     return;
   }
   try {
     await navigator.clipboard.writeText(url);
-    toast('API 链接已复制');
+    notify('API 链接已复制');
   } catch (error) {
     urlField.select();
     try {
       document.execCommand('copy');
-      toast('API 链接已复制');
+      notify('API 链接已复制');
     } catch (fallbackError) {
-      toast('复制失败，请手动选中地址复制', 'err');
+      notify('复制失败，请手动选中地址复制', 'err');
     }
   }
 }
@@ -739,11 +757,11 @@ async function saveConfig() {
     if (res.warning) {
       updateStatus();
       setActionState('已保存到本地；运行时同步失败', 'is-warning');
-      toast(res.warning, 'warn');
+      notify(res.warning, 'warn');
       return;
     }
     await refresh();
-    toast('配置已保存');
+    notify('配置已保存');
   } catch (error) {
     setActionState('保存失败，改动仍未保存', 'is-error');
     throw error;
@@ -819,7 +837,7 @@ async function uploadVoice() {
   try {
     await syncVoiceMetadata(res.voice.id, metadata);
   } catch (error) {
-    toast(`音色已上传，但元数据同步失败：${error.message || error}`, 'warn');
+    notify(`音色已上传，但元数据同步失败：${error.message || error}`, 'warn');
   }
 
   ['voice-file', 'voice-name', 'voice-desc', 'voice-style-tags', 'voice-style-context'].forEach(id => {
@@ -830,10 +848,10 @@ async function uploadVoice() {
   try {
     await refresh();
     setUploadHint('音色已上传，并已自动选中用于试听。', 'ok');
-    toast('音色已上传');
+    notify('音色已上传');
   } catch (error) {
     setUploadHint('音色已上传，但刷新列表失败；请手动刷新页面查看。', 'warn');
-    toast(`音色已上传，但刷新列表失败：${error.message || error}`, 'warn');
+    notify(`音色已上传，但刷新列表失败：${error.message || error}`, 'warn');
   }
 }
 
@@ -869,7 +887,7 @@ async function voiceAction(action, id, button = null) {
         button.textContent = '确定删除？';
         button.classList.add('confirming');
         button._confirmTimeout = setTimeout(() => resetDeleteConfirmation(button), 3000);
-        toast(`再次点击确认删除「${voice.name}」`, 'warn');
+        notify(`再次点击确认删除「${voice.name}」`, 'warn');
         return;
       }
       resetDeleteConfirmation(button);
@@ -891,7 +909,7 @@ async function setEmotionDefault(emotion, voiceId) {
   const res = await bridge.apiPost('set_emotion_voice', { emotion, voice_id: voiceId });
   if (!res.success) throw new Error(res.error || '设置情绪默认音色失败');
   await refresh();
-  toast(voiceId ? `${emotion} 默认音色已更新` : `${emotion} 默认音色已清空`);
+  notify(voiceId ? `${emotion} 默认音色已更新` : `${emotion} 默认音色已清空`);
 }
 
 async function preview() {
@@ -920,7 +938,7 @@ async function preview() {
       setPreviewHint('音频已生成；当前页面环境阻止自动播放，请手动点击播放器播放。', 'warn');
     });
   }
-  toast(`试听生成成功，情绪：${emotionLabel(res.emotion || 'neutral')}`);
+  notify(`试听生成成功，情绪：${emotionLabel(res.emotion || 'neutral')}`);
 }
 
 async function testConnection() {
@@ -942,7 +960,7 @@ async function testConnection() {
   }
   $('test-hint').textContent = `${res.message || '连接测试成功'} 耗时 ${res.elapsed_ms || 0}ms。`;
   $('test-hint').className = 'field-hint ok';
-  toast('连接诊断通过');
+  notify('连接诊断通过');
 }
 
 function bind(id, handler, busyText = '处理中...') {
@@ -1062,7 +1080,32 @@ function bindPreviewPlaybackState() {
   });
 }
 
+const mobileFoldMedia = window.matchMedia("(max-width: 760px)");
+
+function syncMobileFolds() {
+  document.querySelectorAll(".mobile-fold").forEach((fold) => {
+    if (!mobileFoldMedia.matches) {
+      fold.open = true;
+      return;
+    }
+    fold.open = fold.dataset.userOpen === "true";
+  });
+}
+
+function bindMobileFolds() {
+  syncMobileFolds();
+  if (mobileFoldMedia.addEventListener) mobileFoldMedia.addEventListener("change", syncMobileFolds);
+  else if (mobileFoldMedia.addListener) mobileFoldMedia.addListener(syncMobileFolds);
+  document.querySelectorAll(".mobile-fold").forEach((fold) => {
+    fold.addEventListener("toggle", () => {
+      if (mobileFoldMedia.matches) fold.dataset.userOpen = fold.open ? "true" : "false";
+    });
+  });
+}
+
 function bindPageEvents() {
+  $('mobile-save-config')?.addEventListener('click', () => $('save-config').click());
+  $('mobile-test-connection')?.addEventListener('click', () => $('test-connection').click());
   bind('save-config', saveConfig, '保存中...');
   bind('upload-voice', uploadVoice, '上传中...');
   bind('preview-btn', preview, '生成中...');
@@ -1085,7 +1128,7 @@ function bindPageEvents() {
     try {
       await voiceAction(button.dataset.action, button.dataset.id, button);
     } catch (error) {
-      toast(extractErrorMessage(error), 'err');
+      notify(extractErrorMessage(error), 'err');
     }
   });
 
@@ -1095,12 +1138,13 @@ function bindPageEvents() {
     try {
       await setEmotionDefault(select.dataset.emotion, select.value);
     } catch (error) {
-      toast(extractErrorMessage(error), 'err');
+      notify(extractErrorMessage(error), 'err');
     }
   });
 }
 
 async function init() {
+  bindMobileFolds();
   setPageLoading(true);
   bridge = await resolveBridge();
   bindPageEvents();
@@ -1115,4 +1159,4 @@ async function init() {
   }
 }
 
-init().catch(error => toast(extractErrorMessage(error), 'err'));
+init().catch(error => notify(extractErrorMessage(error), 'err'));

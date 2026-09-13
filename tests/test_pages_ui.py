@@ -304,13 +304,14 @@ class PagesUITests(unittest.TestCase):
             r"\.conditional-settings\[hidden\]\s*\{[^}]*display:\s*none;",
         )
 
-    def test_settings_mobile_layout_stacks_api_link_and_toast(self):
+    def test_settings_mobile_layout_stacks_api_link_without_page_toast(self):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
         mobile = css.split("@media (max-width: 760px)", 1)[1]
         self.assertRegex(
             mobile, r"\.api-link-row\s*\{[^}]*flex-direction:\s*column;"
         )
-        self.assertRegex(mobile, r"\.toast\s*\{[^}]*left:\s*10px;")
+        self.assertNotIn("#toast", css)
+        self.assertNotRegex(css, r"(?<![-\w])\.toast\s*(?:[,{])")
 
     def test_settings_separates_shared_delivery_from_mimo_emotion(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
@@ -342,7 +343,7 @@ class PagesUITests(unittest.TestCase):
     def test_mimo_specific_controls_are_not_global_entry_content(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         hero = html.split('<header class="studio-hero">', 1)[1].split("</header>", 1)[0]
-        status = html.split('<section class="studio-card status-board"', 1)[1].split(
+        status = html.split('id="voice-overview"', 1)[1].split(
             "</section>", 1
         )[0]
         mimo_card = html.split('data-backend-scope="mimo"', 1)[1].split(
@@ -390,3 +391,48 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("lockedButton", voice_action)
         self.assertIn("setBusy(lockedButton, true", voice_action)
         self.assertIn("setBusy(lockedButton, false", voice_action)
+
+
+def test_settings_page_p1_regressions():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+    js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert '<details class="workflow-fold" id="workflow-help">' in html
+    assert '<summary>推荐配置流程（4 步）</summary>' in html
+    assert '<details class="manual-provider">' in html
+    for label in (
+        "上传参考音频（mp3 / wav）",
+        "音色名称",
+        "音色说明",
+        "建议情绪",
+        "MiMo 风格标签",
+        "音色风格指令",
+        "试听音色",
+        "试听情绪",
+        "试听文本",
+    ):
+        assert f'aria-label="{label}"' in html
+    assert "const host = $('api-server-host').value.trim();" in js
+    assert "location.hostname || '127.0.0.1'" in js
+    assert "urlField.value = `http://127.0.0.1:${port}/v1`;" not in js
+    assert ".workflow-fold > summary" in css
+    assert "body[data-series-ui] .hero-panel {\n    display: none;" in css
+    assert "min-height: 78px" in css
+
+
+def test_settings_mobile_long_sections_are_collapsible():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+    css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+    assert html.count('class="mobile-fold"') == 3
+    assert 'data-mobile-fold' not in html
+    assert "const mobileFoldMedia = window.matchMedia(\"(max-width: 760px)\");" in js
+    assert "function syncMobileFolds(" in js
+    assert "bindMobileFolds();" in js
+    init = js.split("async function init()", 1)[1]
+    assert init.index("bindMobileFolds();") < init.index("await resolveBridge()")
+    assert 'data-toast-fallback' in html
+    assert ".mobile-fold > summary" in css
+    assert "@media (min-width: 761px)" in css

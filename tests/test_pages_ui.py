@@ -200,8 +200,10 @@ class PagesUITests(unittest.TestCase):
         self.assertRegex(css, r"\.studio-card::before\s*\{[^}]*z-index:\s*0;")
         self.assertRegex(css, r"\.studio-card > \*\s*\{[^}]*z-index:\s*1;")
         self.assertRegex(css, r"\.studio-card:hover\s*\{[^}]*box-shadow:")
-        self.assertRegex(css, r"\.studio-switch input\s*\{[^}]*width:\s*16px;")
-        self.assertRegex(css, r"\.studio-switch input\s*\{[^}]*transition:\s*none;")
+        # 布尔开关的尺寸/动效由共享滑块开关（series-ui.css）统一提供，
+        # 页面不再写死 16px 勾选框，也不再单独禁用过渡。
+        self.assertRegex(css, r"\.studio-switch input\s*\{[^}]*flex:\s*none;")
+        self.assertNotRegex(css, r"\.studio-switch input\s*\{[^}]*width:\s*16px;")
         studio_hover = css.split(".studio-card:hover", 1)[1].split("}", 1)[0]
         self.assertNotIn("transform", studio_hover)
 
@@ -540,4 +542,4 @@ def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
 def test_settings_page_uses_incremented_asset_cache_busters():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
-        assert f"{asset}?v=0.12.4-1" in html
+        assert f"{asset}?v=0.12.5-1" in html

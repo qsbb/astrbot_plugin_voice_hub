@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>凝心溯溪-声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.12.4-1" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.12.4-1" />
+  <link rel="stylesheet" href="./style.css?v=0.12.5-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.12.5-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
@@ -160,14 +160,14 @@
           <p id="trigger-mode-note" class="field-hint selection-note" aria-live="polite">当前按概率把普通回复转成语音；下面两项只在此模式生效。</p>
           <div id="probability-settings" class="conditional-settings">
             <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
-            <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>让 LLM 判断这条回复适不适合朗读<small>适合朗读的简短口语直接转语音；太长、含代码或纯功能性内容会跳过。判断标记会自动删除，用户看不到。</small></span></label>
+            <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" class="si-toggle" type="checkbox" /><span>让 LLM 判断这条回复适不适合朗读<small>适合朗读的简短口语直接转语音；太长、含代码或纯功能性内容会跳过。判断标记会自动删除，用户看不到。</small></span></label>
           </div>
         </div>
         <details class="section-disclosure">
           <summary>回退与文本清理</summary>
           <div class="section-disclosure-body switch-stack">
-            <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
-            <label class="studio-switch"><input id="replace-url-in-tts" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
+            <label class="studio-switch"><input id="file-fallback-enabled" class="si-toggle" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
+            <label class="studio-switch"><input id="replace-url-in-tts" class="si-toggle" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
           </div>
         </details>
       </article>
@@ -181,7 +181,7 @@
           <span class="soft-pill">结构优先</span>
         </div>
         <div class="switch-grid delivery-settings-grid">
-          <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用单段超长时的句界兜底</span></label>
+          <label class="studio-switch"><input id="segment-enabled" class="si-toggle" type="checkbox" /><span>启用单段超长时的句界兜底</span></label>
         </div>
         <details class="section-disclosure">
           <summary>分段阈值、等待与输出清理</summary>
@@ -209,7 +209,7 @@
           <span class="soft-pill">复用当前后端</span>
         </summary>
         <div class="mobile-fold-body">
-      <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
+      <label class="studio-switch"><input id="api-server-enabled" class="si-toggle" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
       <p id="api-server-state-hint" class="field-hint selection-note" aria-live="polite">外部接口未开启；下面的连接设置已收起。</p>
       <details class="section-disclosure">
         <summary>连接与安全设置</summary>
@@ -331,7 +331,7 @@
           <span class="soft-pill">隐藏控制提示</span>
         </summary>
         <div class="mobile-fold-body">
-      <label class="studio-switch"><input id="ai-style-director-enabled" type="checkbox" /><span>让 AI 调整说话方式</span></label>
+      <label class="studio-switch"><input id="ai-style-director-enabled" class="si-toggle" type="checkbox" /><span>让 AI 调整说话方式</span></label>
       <p id="ai-director-state-hint" class="field-hint selection-note" aria-live="polite">AI 调整未开启；语音会使用情绪和音色自带的风格。</p>
       <div id="ai-style-director-settings" class="conditional-settings" hidden>
         <div class="switch-grid">
@@ -352,9 +352,9 @@
           </select>
         </label>
         <label>最大指令长度<input id="ai-style-director-max-chars" type="number" min="20" max="300" /></label>
-        <label class="studio-switch"><input id="ai-style-director-optimize-text" type="checkbox" /><span>优化音频朗读文本，剔除口头填充并加入自然停顿</span></label>
-        <label class="studio-switch"><input id="ai-style-director-fallback" type="checkbox" /><span>AI 失败时回退到情绪/默认风格</span></label>
-        <label class="studio-switch"><input id="ai-style-director-debug-log" type="checkbox" /><span>在日志中显示 AI 导演结果</span></label>
+        <label class="studio-switch"><input id="ai-style-director-optimize-text" class="si-toggle" type="checkbox" /><span>优化音频朗读文本，剔除口头填充并加入自然停顿</span></label>
+        <label class="studio-switch"><input id="ai-style-director-fallback" class="si-toggle" type="checkbox" /><span>AI 失败时回退到情绪/默认风格</span></label>
+        <label class="studio-switch"><input id="ai-style-director-debug-log" class="si-toggle" type="checkbox" /><span>在日志中显示 AI 导演结果</span></label>
         </div>
         <label class="wide">导演提示词模板<textarea id="ai-style-director-prompt" rows="4" placeholder="留空使用内置模板。可用变量：{max_chars}。建议输出 JSON：style_context + speech_text"></textarea></label>
         <p class="field-hint">发送前，AI 会为 MiMo 生成一条用户看不到的说话方式说明。开启文本优化后，只会调整拿去朗读的副本，聊天里的原文字不会改变。</p>
@@ -368,7 +368,7 @@
               <span class="soft-pill">先定情绪，再定风格</span>
             </div>
             <p class="field-hint selection-note">先决定这一句的基础情绪；AI 风格导演开启后会在它的基础上生成隐藏风格指令。关闭情绪路由时使用默认情绪。</p>
-            <label class="studio-switch"><input id="emotion-routing-enabled" type="checkbox" /><span>启用自动情绪路由</span></label>
+            <label class="studio-switch"><input id="emotion-routing-enabled" class="si-toggle" type="checkbox" /><span>启用自动情绪路由</span></label>
             <div id="emotion-defaults" class="emotion-grid"></div>
           </div>
         </div>
@@ -405,7 +405,7 @@
               <input id="voice-style-context" type="text" aria-label="音色风格指令" placeholder="音色风格指令" />
             </div>
             <div class="voice-upload-actions">
-              <label class="studio-switch consent"><input id="voice-consent" type="checkbox" /><span>已获授权</span></label>
+              <label class="studio-switch consent"><input id="voice-consent" class="si-toggle" type="checkbox" /><span>已获授权</span></label>
               <button id="upload-voice" class="primary">上传音色</button>
             </div>
           </div>
@@ -444,7 +444,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.12.4-1"></script>
-  <script src="./app.js?v=0.12.4-1"></script>
+  <script src="./series-ui.js?v=0.12.5-1"></script>
+  <script src="./app.js?v=0.12.5-1"></script>
 </body>
 </html>

@@ -298,6 +298,8 @@ function updateStatus() {
   $('model-status').textContent = backend === 'astrbot' ? 'AstrBot TTS' : 'MiMo TTS';
   $('emotion-status').textContent = triggerMode === 'llm_decides' ? 'LLM 决定' : '概率触发';
   $('segment-status').textContent = state.config.segment_enabled === false ? '仅结构' : '结构优先';
+  $('overview-director-status').textContent = state.config.ai_style_director_enabled ? '开启' : '关闭';
+  $('overview-api-status').textContent = $('api-server-enabled').checked ? '开启' : '关闭';
   const enabledVoices = Array.isArray(state.voices)
     ? state.voices.filter(voice => voice.enabled !== false).length
     : 0;
@@ -305,6 +307,11 @@ function updateStatus() {
   $('hero-voice-count').textContent = backend === 'astrbot'
     ? (providerCount ? `${providerCount} 个提供商` : '未配置')
     : (enabledVoices ? `${enabledVoices} 个音色` : '未配置');
+  const backendLabel = backend === 'astrbot'
+    ? 'AstrBot 内置语音合成'
+    : 'MiMo 语音合成（克隆音色）';
+  $('backend-run-summary').textContent = backendLabel;
+  $('overview-backend-summary').textContent = backendLabel;
 }
 
 function renderReadiness() {
@@ -531,6 +538,7 @@ function updateApiServerUI() {
     ? '外部接口已开启；保存后请用下方地址和令牌访问。'
     : '外部接口未开启；连接设置已收起。';
   updateApiServerUrl();
+  $('overview-api-status').textContent = enabled ? '开启' : '关闭';
 }
 
 function updateAiDirectorUI() {
@@ -539,6 +547,7 @@ function updateAiDirectorUI() {
   $('ai-director-state-hint').textContent = enabled
     ? 'AI 调整已开启；下面可以选择模型和调整方式。'
     : 'AI 调整未开启；语音会使用情绪和音色自带的风格。';
+  $('overview-director-status').textContent = enabled ? '开启' : '关闭';
 }
 
 async function migrateOldPlugin() {
@@ -1181,8 +1190,16 @@ function bindPageEvents() {
   document.querySelectorAll('[data-goto-tab]').forEach((button) => {
     button.addEventListener('click', () => {
       switchVoiceTask(button.dataset.gotoTab);
-      const panel = document.querySelector(`[data-voice-panel="${button.dataset.gotoTab}"]:not([hidden])`);
-      if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      const target = button.dataset.focusTarget
+        ? document.querySelector(button.dataset.focusTarget)
+        : document.querySelector(`[data-voice-panel="${button.dataset.gotoTab}"]:not([hidden])`);
+      if (!target) return;
+      let disclosure = target.closest('details');
+      while (disclosure) {
+        disclosure.open = true;
+        disclosure = disclosure.parentElement?.closest('details') || null;
+      }
+      target.scrollIntoView({ block: 'start', behavior: 'smooth' });
     });
   });
   $('mobile-save-config')?.addEventListener('click', () => $('save-config').click());

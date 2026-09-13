@@ -1115,3 +1115,267 @@ body[data-series-ui] .access-rules-table td { border-bottom: 1px solid var(--si-
   body[data-series-ui] .studio-shell { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
   body[data-series-ui] .mobile-save-bar { bottom: calc(10px + env(safe-area-inset-bottom)); }
 }
+
+/* 方案 1：四工作区 + 常驻运行条 */
+body[data-series-ui] .studio-hero-compact {
+  position: sticky;
+  top: 8px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 78px;
+  padding: 13px 16px;
+  overflow: hidden;
+  border-color: var(--si-line-solid);
+  background: rgba(255, 255, 255, .97);
+  box-shadow: var(--si-shadow-sm);
+}
+
+body[data-series-ui] .studio-hero-compact .hero-copy {
+  flex: 1 1 auto;
+  gap: 5px;
+}
+
+body[data-series-ui] .studio-hero-compact .eyebrow { font-size: 11px; }
+
+.hero-compact-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+body[data-series-ui] .studio-hero-compact h1 {
+  max-width: none;
+  margin: 0;
+  font-size: clamp(25px, 3vw, 38px);
+  line-height: 1.05;
+  letter-spacing: -.045em;
+}
+
+body[data-series-ui] .studio-hero-compact p {
+  max-width: 620px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.hero-backend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 7px 11px;
+  border: 1px solid rgba(17, 135, 107, .20);
+  border-radius: 999px;
+  color: var(--si-success);
+  background: var(--si-success-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hero-backend-pill strong { color: var(--si-success); }
+
+body[data-series-ui] .studio-hero-compact .hero-actions {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+body[data-series-ui] .backend-selector-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(190px, auto) auto;
+  align-items: center;
+  gap: 13px;
+  margin: 12px 0 14px;
+  padding: 12px 14px;
+}
+
+.backend-runbar-title {
+  display: grid;
+  gap: 2px;
+}
+
+.backend-runbar-title strong {
+  color: var(--si-ink);
+  font-size: 15px;
+}
+
+body[data-series-ui] .backend-runbar-choices {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+body[data-series-ui] .backend-runbar-choices legend { display: none; }
+
+body[data-series-ui] .backend-runbar-choices .trigger-mode-option {
+  align-items: center;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+}
+
+body[data-series-ui] .backend-runbar-choices .trigger-mode-option small { display: none; }
+
+.backend-runbar-status {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backend-runbar-status > strong {
+  overflow: hidden;
+  color: var(--si-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-runbar-status > span {
+  color: var(--si-success);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.backend-runbar-status .selection-note {
+  margin: 1px 0 0;
+  font-size: 11px;
+}
+
+.backend-runbar-jump { white-space: nowrap; }
+
+body[data-series-ui] #voice-task-tabs {
+  top: 92px;
+  margin-bottom: 14px;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+body[data-series-ui] .overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+body[data-series-ui] .overview-card .section-head { margin-bottom: 0; }
+
+.overview-summary {
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--si-muted);
+  line-height: 1.55;
+}
+
+.overview-actions,
+.overview-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.overview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--si-line);
+  border-radius: 999px;
+  color: var(--si-muted);
+  background: var(--si-surface-soft);
+  font-size: 11px;
+}
+
+.overview-chip strong { color: var(--si-primary-strong); }
+
+body[data-series-ui] .section-disclosure {
+  margin-top: 14px;
+  border-top: 1px solid var(--si-line-solid);
+}
+
+body[data-series-ui] .section-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 2px 0;
+  color: var(--si-primary-strong);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 730;
+  list-style: none;
+}
+
+body[data-series-ui] .section-disclosure > summary::-webkit-details-marker { display: none; }
+
+body[data-series-ui] .section-disclosure > summary::after {
+  content: "展开";
+  color: var(--si-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+body[data-series-ui] .section-disclosure[open] > summary::after { content: "收起"; }
+
+body[data-series-ui] .section-disclosure-body {
+  display: grid;
+  gap: 13px;
+  padding-top: 12px;
+}
+
+body[data-series-ui] .voice-upload-disclosure { margin-bottom: 14px; }
+
+body[data-series-ui] .ai-style-disclosure {
+  margin-top: 0;
+  border-top: 0;
+}
+
+body[data-series-ui] .ai-style-disclosure > summary {
+  padding: 0;
+  font-size: 16px;
+}
+
+@media (max-width: 1020px) {
+  body[data-series-ui] .backend-selector-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .backend-runbar-title,
+  body[data-series-ui] .backend-runbar-choices,
+  .backend-runbar-status { grid-column: 1 / -1; }
+
+  .backend-runbar-jump { grid-column: 2; grid-row: 1; align-self: center; }
+  .overview-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  body[data-series-ui] .studio-hero-compact {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .hero-compact-line { align-items: flex-start; flex-direction: column; gap: 8px; }
+  body[data-series-ui] .studio-hero-compact .hero-actions { width: 100%; }
+  body[data-series-ui] .studio-hero-compact .hero-actions > button { flex: 1; }
+  body[data-series-ui] .studio-hero-compact .action-state { display: none; }
+  body[data-series-ui] .backend-selector-card { padding: 13px; }
+  body[data-series-ui] .backend-runbar-choices { display: grid; grid-template-columns: 1fr; }
+  .backend-runbar-jump { width: 100%; grid-column: 1 / -1; grid-row: auto; }
+  body[data-series-ui] #voice-task-tabs { top: 0; }
+  body[data-series-ui] .form-grid.two-col { grid-template-columns: 1fr; }
+}

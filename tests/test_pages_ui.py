@@ -344,7 +344,7 @@ class PagesUITests(unittest.TestCase):
 
     def test_mimo_specific_controls_are_not_global_entry_content(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
-        hero = html.split('<header class="studio-hero">', 1)[1].split("</header>", 1)[0]
+        hero = html.split('<header class="studio-hero studio-hero-compact">', 1)[1].split("</header>", 1)[0]
         status = html.split('id="voice-overview"', 1)[1].split(
             "</section>", 1
         )[0]
@@ -487,3 +487,57 @@ def test_settings_access_rule_summary_counts_follow_textareas():
     assert "node.textContent = String(value);" in js
     assert "updateAccessCounts();" in js
     assert "$(id).addEventListener('input', updateAccessCounts);" in js
+
+
+def test_settings_compact_command_header_and_backend_runbar():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+    assert 'class="studio-hero studio-hero-compact"' in html
+    assert 'class="hero-actions hero-actions-sticky"' in html
+    assert 'id="backend-run-summary"' in html
+    assert "常驻，所有分区跟随" in html
+    assert html.index('id="backend-selection"') < html.index('id="voice-task-tabs"')
+    assert ".studio-hero-compact {" in css
+    assert "position: sticky;" in css
+    assert ".backend-selector-card {" in css
+    assert ".overview-grid {" in css
+
+
+def test_settings_overview_has_backend_voice_preview_and_switch_summaries():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="overview-backend-summary"' in html
+    assert 'data-focus-target="#voice-library"' in html
+    assert 'data-focus-target="#voice-preview-card"' in html
+    assert 'id="overview-director-status"' in html
+    assert 'id="overview-api-status"' in html
+    assert "button.dataset.focusTarget" in js
+    assert "overview-backend-summary" in js
+
+
+def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+    assert html.count('class="section-disclosure') >= 5
+    for marker in (
+        'id="voice-file"',
+        'id="preview-btn"',
+        'id="ai-style-director-enabled"',
+        'id="emotion-routing-enabled"',
+        'id="admin-users"',
+        'id="api-server-token"',
+        'id="output-retention-days"',
+        'id="migrate-old-plugin"',
+    ):
+        assert marker in html
+    assert ".section-disclosure > summary" in css
+    assert ".section-disclosure-body" in css
+
+
+def test_settings_page_uses_incremented_asset_cache_busters():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
+        assert f"{asset}?v=0.12.3-1" in html

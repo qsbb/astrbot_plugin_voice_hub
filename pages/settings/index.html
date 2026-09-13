@@ -4,43 +4,48 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>凝心溯溪-声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.12.2-1" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.12.2-1" />
+  <link rel="stylesheet" href="./style.css?v=0.12.3-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.12.3-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
   <div class="top-gradient-highlight" aria-hidden="true"></div>
   <main class="studio-shell" aria-busy="true">
-    <header class="studio-hero">
+    <header class="studio-hero studio-hero-compact">
       <section class="hero-copy">
         <span class="eyebrow"><span class="pulse-dot"></span> 凝心溯溪 · 声</span>
-        <h1>声 · 统一语音中心</h1>
-        <p>统一管理朗读触发、结构化分段、发送节奏与语音后端。通用能力始终可见，后端专属配置只在选中后展开。</p>
-        <div class="hero-actions">
-          <button id="save-config" class="primary">保存全部配置</button>
-          <button id="test-connection" class="secondary">诊断当前后端</button>
-          <span id="save-state" class="action-state is-loading" role="status" aria-live="polite">正在读取配置…</span>
+        <div class="hero-compact-line">
+          <div>
+            <h1>声 · 统一语音中心</h1>
+            <p>朗读触发、结构分段、发送节奏与语音后端。</p>
+          </div>
+          <span class="hero-backend-pill" aria-live="polite">当前后端 <strong id="model-status">MiMo TTS</strong></span>
         </div>
       </section>
-      <aside class="hero-panel" aria-label="当前工作区概览">
-        <div class="signal-card">
-          <span>当前后端</span>
-          <strong id="model-status">MiMo TTS</strong>
-        </div>
-        <div class="signal-card">
-          <span>可用音色</span>
-          <strong id="hero-voice-count">—</strong>
-        </div>
-        <div class="signal-card">
-          <span>触发策略</span>
-          <strong id="emotion-status">概率</strong>
-        </div>
-        <div class="signal-card">
-          <span>结构分段</span>
-          <strong id="segment-status">开启</strong>
-        </div>
-      </aside>
+      <div class="hero-actions hero-actions-sticky">
+        <button id="save-config" class="primary">保存全部配置</button>
+        <button id="test-connection" class="secondary">诊断当前后端</button>
+        <span id="save-state" class="action-state is-loading" role="status" aria-live="polite">正在读取配置…</span>
+      </div>
     </header>
+
+    <section id="backend-selection" class="studio-card backend-selector-card" data-backend-scope="shared">
+      <div class="backend-runbar-title">
+        <span class="section-kicker">语音后端</span>
+        <strong>统一运行条</strong>
+      </div>
+      <fieldset class="trigger-mode-fieldset backend-choice-grid backend-runbar-choices">
+        <legend class="sr-only">选择统一语音服务实际使用的合成后端</legend>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo 语音合成</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置语音合成</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
+      </fieldset>
+      <div class="backend-runbar-status">
+        <strong id="backend-run-summary">MiMo 语音合成（克隆音色）</strong>
+        <span>常驻，所有分区跟随</span>
+        <p id="backend-active-note" class="field-hint selection-note" aria-live="polite">当前显示 MiMo 专属设置；AstrBot 专属设置已收起。</p>
+      </div>
+      <button type="button" class="secondary backend-runbar-jump" data-goto-tab="backend">打开配置</button>
+    </section>
 
     <div id="voice-task-tabs" class="si-tabbar" role="tablist" aria-label="语音任务分区">
       <button type="button" class="active" role="tab" aria-selected="true" data-voice-tab="overview">总览</button>
@@ -48,26 +53,6 @@
       <button type="button" role="tab" aria-selected="false" data-voice-tab="dialogue">对话与交付</button>
       <button type="button" role="tab" aria-selected="false" data-voice-tab="interface">接口与权限</button>
     </div>
-
-    <section id="backend-selection" class="studio-card backend-selector-card" data-backend-scope="shared">
-      <div class="section-head">
-        <div>
-          <span class="section-kicker">合成后端</span>
-          <h2>语音后端</h2>
-        </div>
-        <span class="soft-pill">全局生效</span>
-      </div>
-      <fieldset class="trigger-mode-fieldset backend-choice-grid">
-        <legend>选择统一语音服务实际使用的合成后端（本页所有分区的专属设置都跟着它切换）</legend>
-        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo 语音合成</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
-        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置语音合成</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
-      </fieldset>
-      <p id="backend-active-note" class="field-hint selection-note" aria-live="polite">当前显示 MiMo 专属设置；AstrBot 专属设置已收起。</p>
-      <div class="backend-jump-row">
-        <span class="field-hint">Key、音色库与试听都在「后端与音色」里，点右侧按钮直接过去。</span>
-        <button type="button" class="secondary" data-goto-tab="backend">打开后端与音色</button>
-      </div>
-    </section>
     <details class="workflow-fold" id="workflow-help" data-voice-panel="overview">
       <summary>推荐配置流程（4 步）</summary>
     <section class="workflow-strip" aria-label="推荐配置流程">
@@ -93,6 +78,50 @@
       </article>
     </section>
     </details>
+
+    <section class="overview-grid" data-voice-panel="overview" aria-label="总览快捷入口">
+      <article class="studio-card overview-card">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">运行后端</span>
+            <h2>当前合成链路</h2>
+          </div>
+          <span class="soft-pill">上方运行条控制</span>
+        </div>
+        <p id="overview-backend-summary" class="overview-summary">MiMo 语音合成（克隆音色）</p>
+        <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#backend-selection">查看后端设置</button>
+      </article>
+      <article class="studio-card overview-card">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">音色库</span>
+            <h2>音色与试听</h2>
+          </div>
+          <span id="hero-voice-count" class="soft-pill">—</span>
+        </div>
+        <p class="overview-summary">上传、启用、默认音色和即时试听都在「后端与音色」。</p>
+        <div class="overview-actions">
+          <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#voice-library">打开音色库</button>
+          <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#voice-preview-card">去试听</button>
+        </div>
+      </article>
+      <article class="studio-card overview-card">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">关键开关</span>
+            <h2>运行摘要</h2>
+          </div>
+          <span class="soft-pill">只读摘要</span>
+        </div>
+        <div class="overview-chip-list">
+          <span class="overview-chip">触发 <strong id="emotion-status">概率</strong></span>
+          <span class="overview-chip">分段 <strong id="segment-status">开启</strong></span>
+          <span class="overview-chip">AI 导演 <strong id="overview-director-status">关闭</strong></span>
+          <span class="overview-chip">外部 API <strong id="overview-api-status">关闭</strong></span>
+        </div>
+        <button type="button" class="secondary" data-goto-tab="dialogue">调整对话与交付</button>
+      </article>
+    </section>
 
     <section data-voice-panel="overview" id="voice-overview" class="studio-card status-board" aria-label="工作台状态">
       <div>
@@ -134,10 +163,13 @@
             <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" type="checkbox" /><span>让 LLM 判断这条回复适不适合朗读<small>适合朗读的简短口语直接转语音；太长、含代码或纯功能性内容会跳过。判断标记会自动删除，用户看不到。</small></span></label>
           </div>
         </div>
-        <div class="switch-stack">
-          <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
-          <label class="studio-switch"><input id="replace-url-in-tts" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
-        </div>
+        <details class="section-disclosure">
+          <summary>回退与文本清理</summary>
+          <div class="section-disclosure-body switch-stack">
+            <label class="studio-switch"><input id="file-fallback-enabled" type="checkbox" /><span>语音失败时允许回退为文件</span></label>
+            <label class="studio-switch"><input id="replace-url-in-tts" type="checkbox" /><span>朗读时把网址替换为“这个网址”</span></label>
+          </div>
+        </details>
       </article>
 
       <article class="studio-card delivery-card span-5" data-backend-scope="shared">
@@ -150,16 +182,23 @@
         </div>
         <div class="switch-grid delivery-settings-grid">
           <label class="studio-switch"><input id="segment-enabled" type="checkbox" /><span>启用单段超长时的句界兜底</span></label>
-          <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
-          <label>单段兜底最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
-          <label>每 1 秒语音等待（毫秒）<input id="segment-delay-per-audio-second-ms" type="number" min="0" max="2000" step="50" /><small>第一段立即发送，后续按音频时长计算。</small></label>
-          <label>备用固定等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>无法读取音频时使用，不与智能等待叠加。</small></label>
         </div>
+        <details class="section-disclosure">
+          <summary>分段阈值、等待与输出清理</summary>
+          <div class="section-disclosure-body">
+            <div class="switch-grid delivery-settings-grid">
+              <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
+              <label>单段兜底最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
+              <label>每 1 秒语音等待（毫秒）<input id="segment-delay-per-audio-second-ms" type="number" min="0" max="2000" step="50" /><small>第一段立即发送，后续按音频时长计算。</small></label>
+              <label>备用固定等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>无法读取音频时使用，不与智能等待叠加。</small></label>
+            </div>
+            <div class="field-row output-cleanup-row">
+              <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
+              <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
+            </div>
+          </div>
+        </details>
         <div class="delivery-note"><strong>取消语义</strong><span>新消息到达后停止尚未发送的旧语音；已发送内容不会撤回，也不会由“声”终止整轮对话。</span></div>
-        <div class="field-row output-cleanup-row">
-          <label>输出保留天数<input id="output-retention-days" type="number" min="0" /></label>
-          <label>最多保留文件<input id="output-max-files" type="number" min="0" /></label>
-        </div>
       </article>
     </section>
 
@@ -172,23 +211,26 @@
         <div class="mobile-fold-body">
       <label class="studio-switch"><input id="api-server-enabled" type="checkbox" /><span>启用外部 TTS API（/v1/audio/speech）</span></label>
       <p id="api-server-state-hint" class="field-hint selection-note" aria-live="polite">外部接口未开启；下面的连接设置已收起。</p>
-      <div id="api-server-settings" class="conditional-settings" hidden>
-        <div class="field-row">
-          <label>API 监听地址<input id="api-server-host" type="text" placeholder="127.0.0.1" /></label>
-          <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
+      <details class="section-disclosure">
+        <summary>连接与安全设置</summary>
+        <div id="api-server-settings" class="conditional-settings" hidden>
+          <div class="field-row">
+            <label>API 监听地址<input id="api-server-host" type="text" placeholder="127.0.0.1" /></label>
+            <label>API 监听端口<input id="api-server-port" type="number" min="1" max="65535" placeholder="9960" /></label>
+          </div>
+          <div class="field-row">
+            <label>API 访问令牌<input id="api-server-token" type="password" autocomplete="new-password" placeholder="填写独立访问令牌" /></label>
+            <label>每分钟请求上限<input id="api-server-rate-limit" type="number" min="1" max="10000" placeholder="30" /></label>
+            <label>单次最大字符数<input id="api-server-max-input-chars" type="number" min="1" max="10000" placeholder="500" /></label>
+          </div>
+          <div class="api-link-row">
+            <label class="wide">API 调用地址<input id="api-server-url" type="text" readonly placeholder="开启后显示" /></label>
+            <button id="copy-api-url" class="secondary" type="button">复制链接</button>
+          </div>
+          <p class="field-hint">外部客户端需使用上方令牌。接口复用当前选中的语音后端；voice 参数仅在后端支持对应音色时生效。</p>
+          <p class="field-hint">服务默认只监听本机。需要跨主机访问时，请同时配置防火墙或带 TLS 的反向代理。</p>
         </div>
-        <div class="field-row">
-          <label>API 访问令牌<input id="api-server-token" type="password" autocomplete="new-password" placeholder="填写独立访问令牌" /></label>
-          <label>每分钟请求上限<input id="api-server-rate-limit" type="number" min="1" max="10000" placeholder="30" /></label>
-          <label>单次最大字符数<input id="api-server-max-input-chars" type="number" min="1" max="10000" placeholder="500" /></label>
-        </div>
-        <div class="api-link-row">
-          <label class="wide">API 调用地址<input id="api-server-url" type="text" readonly placeholder="开启后显示" /></label>
-          <button id="copy-api-url" class="secondary" type="button">复制链接</button>
-        </div>
-        <p class="field-hint">外部客户端需使用上方令牌。接口复用当前选中的语音后端；voice 参数仅在后端支持对应音色时生效。</p>
-        <p class="field-hint">服务默认只监听本机。需要跨主机访问时，请同时配置防火墙或带 TLS 的反向代理。</p>
-      </div>
+      </details>
         </div>
       </details>
     </section>
@@ -206,15 +248,22 @@
           <label>访问密钥（API Key）<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
           <label>接口地址（Base URL）<input id="base-url" type="text" /></label>
           <label>模型<input id="model" type="text" /></label>
-          <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
-          <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
-          <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
         </div>
-        <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
-        <div class="migration-row">
-          <button id="migrate-old-plugin" class="secondary" type="button">从旧 MiMo 插件迁移</button>
-          <span id="migrate-hint" class="field-hint">读取 astrbot_plugin_mimo_tts_clone 的配置和音色并合并；已有数据不会被覆盖。</span>
-        </div>
+        <details class="section-disclosure">
+          <summary>限制、默认风格与迁移</summary>
+          <div class="section-disclosure-body">
+            <div class="form-grid two-col">
+              <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
+              <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
+              <label>最大音频 MB<input id="max-voice-file-mb" type="number" min="1" /></label>
+            </div>
+            <label class="wide">默认风格指令<textarea id="default-context" rows="3" placeholder="例如：自然、温柔、清晰地朗读。"></textarea></label>
+            <div class="migration-row">
+              <button id="migrate-old-plugin" class="secondary" type="button">从旧 MiMo 插件迁移</button>
+              <span id="migrate-hint" class="field-hint">读取 astrbot_plugin_mimo_tts_clone 的配置和音色并合并；已有数据不会被覆盖。</span>
+            </div>
+          </div>
+        </details>
       </article>
 
       <article class="studio-card backend-card span-12" data-backend-scope="astrbot" hidden>
@@ -273,6 +322,9 @@
     </section>
 
     <section data-voice-panel="dialogue" id="voice-style" class="studio-card director-card" data-backend-scope="mimo">
+      <details class="section-disclosure ai-style-disclosure">
+        <summary>AI 导演与情绪路由高级设置</summary>
+        <div class="section-disclosure-body">
       <details class="mobile-fold" open>
         <summary>
           <span class="mobile-fold-title"><span class="section-kicker">风格导演</span><strong>AI 风格导演</strong></span>
@@ -321,6 +373,8 @@
           </div>
         </div>
       </details>
+        </div>
+      </details>
     </section>
 
     <div class="voice-library-layout">
@@ -332,31 +386,36 @@
         </div>
         <span id="voice-count" class="soft-pill">0 个音色</span>
       </div>
-      <div class="upload-panel">
-        <div class="drop-zone">
-          <span>上传参考音频</span>
-          <strong>mp3 / wav</strong>
-          <input id="voice-file" type="file" aria-label="上传参考音频（mp3 / wav）" accept=".mp3,.wav,audio/mpeg,audio/wav" />
+      <details class="section-disclosure voice-upload-disclosure">
+        <summary>上传新音色并填写元数据</summary>
+        <div class="section-disclosure-body">
+          <div class="upload-panel">
+            <div class="drop-zone">
+              <span>上传参考音频</span>
+              <strong>mp3 / wav</strong>
+              <input id="voice-file" type="file" aria-label="上传参考音频（mp3 / wav）" accept=".mp3,.wav,audio/mpeg,audio/wav" />
+            </div>
+            <div class="upload-fields">
+              <input id="voice-name" type="text" aria-label="音色名称" placeholder="音色名称，例如：温柔旁白" />
+              <input id="voice-desc" type="text" aria-label="音色说明" placeholder="说明，例如：适合睡前、低语速" />
+              <select id="voice-emotion" aria-label="建议情绪">
+                <option value="">建议情绪</option>
+              </select>
+              <input id="voice-style-tags" type="text" aria-label="MiMo 风格标签" placeholder="MiMo 标签，如 [whisper]" />
+              <input id="voice-style-context" type="text" aria-label="音色风格指令" placeholder="音色风格指令" />
+            </div>
+            <div class="voice-upload-actions">
+              <label class="studio-switch consent"><input id="voice-consent" type="checkbox" /><span>已获授权</span></label>
+              <button id="upload-voice" class="primary">上传音色</button>
+            </div>
+          </div>
+          <p id="upload-hint" class="field-hint">上传前请确认样本已获授权；建议使用清晰、无背景噪音的 mp3 / wav 音频。</p>
         </div>
-        <div class="upload-fields">
-          <input id="voice-name" type="text" aria-label="音色名称" placeholder="音色名称，例如：温柔旁白" />
-          <input id="voice-desc" type="text" aria-label="音色说明" placeholder="说明，例如：适合睡前、低语速" />
-          <select id="voice-emotion" aria-label="建议情绪">
-            <option value="">建议情绪</option>
-          </select>
-          <input id="voice-style-tags" type="text" aria-label="MiMo 风格标签" placeholder="MiMo 标签，如 [whisper]" />
-          <input id="voice-style-context" type="text" aria-label="音色风格指令" placeholder="音色风格指令" />
-        </div>
-        <div class="voice-upload-actions">
-          <label class="studio-switch consent"><input id="voice-consent" type="checkbox" /><span>已获授权</span></label>
-          <button id="upload-voice" class="primary">上传音色</button>
-        </div>
-      </div>
-      <p id="upload-hint" class="field-hint">上传前请确认样本已获授权；建议使用清晰、无背景噪音的 mp3 / wav 音频。</p>
+      </details>
       <div id="voice-list" class="voice-list"></div>
     </section>
 
-    <section data-voice-panel="backend" class="studio-card preview-card" data-backend-scope="mimo">
+    <section id="voice-preview-card" data-voice-panel="backend" class="studio-card preview-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
           <span class="section-kicker">试听</span>
@@ -385,7 +444,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.12.2-1"></script>
-  <script src="./app.js?v=0.12.2-1"></script>
+  <script src="./series-ui.js?v=0.12.3-1"></script>
+  <script src="./app.js?v=0.12.3-1"></script>
 </body>
 </html>

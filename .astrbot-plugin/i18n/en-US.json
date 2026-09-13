@@ -1,0 +1,42 @@
+{
+  "config": {
+    "general": {
+      "tts_backend": {
+        "labels": [
+          "MiMo",
+          "AstrBot"
+        ]
+      },
+      "output_format": {
+        "labels": [
+          "WAV"
+        ]
+      },
+      "ai_style_director_mode": {
+        "labels": [
+          "AI instructions only",
+          "Hybrid"
+        ]
+      },
+      "reply_mode": {
+        "labels": [
+          "Audio only",
+          "Text and audio",
+          "Text only"
+        ]
+      },
+      "tts_trigger_mode": {
+        "labels": [
+          "Probability",
+          "LLM decides"
+        ]
+      }
+    }
+  },
+  "pages": {
+    "settings": {
+      "title": "Voice Settings",
+      "description": "Configure the unified voice pipeline, voices, MiMo, AstrBot, and automatic TTS triggers"
+    }
+  }
+}

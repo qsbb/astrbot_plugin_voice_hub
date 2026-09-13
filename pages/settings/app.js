@@ -89,6 +89,23 @@ let state = {
   accessControl: {},
 };
 let lastUploadedVoiceId = '';
+let configDirty = false;
+const showUnsavedConfirm = window.SeriesUI.confirm;
+
+function hasUnsavedChanges() {
+  return configDirty;
+}
+
+async function confirmDiscardChanges() {
+  if (!hasUnsavedChanges()) return true;
+  return (await showUnsavedConfirm({
+    title: "未保存的修改",
+    message: "当前页面还有未保存的改动，离开将放弃这些改动。",
+    confirmText: "放弃修改",
+    cancelText: "继续编辑",
+    danger: true,
+  })) === true;
+}
 
 const EMOTION_LABELS = {
   happy: '开心',
@@ -119,10 +136,12 @@ function setActionState(message, type = 'idle') {
 }
 
 function markDirty() {
+  configDirty = true;
   setActionState('有未保存更改', 'is-dirty');
 }
 
 function markClean() {
+  configDirty = false;
   setActionState('配置已同步', 'is-clean');
 }
 
@@ -807,6 +826,7 @@ async function saveConfig() {
     const res = parseJsonResponse(await bridge.apiPost('save_config', configPayload()));
     if (!res || !res.success) throw new Error((res && res.error) || '保存失败');
     state.config = res.config || state.config;
+    configDirty = false;
     if (res.warning) {
       updateStatus();
       setActionState('已保存到本地；运行时同步失败', 'is-warning');
@@ -1156,7 +1176,9 @@ function bindMobileFolds() {
   });
 }
 
-function switchVoiceTask(name) {
+async function switchVoiceTask(name) {
+  const current = document.querySelector("[data-voice-tab].active")?.dataset.voiceTab;
+  if (current && current !== name && !await confirmDiscardChanges()) return false;
   document.querySelectorAll("[data-voice-tab]").forEach((tab) => {
     const active = tab.dataset.voiceTab === name;
     tab.classList.toggle("active", active);
@@ -1164,13 +1186,14 @@ function switchVoiceTask(name) {
     tab.tabIndex = active ? 0 : -1;
   });
   applyPanelVisibility();
+  return true;
 }
 
 function bindVoiceTaskTabs() {
   const tabs = [...document.querySelectorAll("[data-voice-tab]")];
   tabs.forEach((tab, index) => {
     tab.addEventListener("click", () => switchVoiceTask(tab.dataset.voiceTab));
-    tab.addEventListener("keydown", (event) => {
+    tab.addEventListener("keydown", async (event) => {
       let next = index;
       if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
       else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
@@ -1178,8 +1201,7 @@ function bindVoiceTaskTabs() {
       else if (event.key === "End") next = tabs.length - 1;
       else return;
       event.preventDefault();
-      switchVoiceTask(tabs[next].dataset.voiceTab);
-      tabs[next].focus();
+      if (await switchVoiceTask(tabs[next].dataset.voiceTab)) tabs[next].focus();
     });
   });
   switchVoiceTask("overview");
@@ -1188,8 +1210,8 @@ function bindVoiceTaskTabs() {
 function bindPageEvents() {
   bindVoiceTaskTabs();
   document.querySelectorAll('[data-goto-tab]').forEach((button) => {
-    button.addEventListener('click', () => {
-      switchVoiceTask(button.dataset.gotoTab);
+    button.addEventListener('click', async () => {
+      if (!await switchVoiceTask(button.dataset.gotoTab)) return;
       const target = button.dataset.focusTarget
         ? document.querySelector(button.dataset.focusTarget)
         : document.querySelector(`[data-voice-panel="${button.dataset.gotoTab}"]:not([hidden])`);
@@ -1265,5 +1287,11 @@ async function init() {
     throw error;
   }
 }
+
+window.addEventListener("beforeunload", (event) => {
+  if (!hasUnsavedChanges()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 
 init().catch(error => notify(extractErrorMessage(error), 'err'));

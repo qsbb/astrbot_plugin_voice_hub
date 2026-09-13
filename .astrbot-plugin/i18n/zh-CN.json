@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "settings": {
+      "title": "语音设置",
+      "description": "配置统一语音链路、音色、MiMo、AstrBot 与自动触发策略"
+    }
+  }
+}

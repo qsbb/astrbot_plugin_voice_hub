@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>凝心溯溪-声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.12.1-2" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.12.1-2" />
+  <link rel="stylesheet" href="./style.css?v=0.12.2-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.12.2-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
@@ -59,8 +59,8 @@
       </div>
       <fieldset class="trigger-mode-fieldset backend-choice-grid">
         <legend>选择统一语音服务实际使用的合成后端（本页所有分区的专属设置都跟着它切换）</legend>
-        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo TTS</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
-        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置 TTS</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo 语音合成</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置语音合成</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
       </fieldset>
       <p id="backend-active-note" class="field-hint selection-note" aria-live="polite">当前显示 MiMo 专属设置；AstrBot 专属设置已收起。</p>
       <div class="backend-jump-row">
@@ -112,7 +112,7 @@
             <span class="section-kicker">朗读触发</span>
             <h2>统一朗读与触发</h2>
           </div>
-          <span class="soft-pill">voice_hub_speak</span>
+          <span class="soft-pill">统一朗读工具</span>
         </div>
         <div class="service-state-banner"><span class="pulse-dot"></span><strong>统一朗读服务已启用</strong><small>模型只面对一个朗读工具，实际合成由上方后端选择决定。</small></div>
         <div class="form-grid one-col">
@@ -203,8 +203,8 @@
           <a class="ghost-link compact-link" href="https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5" rel="noreferrer">MiMo 文档</a>
         </div>
         <div class="form-grid two-col">
-          <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
-          <label>Base URL<input id="base-url" type="text" /></label>
+          <label>访问密钥（API Key）<input id="api-key" type="password" autocomplete="off" placeholder="填入 MiMo API Key" /></label>
+          <label>接口地址（Base URL）<input id="base-url" type="text" /></label>
           <label>模型<input id="model" type="text" /></label>
           <label>最大文本长度<input id="max-text-chars" type="number" min="1" /></label>
           <label>并发数<input id="max-concurrency" type="number" min="1" /></label>
@@ -243,7 +243,7 @@
         <div class="mobile-fold-body">
       <div class="policy-note">
         <strong>规则顺序</strong>
-        <span>管理员 ID 永远放行；普通用户先看黑名单，再看白名单。白名单留空表示不限制。可填纯 ID，也可填完整 UMO。</span>
+        <span>管理员 ID 永远放行；普通用户先看黑名单，再看白名单。白名单留空表示不限制。可填纯 ID，也可填完整会话标识（UMO）。</span>
       </div>
       <div id="access-summary" class="access-summary" aria-live="polite"></div>
       <div class="table-wrap">
@@ -289,7 +289,7 @@
           </select>
         </label>
         <details class="manual-provider">
-          <summary>手动填写 provider id</summary>
+          <summary>手动填写模型服务商标识</summary>
           <label>服务商 ID<input id="ai-style-director-provider-id" type="text" placeholder="可手填 provider id；留空使用当前默认 LLM" /></label>
         </details>
         <p id="ai-provider-hint" class="field-hint">正在读取 AstrBot 已配置的 AI 服务商...</p>
@@ -385,7 +385,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.12.1-2"></script>
-  <script src="./app.js?v=0.12.1-2"></script>
+  <script src="./series-ui.js?v=0.12.2-1"></script>
+  <script src="./app.js?v=0.12.2-1"></script>
 </body>
 </html>

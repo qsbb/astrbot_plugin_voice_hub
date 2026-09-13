@@ -828,10 +828,13 @@ body[data-series-ui] .voice-actions button.confirming {
 
 body[data-series-ui] .preview-row {
   display: grid;
-  grid-template-columns: 220px 150px 1fr auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-items: center;
 }
+
+body[data-series-ui] .preview-row input,
+body[data-series-ui] .preview-row button { grid-column: 1 / -1; }
 
 body[data-series-ui] .audio-frame {
   display: grid;
@@ -1099,3 +1102,16 @@ body[data-series-ui] .style-routing-block {
 body[data-series-ui] .style-routing-block .section-head { margin-bottom: 10px; }
 
 body[data-series-ui] .style-routing-block h2 { font-size: 18px; }
+
+/* Hero 内外边距统一由 gap 控制，标题/说明默认外边距归零 */
+body[data-series-ui] .studio-hero h1,
+body[data-series-ui] .studio-hero p { margin: 0; }
+
+/* 访问规则表：行分隔线用可见的深色线 */
+body[data-series-ui] .access-rules-table td { border-bottom: 1px solid var(--si-line-solid); }
+
+/* 移动保存栏 & 页面预留同时考虑底部安全区 */
+@media (max-width: 760px) {
+  body[data-series-ui] .studio-shell { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  body[data-series-ui] .mobile-save-bar { bottom: calc(10px + env(safe-area-inset-bottom)); }
+}

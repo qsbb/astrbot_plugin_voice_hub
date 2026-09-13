@@ -287,7 +287,7 @@ function renderProviderSelect() {
     hint.textContent = `已读取到 ${state.providers.length} 个 AstrBot AI 服务商；留空则使用当前默认 LLM。`;
     hint.className = 'field-hint ok';
   } else {
-    hint.textContent = '未读取到 AstrBot AI 服务商。可先确认 AstrBot 已启用聊天模型，或在右侧手填 provider id。';
+    hint.textContent = '未读取到 AstrBot AI 服务商。可先确认 AstrBot 已启用聊天模型，或在右侧手填模型服务商标识。';
     hint.className = 'field-hint warn';
   }
 }
@@ -332,7 +332,7 @@ function renderReadiness() {
     {
       title: '统一朗读工具',
       ok: true,
-      detail: 'voice_hub_speak 已接入当前后端。',
+      detail: '统一朗读工具已接入当前后端。',
     },
     {
       title: '交付策略',
@@ -341,7 +341,7 @@ function renderReadiness() {
     },
   ] : [
     {
-      title: 'MiMo API Key',
+      title: 'MiMo 访问密钥',
       ok: readiness.api_key,
       detail: readiness.api_key ? '已保存，可请求 MiMo。' : '未保存，试听和自动语音会失败。',
     },

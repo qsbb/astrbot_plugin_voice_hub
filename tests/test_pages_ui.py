@@ -23,7 +23,7 @@ class PagesUITests(unittest.TestCase):
             html.index('<link rel="stylesheet" href="./series-ui.css?v='),
         )
         self.assertIn('<script src="./series-ui.js?v=', html)
-        self.assertIn("凝心 UI 1.0 — Glass Aurora", shared)
+        self.assertRegex(shared, r"凝心 UI 1\.0(\.\d+)? — Glass Aurora")
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
         self.assertIn("workflow-strip", html)

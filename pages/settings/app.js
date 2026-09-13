@@ -372,6 +372,7 @@ function renderReadiness() {
       <span>${escapeHtml(item.detail)}</span>
     </article>
   `).join('');
+  updateAccessCounts();
 }
 
 function renderAccessControl() {
@@ -408,6 +409,28 @@ function renderAccessControl() {
       `).join('')}
     </div>
   `;
+}
+
+function updateAccessCounts() {
+  const count = (id) => {
+    const field = $(id);
+    if (!field) return 0;
+    return String(field.value || "")
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean).length;
+  };
+  const values = {
+    "access-count-admin": count("admin-users"),
+    "access-count-group-allow": count("auto-tts-group-whitelist"),
+    "access-count-group-deny": count("auto-tts-group-blacklist"),
+    "access-count-private-allow": count("auto-tts-private-whitelist"),
+    "access-count-private-deny": count("auto-tts-private-blacklist"),
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const node = $(id);
+    if (node) node.textContent = String(value);
+  });
 }
 
 function previewDisabledReason() {
@@ -462,12 +485,33 @@ function updateTriggerModeUI() {
     : '当前由 LLM 决定何时调用语音工具；概率设置已收起，也不会自动把普通回复转成语音。';
 }
 
+function currentTtsBackend() {
+  return document.querySelector('input[name="tts-backend"]:checked')?.value || state.config.tts_backend || 'mimo';
+}
+
+function currentVoiceTask() {
+  return document.querySelector('[data-voice-tab].active')?.dataset.voiceTab || 'overview';
+}
+
+function applyPanelVisibility() {
+  const task = currentVoiceTask();
+  const backend = currentTtsBackend();
+  document.querySelectorAll('[data-voice-panel]').forEach(panel => {
+    const inTask = panel.dataset.voicePanel === task;
+    const scopes = (panel.dataset.backendScope || 'shared').split(/\s+/).filter(Boolean);
+    const inBackend = scopes.includes('shared') || scopes.includes(backend);
+    panel.hidden = !(inTask && inBackend);
+  });
+}
+
 function updateTtsBackendUI() {
-  const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || 'mimo';
+  const backend = currentTtsBackend();
   document.querySelectorAll('[data-backend-scope]').forEach(element => {
+    if (element.dataset.voicePanel) return; // 任务 tab 与后端 scope 的组合显隐交给 applyPanelVisibility
     const scopes = element.dataset.backendScope.split(/\s+/);
     element.hidden = !scopes.includes('shared') && !scopes.includes(backend);
   });
+  applyPanelVisibility();
   $('test-connection').textContent = backend === 'astrbot' ? '诊断 AstrBot 后端' : '诊断 MiMo 后端';
   $('test-hint').textContent = backend === 'astrbot'
     ? '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。'
@@ -1103,7 +1147,44 @@ function bindMobileFolds() {
   });
 }
 
+function switchVoiceTask(name) {
+  document.querySelectorAll("[data-voice-tab]").forEach((tab) => {
+    const active = tab.dataset.voiceTab === name;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  applyPanelVisibility();
+}
+
+function bindVoiceTaskTabs() {
+  const tabs = [...document.querySelectorAll("[data-voice-tab]")];
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => switchVoiceTask(tab.dataset.voiceTab));
+    tab.addEventListener("keydown", (event) => {
+      let next = index;
+      if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+      else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      switchVoiceTask(tabs[next].dataset.voiceTab);
+      tabs[next].focus();
+    });
+  });
+  switchVoiceTask("overview");
+}
+
 function bindPageEvents() {
+  bindVoiceTaskTabs();
+  document.querySelectorAll('[data-goto-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      switchVoiceTask(button.dataset.gotoTab);
+      const panel = document.querySelector(`[data-voice-panel="${button.dataset.gotoTab}"]:not([hidden])`);
+      if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  });
   $('mobile-save-config')?.addEventListener('click', () => $('save-config').click());
   $('mobile-test-connection')?.addEventListener('click', () => $('test-connection').click());
   bind('save-config', saveConfig, '保存中...');
@@ -1117,6 +1198,15 @@ function bindPageEvents() {
     runAction($('migrate-old-plugin'), '迁移中...', migrateOldPlugin);
   });
   bindConfigDirtyState();
+  [
+    'admin-users',
+    'auto-tts-group-whitelist',
+    'auto-tts-group-blacklist',
+    'auto-tts-private-whitelist',
+    'auto-tts-private-blacklist',
+  ].forEach((id) => {
+    $(id).addEventListener('input', updateAccessCounts);
+  });
   bindActionAvailability();
   bindProviderSelect();
   bindPreviewPlaybackState();

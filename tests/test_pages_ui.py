@@ -16,13 +16,13 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("凝心溯溪 · 声", html)
         self.assertIn("声 · 统一语音中心", html)
         self.assertIn('data-series-ui="1"', html)
-        self.assertIn('<link rel="stylesheet" href="./series-ui.css" />', html)
-        self.assertIn('<link rel="stylesheet" href="./style.css" />', html)
+        self.assertIn('<link rel="stylesheet" href="./series-ui.css?v=', html)
+        self.assertIn('<link rel="stylesheet" href="./style.css?v=', html)
         self.assertLess(
-            html.index('<link rel="stylesheet" href="./style.css" />'),
-            html.index('<link rel="stylesheet" href="./series-ui.css" />'),
+            html.index('<link rel="stylesheet" href="./style.css?v='),
+            html.index('<link rel="stylesheet" href="./series-ui.css?v='),
         )
-        self.assertIn('<script src="./series-ui.js"></script>', html)
+        self.assertIn('<script src="./series-ui.js?v=', html)
         self.assertIn("凝心 UI 1.0 — Glass Aurora", shared)
         self.assertIn("studio-shell", html)
         self.assertIn("studio-hero", html)
@@ -47,7 +47,7 @@ class PagesUITests(unittest.TestCase):
     def test_settings_page_loads_astrbot_bridge_before_app(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
         bridge_script = '<script src="/api/plugin/page/bridge-sdk.js"></script>'
-        app_script = '<script src="./app.js"></script>'
+        app_script = '<script src="./app.js?v='
 
         self.assertIn(bridge_script, html)
         self.assertIn(app_script, html)
@@ -263,7 +263,8 @@ class PagesUITests(unittest.TestCase):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertIn('data-backend-scope="shared"', html)
-        self.assertGreaterEqual(html.count('data-backend-scope="mimo"'), 5)
+        # MiMo 专属块：MiMo 设置 / AI 风格导演（含情绪路由）/ 音色库 / 试听
+        self.assertEqual(html.count('data-backend-scope="mimo"'), 4)
         self.assertIn('data-backend-scope="astrbot"', html)
         self.assertIn('id="backend-selection"', html)
         self.assertIn("voice-core-grid", html)
@@ -320,14 +321,15 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("情绪路由", html)
         self.assertIn("分段、等待与取消", html)
         self.assertNotIn("情绪与分段", html)
-        emotion_card = html.split(
-            'class="studio-card routing-card" data-backend-scope="mimo"', 1
-        )[1].split("</section>", 1)[0]
+        # 情绪路由并入「AI 风格导演」卡片，与分段交付仍然分开
+        emotion_card = html.split('id="voice-style"', 1)[1].split("</section>", 1)[0]
         delivery_card = html.split('class="studio-card delivery-card span-5" data-backend-scope="shared"', 1)[1].split(
             "</article>", 1
         )[0]
         self.assertIn('id="emotion-routing-enabled"', emotion_card)
         self.assertIn('id="emotion-defaults"', emotion_card)
+        self.assertIn("style-routing-block", emotion_card)
+        self.assertNotIn('class="studio-card routing-card"', html)
         self.assertNotIn('id="segment-enabled"', emotion_card)
         self.assertIn('id="segment-enabled"', delivery_card)
         self.assertIn('id="segment-threshold-chars"', delivery_card)
@@ -398,7 +400,7 @@ def test_settings_page_p1_regressions():
     css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
     js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert '<details class="workflow-fold" id="workflow-help">' in html
+    assert '<details class="workflow-fold" id="workflow-help" data-voice-panel="overview">' in html
     assert '<summary>推荐配置流程（4 步）</summary>' in html
     assert '<details class="manual-provider">' in html
     for label in (
@@ -436,3 +438,52 @@ def test_settings_mobile_long_sections_are_collapsible():
     assert 'data-toast-fallback' in html
     assert ".mobile-fold > summary" in css
     assert "@media (min-width: 761px)" in css
+
+
+def test_settings_page_uses_task_tabs_and_composed_panel_visibility():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+    css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
+
+    # 真实二级 tab 取代锚点导航
+    assert "section-nav" not in html
+    assert '<div id="voice-task-tabs" class="si-tabbar" role="tablist"' in html
+    for task in ("overview", "backend", "dialogue", "interface"):
+        assert f'data-voice-tab="{task}"' in html
+        assert f'data-voice-panel="{task}"' in html
+    assert html.count("data-voice-tab=") == 4
+    assert "data-goto-tab=" in html
+
+    # 后端选择是常驻作用域切换器：首屏可见，且不属于任何 tab 面板
+    assert 'id="backend-selection"' in html
+    assert 'data-voice-panel="overview" id="backend-selection"' not in html
+    assert html.index('id="backend-selection"') < html.index('id="voice-overview"')
+    assert 'data-voice-panel="backend"' in html  # 后端专属设置仍在后端 tab
+    assert 'id="voice-library"' in html
+    assert 'data-voice-panel="backend" id="voice-library"' in html
+
+    # tab 显隐与后端 scope 组合，而不是互相覆盖
+    assert "function applyPanelVisibility()" in js
+    assert "const task = currentVoiceTask();" in js
+    assert "panel.hidden = !(inTask && inBackend);" in js
+    assert "if (element.dataset.voicePanel) return;" in js
+    assert "applyPanelVisibility();" in js
+    assert "body[data-series-ui] [data-voice-panel][hidden] { display: none; }" in css
+    assert "#voice-task-tabs" in css
+
+
+def test_settings_access_rule_summary_counts_follow_textareas():
+    html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+    js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'class="access-rules-table"' in html
+    for key in ("admin", "group-allow", "group-deny", "private-allow", "private-deny"):
+        assert f'id="access-count-{key}"' in html
+    assert '<details id="access-editor" class="si-disclosure">' in html
+    assert 'id="admin-users"' in html
+
+    assert "function updateAccessCounts()" in js
+    assert r'.split(/[,\n]/)' in js
+    assert "node.textContent = String(value);" in js
+    assert "updateAccessCounts();" in js
+    assert "$(id).addEventListener('input', updateAccessCounts);" in js

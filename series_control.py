@@ -107,6 +107,20 @@ def _native_config(plugin: Any) -> dict[str, Any]:
     return native
 
 
+def native_view(plugin: Any) -> dict[str, Any]:
+    """原生配置视图（不含核覆盖层），固化与备份共用。"""
+    native = _native_config(plugin)
+    return {
+        name: native.get(name, definition["default"])
+        for name, definition in FIELDS.items()
+    }
+
+
+def sync_runtime(plugin: Any) -> None:
+    """按当前模式与磁盘覆盖层重新应用运行时视图（供固化入口复用）。"""
+    _apply_runtime(plugin, _load(plugin)["overrides"])
+
+
 def _apply_runtime(plugin: Any, overrides: dict[str, Any]) -> None:
     effective = _native_config(plugin)
     if getattr(plugin, "_series_control_mode", "native") == "managed":
@@ -145,9 +159,11 @@ def contract(plugin: Any) -> dict[str, Any]:
         "capabilities": [
             "read_schema",
             "read_snapshot",
+            "read_native",
             "validate_patch",
             "apply_patch",
             "reset_override",
+            "write_native",
         ],
         "read_only": False,
         "secrets_in_response": False,
@@ -172,7 +188,7 @@ def snapshot(plugin: Any) -> dict[str, Any]:
     native = _native_config(plugin)
     fields = {}
     for name, definition in FIELDS.items():
-        fields[name] = {
+        item: dict[str, Any] = {
             "native_configured": name in (getattr(plugin, "config", {}) or {}),
             "managed_configured": name in overrides,
             "effective_source": "managed"
@@ -182,6 +198,12 @@ def snapshot(plugin: Any) -> dict[str, Any]:
             if managed_mode and name in overrides
             else native.get(name, definition["default"]),
         }
+        # 原生配置现值：供核「一键读取 / 一键固化」使用；secret 不回传。
+        if definition.get("secret") or definition.get("write_only"):
+            item["secret"] = True
+        else:
+            item["native_value"] = native.get(name, definition["default"])
+        fields[name] = item
     return {"status": "ok", "revision": state["revision"], "fields": fields}
 
 
@@ -248,6 +270,100 @@ def apply(plugin: Any, patch: dict[str, Any], *, expected_revision: int) -> dict
             pass
         return {"success": False, "reason": "APPLY_FAILED_ROLLED_BACK"}
     return {"success": True, "revision": state["revision"]}
+
+
+def native_write(
+    plugin: Any,
+    patch: dict[str, Any],
+    *,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
+    """一键固化：把当前生效值写进插件自身配置（核掉线后仍按此运行）。
+
+    只接受 FIELDS 白名单字段；先做类型/边界校验，再交给插件层备份 +
+    运行时同步 + 原子落盘。任何失败都返回 error，覆盖层与 revision 不变。
+    """
+    state = _load(plugin)
+    revision = state["revision"]
+    try:
+        expected = revision if expected_revision is None else int(expected_revision)
+    except (TypeError, ValueError):
+        return {
+            "status": "error",
+            "reason": "REVISION_CONFLICT",
+            "revision": revision,
+        }
+    if expected != revision:
+        return {
+            "status": "error",
+            "reason": "REVISION_CONFLICT",
+            "revision": revision,
+        }
+    if not isinstance(patch, dict) or not patch or len(patch) > len(FIELDS):
+        return {"status": "error", "reason": "PATCH_INVALID", "revision": revision}
+    clean: dict[str, Any] = {}
+    for name, value in patch.items():
+        definition = FIELDS.get(name)
+        if definition is None:
+            return {
+                "status": "error",
+                "reason": "UNKNOWN_FIELD",
+                "field": str(name),
+                "revision": revision,
+            }
+        kind = definition["type"]
+        if kind == "bool":
+            if not isinstance(value, bool):
+                return {
+                    "status": "error",
+                    "reason": "INVALID_TYPE",
+                    "field": name,
+                    "revision": revision,
+                }
+        elif kind == "int":
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not definition["minimum"] <= value <= definition["maximum"]
+            ):
+                return {
+                    "status": "error",
+                    "reason": "INVALID_VALUE",
+                    "field": name,
+                    "revision": revision,
+                }
+        elif kind == "enum":
+            if value not in definition["values"]:
+                return {
+                    "status": "error",
+                    "reason": "INVALID_VALUE",
+                    "field": name,
+                    "revision": revision,
+                }
+        else:  # pragma: no cover - 白名单 schema 固定，防御性兜底
+            return {
+                "status": "error",
+                "reason": "INVALID_TYPE",
+                "field": name,
+                "revision": revision,
+            }
+        clean[name] = value
+
+    hook = getattr(plugin, "_apply_native_series_control_values", None)
+    if not callable(hook):
+        return {"status": "error", "reason": "UNSUPPORTED", "revision": revision}
+    outcome = hook(clean)
+    if not isinstance(outcome, dict) or outcome.get("status") != "ok":
+        reason = str((outcome or {}).get("reason") or "PERSIST_FAILED")
+        return {"status": "error", "reason": reason, "revision": revision}
+    return {
+        "status": "ok",
+        "reason": "APPLIED",
+        "revision": revision,
+        "written": list(outcome.get("written") or sorted(clean)),
+        "skipped": list(outcome.get("skipped") or []),
+        "backup_id": str(outcome.get("backup_id") or ""),
+    }
 
 
 def reset(

@@ -542,4 +542,4 @@ def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
 def test_settings_page_uses_incremented_asset_cache_busters():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
-        assert f"{asset}?v=0.12.5-1" in html
+        assert f"{asset}?v=0.12.6-1" in html

@@ -337,7 +337,7 @@ result = await plugin.render_pcm_wav(
 
 声提供 `series.control@1.0`，供凝心溯溪“核”统一管理少量非秘密语音运行策略。可接管字段为 `segment_enabled`、`segment_threshold_chars`、`segment_max_segments`、`reply_mode`、`tts_trigger_mode`；MiMo API Key、外部 API Token、音色数据、黑白名单与管理员等秘密或权限字段不属于该契约。
 
-覆盖快照由声在插件数据目录的 `series-control.json` 中原子保存；核不可用、契约不兼容、revision 冲突或写入失败时，声回滚并继续使用自身配置。关闭统一接管后无需重启即可恢复原生配置。
+覆盖快照由声在插件数据目录的 `series-control.json` 中原子保存；核不可用、契约不兼容、revision 冲突或写入失败时，声回滚并继续使用自身配置。契约声明 `read_native` 与 `write_native`：核可读取声的原生配置现值，也可把当前生效值一键固化进声自身的 `config.json`（写前自动生成 `native-backup-<UTC 时间戳>.json` 备份），核临时掉线时声仍按固化后的配置运行。关闭统一接管后无需重启即可恢复原生配置。
 
 AstrBot TTS 与发送前 AI 导演在未显式配置本插件 Provider 时，会先读取核的只读契约 `series.model_router@1.0`；核未安装、契约不兼容或路由不可用时，继续回退 AstrBot 原生默认提供商。插件内显式配置的提供商始终优先，不会被核改写。
 

@@ -9,6 +9,7 @@ import re
 import shutil
 import time
 import wave
+from datetime import datetime, timezone
 from typing import Any
 
 from astrbot.api.event import AstrMessageEvent, filter
@@ -74,7 +75,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.12.5"
+__version__ = "0.12.6"
 
 
 @register(
@@ -288,6 +289,102 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             encoding="utf-8",
         )
         tmp_path.replace(self._config_file)
+
+    def _backup_native_config(self) -> str:
+        """写原生配置前先备份 config.json，返回 backup_id。
+
+        文件不存在时（全新安装）回退为当前内存配置快照；失败返回空串并
+        记录 warning，不阻断固化流程。
+        """
+        try:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            backup = self._config_file.with_name(f"native-backup-{stamp}.json")
+            if self._config_file.is_file():
+                payload = self._config_file.read_text(encoding="utf-8")
+            else:
+                payload = json.dumps(self.config, ensure_ascii=False, indent=2)
+            tmp_path = backup.with_suffix(".json.tmp")
+            tmp_path.write_text(payload, encoding="utf-8")
+            tmp_path.replace(backup)
+            return stamp
+        except Exception as exc:
+            self.logger.warning("[voice-hub] native backup failed: %s", exc)
+            return ""
+
+    def _sync_native_config(self, changes: dict[str, Any]) -> bool:
+        """把固化值镜像到 AstrBot 原生配置对象（best effort）。"""
+        native_config = getattr(self, "_native_config", None)
+        if native_config is None:
+            return False
+        try:
+            native_config.update(changes)
+            save = getattr(native_config, "save_config", None)
+            if callable(save):
+                save()
+            return True
+        except Exception as exc:
+            self.logger.warning("[voice-hub] native config mirror failed: %s", exc)
+            return False
+
+    def _apply_native_series_control_values(self, values: dict[str, Any]) -> dict[str, Any]:
+        """一键固化：把 values 合并进原生配置、同步运行时并原子落盘。
+
+        本插件以 data_dir/config.json 为运行主配置（启动时覆盖 AstrBot
+        原生值），因此这里以它作为固化落点，AstrBot 配置只做 best-effort
+        镜像。任何一步失败都回滚内存并返回 error。
+        """
+        if not isinstance(values, dict) or not values:
+            return {"status": "error", "reason": "INVALID_PATCH"}
+        from .series_control import FIELDS, native_view, sync_runtime
+
+        clean = {
+            str(name): value for name, value in values.items() if name in FIELDS
+        }
+        if not clean:
+            return {"status": "error", "reason": "UNKNOWN_FIELD"}
+        backup_id = self._backup_native_config()
+        previous_config = self.config
+        previous_plugin_config = self.plugin_config
+        previous_native_memory = dict(
+            getattr(self, "_series_control_native_values", {}) or {}
+        )
+        candidate = native_view(self)
+        candidate.update(clean)
+        try:
+            normalized = normalize_config(candidate)
+            built = build_plugin_config(normalized)
+        except Exception as exc:
+            return {"status": "error", "reason": f"INVALID_CONFIG:{exc}"}
+
+        remembered = dict(previous_native_memory)
+        remembered.update(clean)
+        self.config = normalized
+        self.plugin_config = built
+        self._series_control_native_values = remembered
+        try:
+            self._persist_local_config()
+        except Exception as exc:
+            self.config = previous_config
+            self.plugin_config = previous_plugin_config
+            self._series_control_native_values = previous_native_memory
+            try:
+                sync_runtime(self)
+            except Exception:
+                pass
+            return {"status": "error", "reason": f"PERSIST_FAILED:{exc}"}
+        self._sync_native_config(clean)
+        try:
+            sync_runtime(self)
+        except Exception as exc:
+            self.logger.warning(
+                "[voice-hub] series control runtime sync failed: %s", exc
+            )
+        return {
+            "status": "ok",
+            "written": sorted(clean),
+            "skipped": [],
+            "backup_id": backup_id,
+        }
 
     def _update_runtime_config(self, changes: dict[str, Any]) -> dict[str, Any]:
         merged = dict(self.config)
@@ -1529,6 +1626,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     def series_control_snapshot(self):
         from .series_control import snapshot
         return snapshot(self)
+
+    def series_control_native_write(self, patch, *, expected_revision=None):
+        """一键固化入口（核调用）：把值写进插件自身配置。"""
+        from .series_control import native_write
+        return native_write(self, patch, expected_revision=expected_revision)
 
     def series_control_set_mode(self, mode):
         from .series_control import set_mode

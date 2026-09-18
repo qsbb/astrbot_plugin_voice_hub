@@ -13,7 +13,6 @@ class PagesUITests(unittest.TestCase):
         shared = (PAGES_DIR / "series-ui.css").read_text(encoding="utf-8")
 
         self.assertIn("凝心溯溪-声", html)
-        self.assertIn("凝心溯溪 · 声", html)
         self.assertIn("声 · 统一语音中心", html)
         self.assertIn('data-series-ui="1"', html)
         self.assertIn('<link rel="stylesheet" href="./series-ui.css?v=', html)
@@ -84,8 +83,7 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("function uploadVoiceSample", js)
         self.assertIn("function readFileAsBase64", js)
         self.assertIn("function voiceMetadataPayload", js)
-        self.assertIn("function syncVoiceMetadata", js)
-        self.assertIn("元数据同步失败", js)
+        self.assertIn("bridge.upload('upload_voice_sample', file, metadata)", js)
         self.assertIn("音色已上传，但刷新列表失败", js)
         self.assertIn("upload_voice_sample_json", js)
         self.assertIn("兼容上传", js)
@@ -120,13 +118,11 @@ class PagesUITests(unittest.TestCase):
         self.assertIn("readiness-item", css)
         self.assertIn("policy-grid", html)
         self.assertIn("access-card", html)
-        self.assertIn("access-summary", html)
         self.assertIn("admin-users", html)
         self.assertIn('name="tts-trigger-mode" value="probability"', html)
         self.assertIn('name="tts-trigger-mode" value="llm_decides"', html)
         self.assertIn("不向 LLM 提供语音工具", html)
         self.assertIn("只允许 LLM 调用语音工具", html)
-        self.assertIn("当前按概率把普通回复转成语音", html)
         self.assertIn('id="llm-tts-judge-enabled"', html)
         self.assertIn("让 LLM 判断这条回复适不适合朗读", html)
         self.assertIn("llm-tts-judge-field", css)
@@ -134,11 +130,6 @@ class PagesUITests(unittest.TestCase):
         self.assertNotIn("auto-tts-enabled", js)
         self.assertIn("auto-tts-group-whitelist", html)
         self.assertIn("auto-tts-private-blacklist", html)
-        self.assertIn("function renderAccessControl", js)
-        self.assertIn("access_control", js)
-        self.assertIn("access-summary-list", js)
-        self.assertIn("access-summary-core", css)
-        self.assertIn("access-summary-list", css)
 
     def test_settings_serializes_lists_and_accepts_json_string_responses(self):
         js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
@@ -388,7 +379,8 @@ class PagesUITests(unittest.TestCase):
             "async function setEmotionDefault", 1
         )[0]
 
-        self.assertIn("await refresh();", save_config)
+        self.assertIn("res.readiness", save_config)
+        self.assertNotIn("await refresh();", save_config)
         self.assertNotIn('target="_blank"', html)
         self.assertIn("playPromise", preview)
         self.assertIn("请手动点击播放器播放", preview)
@@ -485,7 +477,7 @@ def test_settings_access_rule_summary_counts_follow_textareas():
     assert 'id="admin-users"' in html
 
     assert "function updateAccessCounts()" in js
-    assert r'.split(/[,\n]/)' in js
+    assert '"access-count-admin": listValue("admin-users").length' in js
     assert "node.textContent = String(value);" in js
     assert "updateAccessCounts();" in js
     assert "$(id).addEventListener('input', updateAccessCounts);" in js
@@ -496,9 +488,8 @@ def test_settings_compact_command_header_and_backend_runbar():
     css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
     assert 'class="studio-hero studio-hero-compact"' in html
-    assert 'class="hero-actions hero-actions-sticky"' in html
+    assert 'class="hero-actions"' in html
     assert 'id="backend-run-summary"' in html
-    assert "常驻，所有分区跟随" in html
     assert html.index('id="backend-selection"') < html.index('id="voice-task-tabs"')
     assert ".studio-hero-compact {" in css
     assert "position: sticky;" in css
@@ -510,13 +501,11 @@ def test_settings_overview_has_backend_voice_preview_and_switch_summaries():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'id="overview-backend-summary"' in html
     assert 'data-focus-target="#voice-library"' in html
     assert 'data-focus-target="#voice-preview-card"' in html
     assert 'id="overview-director-status"' in html
     assert 'id="overview-api-status"' in html
     assert "button.dataset.focusTarget" in js
-    assert "overview-backend-summary" in js
 
 
 def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
@@ -542,4 +531,4 @@ def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
 def test_settings_page_uses_incremented_asset_cache_busters():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
-        assert f"{asset}?v=0.12.6-1" in html
+        assert f"{asset}?v=0.12.7-1" in html

@@ -6,7 +6,7 @@ const notify = (message, type = "ok") => {
     window.SeriesUI.toast(message, mapped);
     return;
   }
-  const fallback = document.querySelector("[data-toast-fallback], #bridge-error, #startup-error, #page-error");
+  const fallback = document.querySelector("[data-toast-fallback]");
   if (fallback) {
     fallback.textContent = String(message || "");
     fallback.hidden = false;
@@ -86,7 +86,6 @@ let state = {
   providers: [],
   ttsProviders: [],
   readiness: {},
-  accessControl: {},
 };
 let lastUploadedVoiceId = '';
 let configDirty = false;
@@ -314,10 +313,9 @@ function renderProviderSelect() {
 function updateStatus() {
   const backend = document.querySelector('input[name="tts-backend"]:checked')?.value || state.config.tts_backend || 'mimo';
   const triggerMode = document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || state.config.tts_trigger_mode || 'probability';
-  $('model-status').textContent = backend === 'astrbot' ? 'AstrBot TTS' : 'MiMo TTS';
   $('emotion-status').textContent = triggerMode === 'llm_decides' ? 'LLM 决定' : '概率触发';
   $('segment-status').textContent = state.config.segment_enabled === false ? '仅结构' : '结构优先';
-  $('overview-director-status').textContent = state.config.ai_style_director_enabled ? '开启' : '关闭';
+  $('overview-director-status').textContent = $('ai-style-director-enabled').checked ? '开启' : '关闭';
   $('overview-api-status').textContent = $('api-server-enabled').checked ? '开启' : '关闭';
   const enabledVoices = Array.isArray(state.voices)
     ? state.voices.filter(voice => voice.enabled !== false).length
@@ -330,7 +328,6 @@ function updateStatus() {
     ? 'AstrBot 内置语音合成'
     : 'MiMo 语音合成（克隆音色）';
   $('backend-run-summary').textContent = backendLabel;
-  $('overview-backend-summary').textContent = backendLabel;
 }
 
 function renderReadiness() {
@@ -354,11 +351,6 @@ function renderReadiness() {
       detail: selectedProvider
         ? `使用 ${selectedProvider}。`
         : (state.ttsProviders.length ? `使用 AstrBot 默认提供商；检测到 ${state.ttsProviders.length} 个可选项。` : '未读取到可选提供商，将尝试使用 AstrBot 默认 TTS。'),
-    },
-    {
-      title: '统一朗读工具',
-      ok: true,
-      detail: '统一朗读工具已接入当前后端。',
     },
     {
       title: '交付策略',
@@ -401,57 +393,13 @@ function renderReadiness() {
   updateAccessCounts();
 }
 
-function renderAccessControl() {
-  const access = state.accessControl || {};
-  const items = [
-    {
-      title: '管理员',
-      detail: (access.admins && access.admins.detail) || '未配置管理员',
-      count: access.admins ? access.admins.count : 0,
-    },
-    {
-      title: '群聊',
-      detail: (access.group && access.group.detail) || '未设置群聊名单，默认放行',
-      count: ((access.group && access.group.whitelist_count) || 0) + ((access.group && access.group.blacklist_count) || 0),
-    },
-    {
-      title: '私聊',
-      detail: (access.private && access.private.detail) || '未设置私聊名单，默认放行',
-      count: ((access.private && access.private.whitelist_count) || 0) + ((access.private && access.private.blacklist_count) || 0),
-    },
-  ];
-
-  $('access-summary').innerHTML = `
-    <div class="access-summary-core">
-      <strong>当前规则预览</strong>
-      <span>${escapeHtml(access.summary || '管理员优先放行；黑名单优先于白名单；白名单留空表示不限制。')}</span>
-    </div>
-    <div class="access-summary-list">
-      ${items.map(item => `
-        <article class="${item.count ? 'is-active' : ''}">
-          <b>${escapeHtml(item.title)}</b>
-          <span>${escapeHtml(item.detail)}</span>
-        </article>
-      `).join('')}
-    </div>
-  `;
-}
-
 function updateAccessCounts() {
-  const count = (id) => {
-    const field = $(id);
-    if (!field) return 0;
-    return String(field.value || "")
-      .split(/[,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean).length;
-  };
   const values = {
-    "access-count-admin": count("admin-users"),
-    "access-count-group-allow": count("auto-tts-group-whitelist"),
-    "access-count-group-deny": count("auto-tts-group-blacklist"),
-    "access-count-private-allow": count("auto-tts-private-whitelist"),
-    "access-count-private-deny": count("auto-tts-private-blacklist"),
+    "access-count-admin": listValue("admin-users").length,
+    "access-count-group-allow": listValue("auto-tts-group-whitelist").length,
+    "access-count-group-deny": listValue("auto-tts-group-blacklist").length,
+    "access-count-private-allow": listValue("auto-tts-private-whitelist").length,
+    "access-count-private-deny": listValue("auto-tts-private-blacklist").length,
   };
   Object.entries(values).forEach(([id, value]) => {
     const node = $(id);
@@ -495,7 +443,6 @@ function updateActionAvailability() {
       : previewDisabledReason(),
     canPreview ? 'ok' : 'warn'
   );
-  renderReadiness();
 }
 
 function updateTriggerModeUI() {
@@ -506,9 +453,6 @@ function updateTriggerModeUI() {
   $('auto-tts-probability-field').classList.toggle('is-disabled', !probabilityMode);
   $('llm-tts-judge-enabled').disabled = !probabilityMode;
   $('llm-tts-judge-field').classList.toggle('is-disabled', !probabilityMode);
-  $('trigger-mode-note').textContent = probabilityMode
-    ? '当前按概率把普通回复转成语音；下面两项只在此模式生效。'
-    : '当前由 LLM 决定何时调用语音工具；概率设置已收起，也不会自动把普通回复转成语音。';
 }
 
 function currentTtsBackend() {
@@ -538,7 +482,10 @@ function updateTtsBackendUI() {
     element.hidden = !scopes.includes('shared') && !scopes.includes(backend);
   });
   applyPanelVisibility();
-  $('test-connection').textContent = backend === 'astrbot' ? '诊断 AstrBot 后端' : '诊断 MiMo 后端';
+  const diagnoseLabel = backend === 'astrbot' ? '诊断 AstrBot 后端' : '诊断 MiMo 后端';
+  $('test-connection').textContent = diagnoseLabel;
+  const mobileDiagnose = $('mobile-test-connection');
+  if (mobileDiagnose) mobileDiagnose.textContent = diagnoseLabel;
   $('test-hint').textContent = backend === 'astrbot'
     ? '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。'
     : '诊断会检查 MiMo Key、模型、音色和网络，并在完成后清理测试文件。';
@@ -546,8 +493,6 @@ function updateTtsBackendUI() {
   $('backend-active-note').textContent = backend === 'astrbot'
     ? '当前只显示 AstrBot 内置 TTS 的专属设置；MiMo 的 Key、音色和导演设置已收起。'
     : '当前只显示 MiMo 的专属设置；AstrBot 提供商设置已收起。';
-  updateStatus();
-  renderReadiness();
 }
 
 function updateApiServerUI() {
@@ -557,7 +502,6 @@ function updateApiServerUI() {
     ? '外部接口已开启；保存后请用下方地址和令牌访问。'
     : '外部接口未开启；连接设置已收起。';
   updateApiServerUrl();
-  $('overview-api-status').textContent = enabled ? '开启' : '关闭';
 }
 
 function updateAiDirectorUI() {
@@ -566,7 +510,6 @@ function updateAiDirectorUI() {
   $('ai-director-state-hint').textContent = enabled
     ? 'AI 调整已开启；下面可以选择模型和调整方式。'
     : 'AI 调整未开启；语音会使用情绪和音色自带的风格。';
-  $('overview-director-status').textContent = enabled ? '开启' : '关闭';
 }
 
 async function migrateOldPlugin() {
@@ -597,7 +540,6 @@ function renderTtsProviders(selectedId) {
     if (provider.id === selectedId) option.selected = true;
     select.appendChild(option);
   }
-  renderReadiness();
 }
 
 function updateApiServerUrl() {
@@ -643,7 +585,6 @@ function applyState(payload) {
   state.defaults = payload.defaults || {};
   state.emotions = payload.emotions || state.emotions;
   state.readiness = payload.readiness || {};
-  state.accessControl = payload.access_control || {};
 
   $('api-key').value = '';
   $('api-key').placeholder = state.readiness.api_key ? '已配置，留空保持不变' : '填入 MiMo API Key';
@@ -706,13 +647,13 @@ function applyState(payload) {
 
   fillEmotionSelect($('voice-emotion'), true);
   fillEmotionSelect($('preview-emotion'), true);
-  updateStatus();
   renderEmotionDefaults();
   renderVoices();
-  renderReadiness();
-  renderAccessControl();
   markClean();
   setPageLoading(false);
+  // 渲染链收口：status 与 readiness 每轮各渲染一次，不再由子函数重复触发。
+  updateStatus();
+  renderReadiness();
   updateActionAvailability();
 }
 
@@ -823,17 +764,28 @@ async function refresh() {
 async function saveConfig() {
   setActionState('正在保存…', 'is-loading');
   try {
-    const res = parseJsonResponse(await bridge.apiPost('save_config', configPayload()));
+    const payload = configPayload();
+    const res = parseJsonResponse(await bridge.apiPost('save_config', payload));
     if (!res || !res.success) throw new Error((res && res.error) || '保存失败');
-    state.config = res.config || state.config;
     configDirty = false;
+    // 信任保存响应：配置以刚提交的内容为准，readiness 直接由响应更新；
+    // 保存后不再全量重拉 providers 列表。
+    state.config = { ...state.config, ...payload };
+    if (res.readiness) {
+      state.readiness = res.readiness;
+      $('api-key').placeholder = state.readiness.api_key ? '已配置，留空保持不变' : '填入 MiMo API Key';
+      $('api-server-token').placeholder = state.readiness.api_server_token
+        ? '已配置，留空保持不变'
+        : '填写独立访问令牌';
+    }
+    updateStatus();
+    renderReadiness();
     if (res.warning) {
-      updateStatus();
       setActionState('已保存到本地；运行时同步失败', 'is-warning');
       notify(res.warning, 'warn');
       return;
     }
-    await refresh();
+    markClean();
     notify('配置已保存');
   } catch (error) {
     setActionState('保存失败，改动仍未保存', 'is-error');
@@ -879,7 +831,7 @@ function readFileAsBase64(file) {
 
 async function uploadVoiceSample(file, metadata) {
   try {
-    return await bridge.upload('upload_voice_sample', file);
+    return await bridge.upload('upload_voice_sample', file, metadata);
   } catch (error) {
     setUploadHint('常规上传遇到网络错误，正在切换兼容上传...', 'warn');
     const audioBase64 = await readFileAsBase64(file);
@@ -891,14 +843,6 @@ async function uploadVoiceSample(file, metadata) {
   }
 }
 
-async function syncVoiceMetadata(voiceId, metadata) {
-  const res = await bridge.apiPost('update_voice', {
-    voice_id: voiceId,
-    ...metadata,
-  });
-  if (!res.success) throw new Error(res.error || '元数据同步失败');
-}
-
 async function uploadVoice() {
   const { file, name } = validateVoiceUpload();
   const metadata = voiceMetadataPayload(name);
@@ -906,12 +850,6 @@ async function uploadVoice() {
   const res = await uploadVoiceSample(file, metadata);
   if (!res.success || !res.voice) throw new Error(res.error || '上传失败');
   lastUploadedVoiceId = res.voice.id;
-
-  try {
-    await syncVoiceMetadata(res.voice.id, metadata);
-  } catch (error) {
-    notify(`音色已上传，但元数据同步失败：${error.message || error}`, 'warn');
-  }
 
   ['voice-file', 'voice-name', 'voice-desc', 'voice-style-tags', 'voice-style-context'].forEach(id => {
     $(id).value = '';
@@ -1042,6 +980,13 @@ function bind(id, handler, busyText = '处理中...') {
   });
 }
 
+// 同一元素只绑定一个变更事件：文本输入用 input，select / checkbox / file 用 change。
+function bindValueChange(id, handler) {
+  const el = $(id);
+  const useChange = el.tagName === 'SELECT' || ['checkbox', 'radio', 'file'].includes(el.type);
+  el.addEventListener(useChange ? 'change' : 'input', handler);
+}
+
 function bindConfigDirtyState() {
   [
     'api-key',
@@ -1085,20 +1030,22 @@ function bindConfigDirtyState() {
     'api-server-rate-limit',
     'api-server-max-input-chars',
   ].forEach(id => {
-    const el = $(id);
-    el.addEventListener('input', markDirty);
-    el.addEventListener('change', markDirty);
+    bindValueChange(id, markDirty);
   });
 
   ['api-server-enabled', 'api-server-port', 'api-server-host'].forEach(id => {
-    const el = $(id);
-    el.addEventListener('change', updateApiServerUrl);
-    el.addEventListener('input', updateApiServerUrl);
+    bindValueChange(id, updateApiServerUrl);
   });
 
 
-  $('api-server-enabled').addEventListener('change', updateApiServerUI);
-  $('ai-style-director-enabled').addEventListener('change', updateAiDirectorUI);
+  $('api-server-enabled').addEventListener('change', () => {
+    updateApiServerUI();
+    updateStatus();
+  });
+  $('ai-style-director-enabled').addEventListener('change', () => {
+    updateAiDirectorUI();
+    updateStatus();
+  });
   document.querySelectorAll('input[name="tts-trigger-mode"]').forEach(input => {
     input.addEventListener('change', () => {
       updateTriggerModeUI();
@@ -1111,6 +1058,8 @@ function bindConfigDirtyState() {
   document.querySelectorAll('input[name="tts-backend"]').forEach(input => {
     input.addEventListener('change', () => {
       updateTtsBackendUI();
+      updateStatus();
+      renderReadiness();
       markDirty();
     });
   });
@@ -1129,9 +1078,7 @@ function bindActionAvailability() {
     'preview-voice',
     'preview-text',
   ].forEach(id => {
-    const el = $(id);
-    el.addEventListener('input', updateActionAvailability);
-    el.addEventListener('change', updateActionAvailability);
+    bindValueChange(id, updateActionAvailability);
   });
 }
 

@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>凝心溯溪-声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.12.6-1" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.12.6-1" />
+  <link rel="stylesheet" href="./style.css?v=0.12.7-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.12.7-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
@@ -13,16 +13,14 @@
   <main class="studio-shell" aria-busy="true">
     <header class="studio-hero studio-hero-compact">
       <section class="hero-copy">
-        <span class="eyebrow"><span class="pulse-dot"></span> 凝心溯溪 · 声</span>
         <div class="hero-compact-line">
           <div>
             <h1>声 · 统一语音中心</h1>
             <p>朗读触发、结构分段、发送节奏与语音后端。</p>
           </div>
-          <span class="hero-backend-pill" aria-live="polite">当前后端 <strong id="model-status">MiMo TTS</strong></span>
         </div>
       </section>
-      <div class="hero-actions hero-actions-sticky">
+      <div class="hero-actions">
         <button id="save-config" class="primary">保存全部配置</button>
         <button id="test-connection" class="secondary">诊断当前后端</button>
         <span id="save-state" class="action-state is-loading" role="status" aria-live="polite">正在读取配置…</span>
@@ -32,7 +30,6 @@
     <section id="backend-selection" class="studio-card backend-selector-card" data-backend-scope="shared">
       <div class="backend-runbar-title">
         <span class="section-kicker">语音后端</span>
-        <strong>统一运行条</strong>
       </div>
       <fieldset class="trigger-mode-fieldset backend-choice-grid backend-runbar-choices">
         <legend class="sr-only">选择统一语音服务实际使用的合成后端</legend>
@@ -41,8 +38,7 @@
       </fieldset>
       <div class="backend-runbar-status">
         <strong id="backend-run-summary">MiMo 语音合成（克隆音色）</strong>
-        <span>常驻，所有分区跟随</span>
-        <p id="backend-active-note" class="field-hint selection-note" aria-live="polite">当前显示 MiMo 专属设置；AstrBot 专属设置已收起。</p>
+        <p id="backend-active-note" class="field-hint selection-note" aria-live="polite"></p>
       </div>
       <button type="button" class="secondary backend-runbar-jump" data-goto-tab="backend">打开配置</button>
     </section>
@@ -86,9 +82,7 @@
             <span class="section-kicker">运行后端</span>
             <h2>当前合成链路</h2>
           </div>
-          <span class="soft-pill">上方运行条控制</span>
         </div>
-        <p id="overview-backend-summary" class="overview-summary">MiMo 语音合成（克隆音色）</p>
         <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#backend-selection">查看后端设置</button>
       </article>
       <article class="studio-card overview-card">
@@ -99,7 +93,6 @@
           </div>
           <span id="hero-voice-count" class="soft-pill">—</span>
         </div>
-        <p class="overview-summary">上传、启用、默认音色和即时试听都在「后端与音色」。</p>
         <div class="overview-actions">
           <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#voice-library">打开音色库</button>
           <button type="button" class="secondary" data-goto-tab="backend" data-focus-target="#voice-preview-card">去试听</button>
@@ -111,7 +104,6 @@
             <span class="section-kicker">关键开关</span>
             <h2>运行摘要</h2>
           </div>
-          <span class="soft-pill">只读摘要</span>
         </div>
         <div class="overview-chip-list">
           <span class="overview-chip">触发 <strong id="emotion-status">概率</strong></span>
@@ -141,9 +133,8 @@
             <span class="section-kicker">朗读触发</span>
             <h2>统一朗读与触发</h2>
           </div>
-          <span class="soft-pill">统一朗读工具</span>
         </div>
-        <div class="service-state-banner"><span class="pulse-dot"></span><strong>统一朗读服务已启用</strong><small>模型只面对一个朗读工具，实际合成由上方后端选择决定。</small></div>
+        <div class="service-state-banner"><span class="pulse-dot"></span><strong>统一朗读服务已启用</strong></div>
         <div class="form-grid one-col">
           <label>回复模式
             <select id="reply-mode">
@@ -157,7 +148,6 @@
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="probability" /><span><strong>概率触发</strong><small>不向 LLM 提供语音工具，普通回复按下方概率自动转语音。</small></span></label>
             <label class="trigger-mode-option"><input type="radio" name="tts-trigger-mode" value="llm_decides" /><span><strong>LLM 自主决定</strong><small>只允许 LLM 调用语音工具，不执行概率自动 TTS。</small></span></label>
           </fieldset>
-          <p id="trigger-mode-note" class="field-hint selection-note" aria-live="polite">当前按概率把普通回复转成语音；下面两项只在此模式生效。</p>
           <div id="probability-settings" class="conditional-settings">
             <label id="auto-tts-probability-field">自动语音概率<input id="auto-tts-probability" type="number" min="0" max="1" step="0.05" /></label>
             <label id="llm-tts-judge-field" class="studio-switch"><input id="llm-tts-judge-enabled" class="si-toggle" type="checkbox" /><span>让 LLM 判断这条回复适不适合朗读<small>适合朗读的简短口语直接转语音；太长、含代码或纯功能性内容会跳过。判断标记会自动删除，用户看不到。</small></span></label>
@@ -290,11 +280,6 @@
           <span class="soft-pill">管理员优先</span>
         </summary>
         <div class="mobile-fold-body">
-      <div class="policy-note">
-        <strong>规则顺序</strong>
-        <span>管理员 ID 永远放行；普通用户先看黑名单，再看白名单。白名单留空表示不限制。可填纯 ID，也可填完整会话标识（UMO）。</span>
-      </div>
-      <div id="access-summary" class="access-summary" aria-live="polite"></div>
       <div class="table-wrap">
         <table class="access-rules-table">
           <thead><tr><th>范围</th><th>数量</th><th>说明</th></tr></thead>
@@ -362,7 +347,6 @@
           <div class="style-routing-block">
             <div class="section-head">
               <div>
-                <span class="section-kicker">情绪路由</span>
                 <h2>情绪路由</h2>
               </div>
               <span class="soft-pill">先定情绪，再定风格</span>
@@ -418,7 +402,6 @@
     <section id="voice-preview-card" data-voice-panel="backend" class="studio-card preview-card" data-backend-scope="mimo">
       <div class="section-head">
         <div>
-          <span class="section-kicker">试听</span>
           <h2>试听工作台</h2>
         </div>
       </div>
@@ -444,7 +427,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.12.6-1"></script>
-  <script src="./app.js?v=0.12.6-1"></script>
+  <script src="./series-ui.js?v=0.12.7-1"></script>
+  <script src="./app.js?v=0.12.7-1"></script>
 </body>
 </html>

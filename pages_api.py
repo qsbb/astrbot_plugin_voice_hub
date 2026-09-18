@@ -293,9 +293,12 @@ class PagesAPIMixin:
                     "detail": persisted.get("warning") or "",
                 }
             ), 500
+        payload = self._pages_payload()
         response = {
             "success": True,
-            "config": self._pages_payload()["config"],
+            "config": payload["config"],
+            # 设置页保存后信任该响应直接刷新 readiness，不再全量重拉。
+            "readiness": payload["readiness"],
             "persisted": persisted,
         }
         if persisted.get("warning"):

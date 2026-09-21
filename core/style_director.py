@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from .model_router import resolve_provider_id as resolve_routed_provider_id
+from .model_router import resolve_model_route as resolve_routed_model_route
 
 
 DEFAULT_STYLE_DIRECTOR_PROMPT = """你是发送前语音导演，只为 TTS 生成不会展示给用户的音频控制方案。
@@ -134,10 +134,17 @@ async def generate_style_plan(
     *,
     template: str = "",
     provider_id: str = "",
+    model: str = "",
 ) -> StyleDirectorPlan:
     system_prompt, user_prompt = build_style_director_prompt(data, template)
     response = await asyncio.wait_for(
-        _call_llm(context, user_prompt, system_prompt, provider_id=provider_id),
+        _call_llm(
+            context,
+            user_prompt,
+            system_prompt,
+            provider_id=provider_id,
+            model=model,
+        ),
         timeout=15,
     )
     output = getattr(response, "completion_text", response)
@@ -154,22 +161,34 @@ async def generate_style_directive(
     *,
     template: str = "",
     provider_id: str = "",
+    model: str = "",
 ) -> str:
     plan = await generate_style_plan(
-        context, data, template=template, provider_id=provider_id
+        context, data, template=template, provider_id=provider_id, model=model
     )
     return plan.style_context
 
 
 async def _call_llm(
-    context: Any, prompt: str, system_prompt: str, *, provider_id: str = ""
+    context: Any,
+    prompt: str,
+    system_prompt: str,
+    *,
+    provider_id: str = "",
+    model: str = "",
 ) -> Any:
     provider_id = str(provider_id or "").strip()
+    model = str(model or "").strip()
     if not provider_id:
+        # 本地未配置导演服务商时才问核；此时一并消费核配的 model。
+        # 本地显式配置的服务商不带核 model，避免本地配 A、核的 model 覆盖过来。
         try:
-            provider_id = await resolve_routed_provider_id(context, "fast")
+            route = await resolve_routed_model_route(context, "fast")
         except Exception:
-            provider_id = ""
+            route = {}
+        provider_id = str(route.get("provider_id") or "").strip()
+        if not model:
+            model = str(route.get("model") or "").strip()
     if provider_id:
         provider_getter = getattr(context, "get_provider_by_id", None)
         if callable(provider_getter):
@@ -177,16 +196,12 @@ async def _call_llm(
             if provider is None:
                 provider = provider_getter(provider_id)
             if provider is not None and callable(getattr(provider, "text_chat", None)):
-                return await provider.text_chat(
-                    prompt=prompt, context=[], system_prompt=system_prompt
-                )
+                return await _chat(provider, prompt, system_prompt, model=model)
     current_provider = _current_chat_provider(context)
     if current_provider is not None and callable(
         getattr(current_provider, "text_chat", None)
     ):
-        return await current_provider.text_chat(
-            prompt=prompt, context=[], system_prompt=system_prompt
-        )
+        return await _chat(current_provider, prompt, system_prompt, model=model)
     llm_generate = getattr(context, "llm_generate", None)
     if callable(llm_generate):
         kwargs = {
@@ -197,6 +212,20 @@ async def _call_llm(
             kwargs["chat_provider_id"] = provider_id
         return await llm_generate(**kwargs)
     raise RuntimeError("未找到可用的 AstrBot AI 服务商")
+
+
+async def _chat(
+    provider: Any, prompt: str, system_prompt: str, *, model: str = ""
+) -> Any:
+    """Call ``text_chat``, forwarding ``model`` only when the core set one."""
+    kwargs = {"prompt": prompt, "context": [], "system_prompt": system_prompt}
+    if model:
+        try:
+            return await provider.text_chat(**kwargs, model=model)
+        except TypeError:
+            # 老版本 provider 的 text_chat 不接受 model 参数：退回原调用。
+            pass
+    return await provider.text_chat(**kwargs)
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:

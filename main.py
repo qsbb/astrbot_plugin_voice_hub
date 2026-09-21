@@ -39,6 +39,7 @@ from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import SUPPORTED_EMOTIONS, EmotionRouter, normalize_emotion
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
+from .core.model_router import resolve_model_route as resolve_routed_model_route
 from .core.model_router import resolve_provider_id as resolve_routed_provider_id
 from .core.request_context import (
     OWNER_CONVERSATION_FLOW,
@@ -75,7 +76,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.12.7"
+__version__ = "0.12.8"
 
 
 @register(
@@ -562,6 +563,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         resolved_emotion = self._resolve_emotion(cleaned, emotion)
         selector = voice_id or voice_name
+        if not selector:
+            # 核的 tts.voice 只对 MiMo 克隆音色链路有意义，作为默认音色名使用；
+            # 调用方显式指定音色时核不参与，名字不在本地音色库时照旧回落本地默认链。
+            selector = await self._resolve_core_tts_voice()
         voice = self._select_voice(
             selector,
             user_id=user_id,
@@ -604,7 +609,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         provider_id = self.plugin_config.astrbot_tts_provider_id.strip()
         if not provider_id:
-            provider_id = await self._resolve_core_model_provider("tts")
+            route = await self._resolve_core_model_route("tts")
+            provider_id = str(route.get("provider_id") or "").strip()
+            # 核的 tts.voice 在这里被有意忽略：AstrBot 原生 TTS 的
+            # TTSProvider.get_audio(text) 不接收音色参数，音色只能由 provider
+            # 自身配置决定。voice 仅对 MiMo 克隆音色链路有意义。
         provider = None
         if provider_id:
             provider = self.context.get_provider_by_id(provider_id)
@@ -634,6 +643,15 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     async def _resolve_core_model_provider(self, kind: str) -> str:
         """Use 核's optional model router before AstrBot's native default."""
         return await resolve_routed_provider_id(self.context, kind)
+
+    async def _resolve_core_model_route(self, kind: str) -> dict[str, Any]:
+        """Read 核's full route so provider/model/voice are not dropped."""
+        return await resolve_routed_model_route(self.context, kind)
+
+    async def _resolve_core_tts_voice(self) -> str:
+        """核 tts 路由里的默认音色名，供 MiMo 克隆音色链路消费。"""
+        route = await self._resolve_core_model_route("tts")
+        return str(route.get("voice") or "").strip()
 
     def list_astrbot_tts_providers(self) -> list[dict[str, str]]:
         """列出 AstrBot 已配置的 TTS 提供商。
@@ -1876,8 +1894,13 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         directive = ""
         speech_text = text
         style_provider_id = self.plugin_config.ai_style_director_provider_id.strip()
+        style_model = ""
         if not style_provider_id:
-            style_provider_id = await self._resolve_core_model_provider("conversation")
+            # 风格导演是低延迟轻量文本处理，走核的 fast 职责；
+            # 本地显式配置的 provider 不使用核 model（避免本地配 A、核的 model 覆盖过来）。
+            style_route = await self._resolve_core_model_route("fast")
+            style_provider_id = str(style_route.get("provider_id") or "").strip()
+            style_model = str(style_route.get("model") or "").strip()
         try:
             plan = await generate_style_plan(
                 self.context,
@@ -1894,6 +1917,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 ),
                 template=self.plugin_config.ai_style_director_prompt,
                 provider_id=style_provider_id,
+                model=style_model,
             )
             directive = plan.style_context
             speech_text = plan.speech_text or text

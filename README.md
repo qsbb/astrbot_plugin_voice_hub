@@ -192,7 +192,7 @@ pip install -r requirements.txt
 
 开启后，插件会先调用 AstrBot LLM，为待朗读文本生成一份隐藏的音频导演方案：`style_context` 会作为 MiMo `user` 消息参与合成，`speech_text` 只作为音频朗读文本使用。最终聊天文字仍保持原样，不会被改写。
 
-可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空时优先读取“核”的 `series.model_router@1.0` 路由，核未安装或路由不可用时回退当前默认 LLM。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
+可以在 Pages 中填写 `AI 服务商 ID`，指定某个 AstrBot AI 服务商专门负责音频导演；留空时优先读取“核”的 `series.model_router@1.0` 路由 `fast` 职责，并在调用时带上核配的模型名，核未安装或路由不可用时回退当前默认 LLM。填了本地服务商 ID 时只使用本地服务商，不附带核的模型名。开启“优化音频朗读文本”后，AI 可以在不改变原意的前提下剔除“嗯、啊、呃、那个、就是说”等无意义填充，并用标点整理停顿，让音频更自然。
 
 建议先在少量群聊/私聊里测试，再开启自动语音化；它会额外消耗一次 LLM 调用。`voice_hub_speak` LLM 工具不会再次调用该导演，避免工具链中的二次风格改写。
 
@@ -339,7 +339,7 @@ result = await plugin.render_pcm_wav(
 
 覆盖快照由声在插件数据目录的 `series-control.json` 中原子保存；核不可用、契约不兼容、revision 冲突或写入失败时，声回滚并继续使用自身配置。契约声明 `read_native` 与 `write_native`：核可读取声的原生配置现值，也可把当前生效值一键固化进声自身的 `config.json`（写前自动生成 `native-backup-<UTC 时间戳>.json` 备份），核临时掉线时声仍按固化后的配置运行。关闭统一接管后无需重启即可恢复原生配置。
 
-AstrBot TTS 与发送前 AI 导演在未显式配置本插件 Provider 时，会先读取核的只读契约 `series.model_router@1.0`；核未安装、契约不兼容或路由不可用时，继续回退 AstrBot 原生默认提供商。插件内显式配置的提供商始终优先，不会被核改写。
+AstrBot TTS 与发送前 AI 导演在未显式配置本插件 Provider 时，会先读取核的只读契约 `series.model_router@1.0`；核未安装、契约不兼容或路由不可用时，继续回退 AstrBot 原生默认提供商。插件内显式配置的提供商始终优先，不会被核改写。声会消费核路由里的具体设置：AI 导演按 `fast` 职责使用 `provider_id` 与 `model`；TTS 原生后端只使用 `provider_id`（`get_audio(text)` 不接受音色参数，音色由提供商自身配置决定），`tts.voice` 只对 MiMo 克隆音色链路生效——作为本地未显式选音色时的默认音色名，匹配不到本地音色时仍回落本地默认音色链。
 
 ## 系列诊断日志
 

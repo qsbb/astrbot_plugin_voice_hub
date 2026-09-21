@@ -29,10 +29,52 @@ class _Provider:
         return _Response()
 
 
-class _Context:
+class _LegacyProvider:
+    """模拟老版本 provider：text_chat 不接受 model 参数。"""
+
     def __init__(self):
         self.calls = []
-        self.provider = _Provider()
+
+    async def text_chat(self, *, prompt, context, system_prompt, **kwargs):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "context": context,
+                "system_prompt": system_prompt,
+                "extra": dict(kwargs),
+            }
+        )
+        if kwargs:
+            raise TypeError("unexpected keyword argument 'model'")
+        return _Response()
+
+
+ROUTER_CONTRACT = {
+    "name": "series.model_router@1.0",
+    "version": "1.1",
+    "read_only": True,
+    "capabilities": ("resolve", "status"),
+}
+
+
+class _Router:
+    def __init__(self, route):
+        self.route = route
+        self.kinds = []
+
+    def series_model_router_contract(self):
+        return ROUTER_CONTRACT
+
+    def resolve_model_route(self, kind, **_kwargs):
+        self.kinds.append(kind)
+        return {**self.route, "kind": kind}
+
+
+class _Context:
+    def __init__(self, provider=None, router=None):
+        self.calls = []
+        self.provider = provider or _Provider()
+        self.router = router
 
     async def llm_generate(self, **kwargs):
         self.calls.append(kwargs)
@@ -41,10 +83,21 @@ class _Context:
     def get_provider_by_id(self, provider_id=None):
         return self.provider if provider_id == "director-provider" else None
 
+    def get_star_instance(self, plugin_name):
+        if plugin_name != "astrbot_plugin_update_manager":
+            return None
+        return self.router
+
 
 class _DefaultProviderContext(_Context):
     def get_using_provider(self, umo=None):
         return self.provider
+
+
+def _core_route(**overrides):
+    route = {"source": "core", "available": True, "provider_id": "director-provider"}
+    route.update(overrides)
+    return route
 
 
 class StyleDirectorTests(unittest.TestCase):
@@ -124,6 +177,118 @@ class StyleDirectorTests(unittest.TestCase):
         self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
         self.assertEqual(len(context.calls), 0)
         self.assertEqual(len(context.provider.calls), 1)
+
+
+class StyleDirectorModelTests(unittest.TestCase):
+    def test_forwards_explicit_model_to_text_chat(self):
+        context = _Context()
+
+        asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+                provider_id="director-provider",
+                model="fast-mini",
+            )
+        )
+
+        self.assertEqual(len(context.provider.calls), 1)
+        self.assertEqual(context.provider.calls[0]["model"], "fast-mini")
+
+    def test_omits_model_when_not_configured(self):
+        context = _Context()
+
+        asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+                provider_id="director-provider",
+            )
+        )
+
+        self.assertNotIn("model", context.provider.calls[0])
+
+    def test_local_provider_does_not_take_core_model(self):
+        router = _Router(_core_route(model="core-fast-model"))
+        context = _Context(router=router)
+
+        result = asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+                provider_id="director-provider",
+            )
+        )
+
+        self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
+        self.assertEqual(router.kinds, [])
+        self.assertNotIn("model", context.provider.calls[0])
+
+    def test_consumes_core_route_model_without_local_provider(self):
+        router = _Router(_core_route(model="core-fast-model"))
+        context = _Context(router=router)
+
+        result = asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+            )
+        )
+
+        self.assertEqual(router.kinds, ["fast"])
+        self.assertEqual(result.style_context, "用贴近耳边的轻声、慢一点、带一点安慰感。")
+        self.assertEqual(context.provider.calls[0]["model"], "core-fast-model")
+
+    def test_unavailable_core_route_falls_back_to_llm_generate(self):
+        router = _Router(_core_route(available=False))
+        context = _Context(router=router)
+
+        result = asyncio.run(
+            generate_style_directive(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+            )
+        )
+
+        self.assertEqual(result, "用贴近耳边的轻声、慢一点、带一点安慰感。")
+        self.assertEqual(context.provider.calls, [])
+        self.assertEqual(len(context.calls), 1)
+
+    def test_type_error_falls_back_to_text_chat_without_model(self):
+        provider = _LegacyProvider()
+        context = _Context(provider=provider)
+
+        result = asyncio.run(
+            generate_style_plan(
+                context,
+                StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+                provider_id="director-provider",
+                model="fast-mini",
+            )
+        )
+
+        self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
+        self.assertEqual(len(provider.calls), 2)
+        self.assertEqual(provider.calls[0]["extra"], {"model": "fast-mini"})
+        self.assertEqual(provider.calls[1]["extra"], {})
+        self.assertEqual(provider.calls[0]["prompt"], provider.calls[1]["prompt"])
+
+    def test_type_error_still_propagates_without_model(self):
+        class _BrokenProvider:
+            async def text_chat(self, **kwargs):
+                raise TypeError("provider bug")
+
+        context = _Context(provider=_BrokenProvider())
+
+        with self.assertRaisesRegex(TypeError, "provider bug"):
+            asyncio.run(
+                generate_style_plan(
+                    context,
+                    StyleDirectorInput(text="晚上好", emotion="neutral", max_chars=80),
+                    provider_id="director-provider",
+                    model="fast-mini",
+                )
+            )
 
 
 if __name__ == "__main__":

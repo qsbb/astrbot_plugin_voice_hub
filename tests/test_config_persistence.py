@@ -67,19 +67,75 @@ class _Provider:
         )
 
 
+ROUTER_PLUGIN_NAME = "astrbot_plugin_update_manager"
+
+
+class _RouterStar:
+    """核 series.model_router 契约的只读假实现。"""
+
+    def __init__(self, routes=None, contract=None):
+        self.routes = dict(routes or {})
+        self.kinds = []
+        self.contract = (
+            contract
+            if contract is not None
+            else {
+                "name": "series.model_router@1.0",
+                "version": "1.1",
+                "read_only": True,
+                "capabilities": ("resolve", "status"),
+            }
+        )
+
+    def series_model_router_contract(self):
+        return self.contract
+
+    def resolve_model_route(self, kind, **_kwargs):
+        self.kinds.append(kind)
+        route = dict(self.routes.get(kind) or {})
+        route.setdefault("source", "core")
+        route.setdefault("available", True)
+        route["kind"] = kind
+        return route
+
+
+class _TTSProvider:
+    def __init__(self, provider_id="tts-provider"):
+        self.provider_config = {"id": provider_id, "type": "openai_tts"}
+        self.texts = []
+
+    async def get_audio(self, text):
+        self.texts.append(text)
+        return f"/tmp/{self.provider_config['id']}.wav"
+
+
 class _Context:
     def __init__(self):
         self.routes = []
         self.llm_calls = []
         self.fail_llm = False
         self.fail_llm_empty = False
+        self.star_instances = {}
+        self.tts_providers = []
         self.providers = [_Provider(owner=self)]
         self.provider_manager = types.SimpleNamespace(
             curr_provider_inst=self.providers[0],
             provider_insts=self.providers,
             inst_map={self.providers[0].provider_config["id"]: self.providers[0]},
             providers_config=[self.providers[0].provider_config],
+            tts_provider_insts=[],
+            get_using_provider=lambda *args, **kwargs: None,
         )
+
+    def get_star_instance(self, plugin_name):
+        return self.star_instances.get(plugin_name)
+
+    def get_provider_by_id(self, provider_id=None):
+        for provider in [*self.providers, *self.tts_providers]:
+            config = getattr(provider, "provider_config", {}) or {}
+            if isinstance(config, dict) and config.get("id") == provider_id:
+                return provider
+        return None
 
     def register_web_api(self, *args):
         self.routes.append(args)
@@ -153,6 +209,15 @@ def _install_astrbot_stubs():
     )
     star_core_mod.star_handlers_registry = registry_mod.star_handlers_registry
     sys.modules["astrbot.core.star.star_handlers_registry"] = registry_mod
+
+    provider_pkg = types.ModuleType("astrbot.core.provider")
+    provider_entities = types.ModuleType("astrbot.core.provider.entities")
+    provider_entities.ProviderType = types.SimpleNamespace(
+        TEXT_TO_SPEECH="text_to_speech"
+    )
+    provider_pkg.entities = provider_entities
+    sys.modules["astrbot.core.provider"] = provider_pkg
+    sys.modules["astrbot.core.provider.entities"] = provider_entities
 
     quart = types.ModuleType("quart")
     quart.jsonify = lambda payload: payload
@@ -2316,6 +2381,182 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("error_type=TimeoutError", warning_text)
             self.assertIn("fallback=true", warning_text)
             self.assertNotIn("晚上好", warning_text)
+
+    def test_ai_style_director_uses_core_fast_route_and_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar(
+                {"fast": {"provider_id": "provider-a", "model": "core-fast-model"}}
+            )
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            plugin = self.module.MimoTTSClonePlugin(
+                ctx,
+                {
+                    "ai_style_director_enabled": True,
+                    "ai_style_director_mode": "hybrid",
+                },
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "test", True
+            )
+
+            result = asyncio.run(
+                plugin._build_tts_context(
+                    voice,
+                    "neutral",
+                    "",
+                    text="晚上好",
+                    style_director_enabled=True,
+                )
+            )
+
+            self.assertEqual(router.kinds, ["fast"])
+            self.assertEqual(ctx.providers[0].calls[0]["model"], "core-fast-model")
+            self.assertEqual(result.speech_text, "晚上好，欢迎回来。")
+            self.assertIn("默认服务商生成", result.context)
+
+    def test_ai_style_director_local_provider_ignores_core_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar(
+                {"fast": {"provider_id": "provider-a", "model": "core-fast-model"}}
+            )
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            plugin = self.module.MimoTTSClonePlugin(
+                ctx,
+                {
+                    "ai_style_director_enabled": True,
+                    "ai_style_director_provider_id": "provider-a",
+                },
+            )
+            voice = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "voice.wav", "", "test", True
+            )
+
+            result = asyncio.run(
+                plugin._build_tts_context(
+                    voice,
+                    "neutral",
+                    "",
+                    text="晚上好",
+                    style_director_enabled=True,
+                )
+            )
+
+            self.assertEqual(router.kinds, [])
+            self.assertEqual(len(ctx.providers[0].calls), 1)
+            self.assertNotIn("model", ctx.providers[0].calls[0])
+            self.assertIn("默认服务商生成", result.context)
+
+    def test_astrbot_tts_route_uses_core_provider_and_ignores_voice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar(
+                {
+                    "tts": {
+                        "provider_id": "tts-provider",
+                        "model": "tts-model",
+                        "voice": "xiao-xiao",
+                    }
+                }
+            )
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            tts_provider = _TTSProvider("tts-provider")
+            ctx.tts_providers.append(tts_provider)
+            plugin = self.module.MimoTTSClonePlugin(ctx, {"tts_backend": "astrbot"})
+
+            outputs = asyncio.run(
+                plugin._synthesize_with_astrbot_tts("晚上好", split=False)
+            )
+
+            self.assertEqual(router.kinds, ["tts"])
+            # 原生 TTS 的 get_audio(text) 不接收音色参数
+            self.assertEqual(tts_provider.texts, ["晚上好"])
+            self.assertEqual(
+                [str(path) for path in outputs], ["/tmp/tts-provider.wav"]
+            )
+
+    def test_mimo_uses_core_tts_voice_as_default_voice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar({"tts": {"provider_id": "provider-a", "voice": "次要"}})
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            plugin = self.module.MimoTTSClonePlugin(ctx, {})
+            narration = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "narration.wav", "", "test", True
+            )
+            secondary = plugin.voice_store.add_voice(
+                "次要", Path(tmp) / "secondary.wav", "", "test", True
+            )
+            used = []
+
+            async def fake_synthesize_text_to_file(segment, voice, *, context=""):
+                used.append(voice.id)
+                return Path(tmp) / "output.wav"
+
+            plugin._synthesize_text_to_file = fake_synthesize_text_to_file
+
+            asyncio.run(plugin.synthesize_text("晚上好", split=False))
+
+            self.assertEqual(router.kinds, ["tts"])
+            self.assertEqual(plugin.voice_store.defaults()["global_default_voice_id"], narration.id)
+            self.assertEqual(used, [secondary.id])
+
+    def test_mimo_unmatched_core_tts_voice_falls_back_to_local_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar(
+                {"tts": {"provider_id": "provider-a", "voice": "不存在的音色"}}
+            )
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            plugin = self.module.MimoTTSClonePlugin(ctx, {})
+            narration = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "narration.wav", "", "test", True
+            )
+            used = []
+
+            async def fake_synthesize_text_to_file(segment, voice, *, context=""):
+                used.append(voice.id)
+                return Path(tmp) / "output.wav"
+
+            plugin._synthesize_text_to_file = fake_synthesize_text_to_file
+
+            asyncio.run(plugin.synthesize_text("晚上好", split=False))
+
+            self.assertEqual(used, [narration.id])
+
+    def test_explicit_voice_ignores_core_tts_voice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _StarTools.data_dir = tmp
+            ctx = _Context()
+            router = _RouterStar({"tts": {"provider_id": "provider-a", "voice": "次要"}})
+            ctx.star_instances[ROUTER_PLUGIN_NAME] = router
+            plugin = self.module.MimoTTSClonePlugin(ctx, {})
+            narration = plugin.voice_store.add_voice(
+                "旁白", Path(tmp) / "narration.wav", "", "test", True
+            )
+            plugin.voice_store.add_voice(
+                "次要", Path(tmp) / "secondary.wav", "", "test", True
+            )
+            used = []
+
+            async def fake_synthesize_text_to_file(segment, voice, *, context=""):
+                used.append(voice.id)
+                return Path(tmp) / "output.wav"
+
+            plugin._synthesize_text_to_file = fake_synthesize_text_to_file
+
+            asyncio.run(
+                plugin.synthesize_text("晚上好", voice_name="旁白", split=False)
+            )
+
+            self.assertEqual(router.kinds, [])
+            self.assertEqual(used, [narration.id])
 
     def test_terminate_removes_plugin_handlers_from_registry(self):
         """terminate() 应从 star_handlers_registry 移除本插件 handler，防止热重载 partial 套娃。"""

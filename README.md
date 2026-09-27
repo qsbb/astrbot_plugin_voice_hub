@@ -1,6 +1,6 @@
-# 凝心溯溪-声
+# 声
 
-![凝心溯溪-声](assets/readme-hero.svg)
+![声](assets/readme-hero.svg)
 
 > 凝心溯溪系列语音模块：集中管理朗读触发、结构化分段、发送节奏、取消语义、输出清理和 TTS 后端；MiMo 音色克隆与 AstrBot 内置 TTS 作为可切换的后端能力按需展开。
 
@@ -322,7 +322,7 @@ result = await plugin.render_pcm_wav(
 | 项目 | 内容 |
 | --- | --- |
 | 插件名 | `astrbot_plugin_voice_hub` |
-| 展示名 | 凝心溯溪-声 |
+| 展示名 | 声 |
 | 当前版本 | 见 `metadata.yaml`（唯一事实源） |
 | 当前维护者 | 凌溪（GitHub：`qsbb`） |
 | 原项目作者 | Justice-ocr；原始版权与致谢保留在 LICENSE 和本文末尾 |

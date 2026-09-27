@@ -155,7 +155,7 @@ def contract(plugin: Any) -> dict[str, Any]:
         "version": "1.0",
         "series_id": "ningxin_suxi",
         "plugin_id": "astrbot_plugin_voice_hub",
-        "plugin_name": "凝心溯溪-声",
+        "plugin_name": "声",
         "capabilities": [
             "read_schema",
             "read_snapshot",

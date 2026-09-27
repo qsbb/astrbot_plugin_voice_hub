@@ -178,8 +178,8 @@ class PagesAPIMixin:
             return
         plugin_id = "astrbot_plugin_voice_hub"
         routes = [
-            ("get_config", self._pages_get_config, ["GET"], "获取凝心溯溪-声配置"),
-            ("save_config", self._pages_save_config, ["POST"], "保存凝心溯溪-声配置"),
+            ("get_config", self._pages_get_config, ["GET"], "获取「声」配置"),
+            ("save_config", self._pages_save_config, ["POST"], "保存「声」配置"),
             ("list_voices", self._pages_list_voices, ["GET"], "列出音色"),
             (
                 "list_ai_providers",
@@ -223,7 +223,7 @@ class PagesAPIMixin:
                 "test_connection",
                 self._pages_test_connection,
                 ["POST"],
-                "测试凝心溯溪-声连接",
+                "测试「声」连接",
             ),
             (
                 "list_tts_providers",

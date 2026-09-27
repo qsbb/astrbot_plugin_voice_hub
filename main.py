@@ -76,13 +76,13 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.12.8"
+__version__ = "0.13.0"
 
 
 @register(
     "astrbot_plugin_voice_hub",
     "凌溪",
-    "凝心溯溪-声，双 TTS 后端、多音色管理、AI 语音导演与外部 API",
+    "声，双 TTS 后端、多音色管理、AI 语音导演与外部 API",
     __version__,
 )
 class MimoTTSClonePlugin(PagesAPIMixin, Star):

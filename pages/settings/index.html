@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.13.1-1" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.13.1-1" />
+  <link rel="stylesheet" href="./style.css?v=0.13.2-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.13.2-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
@@ -177,7 +177,7 @@
           <summary>分段阈值、等待与输出清理</summary>
           <div class="section-disclosure-body">
             <div class="switch-grid delivery-settings-grid">
-              <label>分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
+              <label id="segment-threshold-field">分段阈值<input id="segment-threshold-chars" type="number" min="1" /></label>
               <label>单段兜底最大分段数<input id="segment-max-segments" type="number" min="1" /></label>
               <label>每 1 秒语音等待（毫秒）<input id="segment-delay-per-audio-second-ms" type="number" min="0" max="2000" step="50" /><small>第一段立即发送，后续按音频时长计算。</small></label>
               <label>备用固定等待（毫秒）<input id="segment-delay-ms" type="number" min="0" max="5000" step="50" /><small>无法读取音频时使用，不与智能等待叠加。</small></label>
@@ -427,7 +427,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.13.1-1"></script>
-  <script src="./app.js?v=0.13.1-1"></script>
+  <script src="./series-ui.js?v=0.13.2-1"></script>
+  <script src="./app.js?v=0.13.2-1"></script>
 </body>
 </html>

@@ -455,6 +455,12 @@ function updateTriggerModeUI() {
   $('llm-tts-judge-field').classList.toggle('is-disabled', !probabilityMode);
 }
 
+function updateSegmentUI() {
+  const enabled = $('segment-enabled')?.checked === true;
+  const thresholdField = $('segment-threshold-field');
+  if (thresholdField) thresholdField.hidden = !enabled;
+}
+
 function currentTtsBackend() {
   return document.querySelector('input[name="tts-backend"]:checked')?.value || state.config.tts_backend || 'mimo';
 }
@@ -644,6 +650,7 @@ function applyState(payload) {
   $('segment-max-segments').value = state.config.segment_max_segments || 6;
   $('segment-delay-per-audio-second-ms').value = state.config.segment_delay_per_audio_second_ms ?? 700;
   $('segment-delay-ms').value = state.config.segment_delay_ms ?? 350;
+  updateSegmentUI();
 
   fillEmotionSelect($('voice-emotion'), true);
   fillEmotionSelect($('preview-emotion'), true);
@@ -1037,6 +1044,8 @@ function bindConfigDirtyState() {
     bindValueChange(id, updateApiServerUrl);
   });
 
+
+  $('segment-enabled').addEventListener('change', updateSegmentUI);
 
   $('api-server-enabled').addEventListener('change', () => {
     updateApiServerUI();

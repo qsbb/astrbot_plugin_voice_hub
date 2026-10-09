@@ -325,6 +325,7 @@ class PagesUITests(unittest.TestCase):
         self.assertNotIn('class="studio-card routing-card"', html)
         self.assertNotIn('id="segment-enabled"', emotion_card)
         self.assertIn('id="segment-enabled"', delivery_card)
+        self.assertIn('id="segment-threshold-field"', delivery_card)
         self.assertIn('id="segment-threshold-chars"', delivery_card)
         self.assertIn('id="segment-max-segments"', delivery_card)
         self.assertIn('id="segment-delay-ms"', delivery_card)
@@ -334,6 +335,18 @@ class PagesUITests(unittest.TestCase):
             css,
             r"\.delivery-settings-grid\s*\{[^}]*grid-template-columns:\s*1fr;",
         )
+
+    def test_segment_threshold_is_hidden_when_single_segment_fallback_is_off(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="segment-threshold-field"', html)
+        self.assertIn("function updateSegmentUI()", js)
+        self.assertIn("thresholdField.hidden = !enabled", js)
+        self.assertIn("$('segment-enabled').addEventListener('change', updateSegmentUI)", js)
+        # 最大段数与发送等待仍参与显式段落交付，不随句界兜底开关一起隐藏。
+        self.assertIn('id="segment-max-segments"', html)
+        self.assertIn('id="segment-delay-ms"', html)
+        self.assertIn('id="segment-delay-per-audio-second-ms"', html)
 
     def test_mimo_specific_controls_are_not_global_entry_content(self):
         html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
@@ -531,4 +544,4 @@ def test_settings_each_workspace_keeps_progressive_disclosure_and_fields():
 def test_settings_page_uses_incremented_asset_cache_busters():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
-        assert f"{asset}?v=0.13.1-1" in html
+        assert f"{asset}?v=0.13.2-1" in html

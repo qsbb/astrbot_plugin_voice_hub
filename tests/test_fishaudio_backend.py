@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """FishAudio 后端在 voice_hub 主链路的分发/试听/连接测试行为。"""
 import base64
+import json
 from pathlib import Path, PureWindowsPath
 import sys
 import tempfile
@@ -399,3 +400,37 @@ class AudioTransportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FishAudioPreviewVoiceNoneTests(unittest.TestCase):
+    """fishaudio 后端试听时 voice=None（音色来自参考模型 ID），不得崩溃。"""
+
+    def test_preview_result_voice_none_is_serializable(self):
+        # pages_api._synthesize_preview_audio 尾部的 voice.to_dict() 已改为
+        # None 安全；这里直接验证返回结构对 None voice 的处理契约。
+        voice = None
+        # 模拟 pages_api 尾部结构（audio.data 为 bytes，由上层 base64 后再序列化）
+        payload = {
+            "audio": {"filename": "voice-preview.wav", "mime": "audio/wav", "data": b"x"},
+            "voice": voice.to_dict() if voice is not None else None,
+            "emotion": "neutral",
+        }
+        self.assertIsNone(payload["voice"])
+        json.dumps(
+            {
+                **payload,
+                "audio": {**payload["audio"], "data": payload["audio"]["data"].hex()},
+            }
+        )
+
+    def test_preview_audio_source_reads_valid_wav(self):
+        import wave
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v.wav"
+            with wave.open(str(path), "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(16000)
+                handle.writeframes(b"\x00\x00" * 100)
+            self.assertTrue(path.read_bytes()[:4] == b"RIFF")

@@ -2,6 +2,10 @@
 
 ### 修复
 
+- **FishAudio 试听不再崩溃**：fishaudio 后端没有本地音色时（音色来自参考模型 ID / 角色名回退），试听返回结构里的 `voice` 为 `None`，此前会抛 `AttributeError: 'NoneType' object has no attribute 'to_dict'` 导致页面 500。
+
+### 修复
+
 - **AI 导演模板花括号**：修复自定义模板含 JSON 花括号时 `str.format` 静默失败、`{max_chars}` 原样发给 LLM 的问题（移植上游 f16419b4），改为字面替换。
 - **假确认杜绝**：`Record` 发送失败且文件回退关闭时显式抛错，不再静默跳过导致工具返回"已发送"但用户一条语音都没收到（移植上游 5d624b17）；`audio_transport=base64` 下 Record 构建失败同样向上抛。
 

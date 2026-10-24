@@ -185,7 +185,9 @@ class PagesAPIMixin:
                 "mime": "audio/wav",
                 "data": raw,
             },
-            "voice": voice.to_dict(),
+            # fishaudio 后端允许 voice 为 None（音色来自参考模型 ID / 角色名回退，
+            # 不在本地音色库），此时不返回 voice 元数据。
+            "voice": voice.to_dict() if voice is not None else None,
             "emotion": resolved_emotion,
         }
 

@@ -31,7 +31,7 @@
   "fishaudio_api_base": {
     "type": "string",
     "description": "FishAudio API Base URL（仅 FishAudio 后端）",
-    "hint": "仅 tts_backend=fishaudio 时生效。官方接口为 https://api.fish-audio.cn/v1 或 https://api.fish.audio/v1；自建 fish-speech 服务器填其 /v1 地址（不发送 model 请求头）。",
+    "hint": "仅 tts_backend=fishaudio 时生效。官方接口为 https://api.fish.audio/v1 或 https://api.fish-audio.cn/v1；自建 fish-speech 或中转服务填其 /v1 地址（中转实测需要 model 请求头，auto 模式统一补 s2.1-pro）。",
     "default": "https://api.fish-audio.cn/v1"
   },
   "fishaudio_reference_id": {
@@ -65,7 +65,7 @@
       "S1 旧版",
       "Drama 3（自建）"
     ],
-    "hint": "auto 读取后端配置；官方接口未声明模型时按文档使用 s2.1-pro-free。S2/S2.1 使用方括号自然语言情绪控制，S1 旧版使用圆括号固定标签，drama-3 为自建 fish-speech 服务器的新模型（方括号表演指令 + 成对局部语气标签），自建兼容接口不会被强制覆盖。",
+    "hint": "auto 时统一按 s2.1-pro-free 发送 model 请求头（官方文档默认；部分中转对空 model 头会挂起，fish-speech 服务器会忽略该头）。S2/S2.1 使用方括号自然语言情绪控制，S1 旧版使用圆括号固定标签，drama-3 为自建 fish-speech 服务器的新模型（方括号表演指令 + 成对局部语气标签）。",
     "default": "auto"
   },
   "fishaudio_emotion_mode": {

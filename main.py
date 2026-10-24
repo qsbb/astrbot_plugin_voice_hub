@@ -628,14 +628,16 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         ]
 
     def _fishaudio_model_for_request(self) -> str:
-        """auto 时官方接口按文档补 s2.1-pro-free；自建兼容接口不发送 model 头。"""
+        """解析本次请求应携带的 model 头。
+
+        auto：官方接口按文档补 s2.1-pro-free；自建/中转接口实测对空 model 头
+        行为不稳定（中转会间歇挂起），也统一补 s2.1-pro —— 已知 fish-speech
+        服务器忽略该头，因此带上不会破坏自建直连场景。
+        """
         model = self.plugin_config.fishaudio_model
         if model != "auto":
             return model
-        api_base = self.plugin_config.fishaudio_api_base.lower()
-        if "api.fish.audio" in api_base or "api.fish-audio.cn" in api_base:
-            return "s2.1-pro-free"
-        return ""
+        return "s2.1-pro-free"
 
     def _fishaudio_client(self) -> FishAudioClient:
         config = self.plugin_config

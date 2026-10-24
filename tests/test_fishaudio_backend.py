@@ -112,7 +112,9 @@ class FishAudioBackendTests(unittest.TestCase):
                     "fishaudio_api_base": "http://127.0.0.1:8080/v1",
                 }
             )
-            self.assertEqual(plugin._fishaudio_model_for_request(), "")
+            # auto 在自建/中转接口也统一补 s2.1-pro：空 model 头会让部分中转挂起，
+            # fish-speech 服务器会忽略该头，不会破坏自建直连。
+            self.assertEqual(plugin._fishaudio_model_for_request(), "s2.1-pro-free")
             plugin.plugin_config = build_plugin_config(
                 {
                     "tts_backend": "fishaudio",

@@ -233,6 +233,17 @@ function configPayload() {
     tts_trigger_mode: document.querySelector('input[name="tts-trigger-mode"]:checked')?.value || 'probability',
     tts_backend: document.querySelector('input[name="tts-backend"]:checked')?.value || 'mimo',
     astrbot_tts_provider_id: $('astrbot-tts-provider-id').value,
+    fishaudio_api_key: $('fishaudio-api-key').value.trim(),
+    fishaudio_api_base: $('fishaudio-api-base').value.trim(),
+    fishaudio_reference_id: $('fishaudio-reference-id').value.trim(),
+    fishaudio_character: $('fishaudio-character').value.trim(),
+    fishaudio_model: $('fishaudio-model').value || 'auto',
+    fishaudio_emotion_mode: $('fishaudio-emotion-mode').value || 'balanced',
+    fishaudio_timeout_seconds: Number($('fishaudio-timeout-seconds').value || 120),
+    audio_transport: $('audio-transport').value || 'path',
+    shared_path_linux: $('shared-path-linux').value.trim(),
+    shared_path_windows: $('shared-path-windows').value.trim(),
+    base64_max_mb: Number($('base64-max-mb').value || 50),
     auto_tts_probability: Number($('auto-tts-probability').value || 0),
     llm_tts_judge_enabled: $('llm-tts-judge-enabled').checked,
     auto_tts_group_whitelist: listValue('auto-tts-group-whitelist'),
@@ -323,11 +334,15 @@ function updateStatus() {
   const providerCount = Array.isArray(state.ttsProviders) ? state.ttsProviders.length : 0;
   $('hero-voice-count').textContent = backend === 'astrbot'
     ? (providerCount ? `${providerCount} 个提供商` : '未配置')
-    : (enabledVoices ? `${enabledVoices} 个音色` : '未配置');
-  const backendLabel = backend === 'astrbot'
-    ? 'AstrBot 内置语音合成'
-    : 'MiMo 语音合成（克隆音色）';
-  $('backend-run-summary').textContent = backendLabel;
+    : (backend === 'fishaudio'
+      ? (state.config.fishaudio_reference_id ? '已配置音色' : '未配置')
+      : (enabledVoices ? `${enabledVoices} 个音色` : '未配置'));
+  const backendLabels = {
+    mimo: 'MiMo 语音合成（克隆音色）',
+    astrbot: 'AstrBot 内置语音合成',
+    fishaudio: 'FishAudio 语音合成',
+  };
+  $('backend-run-summary').textContent = backendLabels[backend] || backendLabels.mimo;
 }
 
 function renderReadiness() {
@@ -488,17 +503,27 @@ function updateTtsBackendUI() {
     element.hidden = !scopes.includes('shared') && !scopes.includes(backend);
   });
   applyPanelVisibility();
-  const diagnoseLabel = backend === 'astrbot' ? '诊断 AstrBot 后端' : '诊断 MiMo 后端';
-  $('test-connection').textContent = diagnoseLabel;
+  const diagnoseLabels = {
+    mimo: '诊断 MiMo 后端',
+    astrbot: '诊断 AstrBot 后端',
+    fishaudio: '诊断 FishAudio 后端',
+  };
+  $('test-connection').textContent = diagnoseLabels[backend] || diagnoseLabels.mimo;
   const mobileDiagnose = $('mobile-test-connection');
-  if (mobileDiagnose) mobileDiagnose.textContent = diagnoseLabel;
-  $('test-hint').textContent = backend === 'astrbot'
-    ? '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。'
-    : '诊断会检查 MiMo Key、模型、音色和网络，并在完成后清理测试文件。';
+  if (mobileDiagnose) mobileDiagnose.textContent = $('test-connection').textContent;
+  const testHints = {
+    mimo: '诊断会检查 MiMo Key、模型、音色和网络，并在完成后清理测试文件。',
+    astrbot: '诊断会调用当前 AstrBot TTS 提供商生成短音频，并在完成后清理测试文件。',
+    fishaudio: '诊断会调用 FishAudio 接口生成短音频，并在完成后清理测试文件。',
+  };
+  $('test-hint').textContent = testHints[backend] || testHints.mimo;
   $('test-hint').className = 'field-hint status-hint';
-  $('backend-active-note').textContent = backend === 'astrbot'
-    ? '当前只显示 AstrBot 内置 TTS 的专属设置；MiMo 的 Key、音色和导演设置已收起。'
-    : '当前只显示 MiMo 的专属设置；AstrBot 提供商设置已收起。';
+  const activeNotes = {
+    mimo: '当前只显示 MiMo 的专属设置；AstrBot 提供商设置已收起。',
+    astrbot: '当前只显示 AstrBot 内置 TTS 的专属设置；MiMo 的 Key、音色和导演设置已收起。',
+    fishaudio: '当前只显示 FishAudio 的专属设置；MiMo 的 Key、音色和导演设置已收起。',
+  };
+  $('backend-active-note').textContent = activeNotes[backend] || activeNotes.mimo;
 }
 
 function updateApiServerUI() {
@@ -609,10 +634,30 @@ function applyState(payload) {
   $('llm-tts-judge-enabled').checked = state.config.llm_tts_judge_enabled === true;
   updateTriggerModeUI();
   // TTS backend 选择与提供商列表
-  const ttsBackend = ['mimo', 'astrbot'].includes(state.config.tts_backend)
+  const ttsBackend = ['mimo', 'astrbot', 'fishaudio'].includes(state.config.tts_backend)
     ? state.config.tts_backend
     : 'mimo';
   document.querySelector(`input[name="tts-backend"][value="${ttsBackend}"]`).checked = true;
+  $('fishaudio-api-key').value = '';
+  $('fishaudio-api-key').placeholder = state.readiness.fishaudio_api_key
+    ? '已配置，留空保持不变'
+    : '填入 FishAudio API Key';
+  $('fishaudio-api-base').value = state.config.fishaudio_api_base || 'https://api.fish-audio.cn/v1';
+  $('fishaudio-reference-id').value = state.config.fishaudio_reference_id || '';
+  $('fishaudio-character').value = state.config.fishaudio_character || '';
+  $('fishaudio-model').value = ['auto', 's2.1-pro-free', 's2.1-pro', 's2-pro', 's1', 'drama-3'].includes(state.config.fishaudio_model)
+    ? state.config.fishaudio_model
+    : 'auto';
+  $('fishaudio-emotion-mode').value = ['balanced', 'expressive', 'manual'].includes(state.config.fishaudio_emotion_mode)
+    ? state.config.fishaudio_emotion_mode
+    : 'balanced';
+  $('fishaudio-timeout-seconds').value = state.config.fishaudio_timeout_seconds ?? 120;
+  $('audio-transport').value = ['path', 'base64', 'shared_path'].includes(state.config.audio_transport)
+    ? state.config.audio_transport
+    : 'path';
+  $('base64-max-mb').value = state.config.base64_max_mb ?? 50;
+  $('shared-path-linux').value = state.config.shared_path_linux || '/mnt/c/Users/Public/mimo_tts_audio';
+  $('shared-path-windows').value = state.config.shared_path_windows || 'C:\\Users\\Public\\mimo_tts_audio';
   updateTtsBackendUI();
   renderTtsProviders(state.config.astrbot_tts_provider_id || '');
   $('auto-tts-group-whitelist').value = (state.config.auto_tts_group_whitelist || []).join('\n');

@@ -259,10 +259,9 @@ def _clip(value: str, max_chars: int) -> str:
 
 
 def _render_template(template: str, *, max_chars: int) -> str:
-    try:
-        return str(template or "").format(max_chars=max_chars)
-    except Exception:
-        return str(template or "")
+    # 字面替换 {max_chars}：用户模板常含 JSON 示例花括号，str.format 会把它们
+    # 当替换字段导致整体替换静默失败（上游 f16419b4 同款修复）。
+    return str(template or "").replace("{max_chars}", str(max_chars))
 
 
 def _current_chat_provider(context: Any) -> Any:

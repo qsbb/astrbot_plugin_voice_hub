@@ -46,7 +46,7 @@ class ConfigSchemaTests(unittest.TestCase):
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
         self.assertEqual(next(iter(schema)), "tts_backend")
-        self.assertEqual(schema["tts_backend"]["options"], ["mimo", "astrbot"])
+        self.assertEqual(schema["tts_backend"]["options"], ["mimo", "astrbot", "fishaudio"])
         self.assertIn("仅 AstrBot 后端", schema["astrbot_tts_provider_id"]["description"])
         for key in (
             "api_key",
@@ -60,3 +60,18 @@ class ConfigSchemaTests(unittest.TestCase):
             "max_concurrency",
         ):
             self.assertIn("仅 MiMo 后端", schema[key]["description"])
+        for key in (
+            "fishaudio_api_key",
+            "fishaudio_api_base",
+            "fishaudio_reference_id",
+            "fishaudio_character",
+            "fishaudio_model",
+            "fishaudio_emotion_mode",
+            "fishaudio_timeout_seconds",
+        ):
+            self.assertIn("仅 FishAudio 后端", schema[key]["description"])
+        self.assertTrue(schema["fishaudio_api_key"].get("secret"))
+        self.assertEqual(
+            schema["fishaudio_model"]["options"],
+            ["auto", "s2.1-pro-free", "s2.1-pro", "s2-pro", "s1", "drama-3"],
+        )

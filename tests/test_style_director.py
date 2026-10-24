@@ -291,5 +291,28 @@ class StyleDirectorModelTests(unittest.TestCase):
             )
 
 
+class RenderTemplateTests(unittest.TestCase):
+    """上游 f16419b4 回归：模板含 JSON 花括号时 {max_chars} 仍需被替换。"""
+
+    def test_literal_replacement_keeps_json_braces(self):
+        from astrbot_plugin_voice_hub.core.style_director import _render_template
+
+        template = '输出 JSON 样例 {"a": 1}，style_context 长度控制在 {max_chars} 字以内。'
+        rendered = _render_template(template, max_chars=120)
+        self.assertIn('{"a": 1}', rendered)
+        self.assertIn("120", rendered)
+        self.assertNotIn("{max_chars}", rendered)
+
+    def test_literal_replacement_without_braces(self):
+        from astrbot_plugin_voice_hub.core.style_director import _render_template
+
+        self.assertEqual(
+            _render_template("限制 {max_chars} 字", max_chars=60),
+            "限制 60 字",
+        )
+        self.assertEqual(_render_template("", max_chars=60), "")
+        self.assertEqual(_render_template(None, max_chars=60), "")
+
+
 if __name__ == "__main__":
     unittest.main()

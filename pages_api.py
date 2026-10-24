@@ -14,6 +14,7 @@ from .core.audio_codec import (
     AudioValidationError,
 )
 from .core.emotion import SUPPORTED_EMOTIONS, normalize_emotion
+from .core.fishaudio_client import is_valid_reference_id
 from .core.pages_upload import store_voice_sample
 from .core.text_processing import clean_tts_text
 
@@ -87,10 +88,13 @@ class PagesAPIMixin:
                 "TEXT_TOO_LONG", f"文本过长，最多 {max_text_chars} 字"
             )
 
+        backend = str(getattr(self.plugin_config, "tts_backend", "mimo") or "mimo")
         if not isinstance(voice_selector, str) or not voice_selector.strip():
             raise VoicePreviewError("INVALID_VOICE", "请选择音色")
         voice = self.voice_store.find_voice(voice_selector.strip())
-        if voice is None:
+        if voice is None and backend != "fishaudio":
+            # fishaudio 后端的音色可以是 FishAudio 参考模型 ID（32 位十六进制，
+            # 不必在本地音色库）；其他后端必须命中本地音色。
             raise VoicePreviewError("VOICE_NOT_AVAILABLE", "所选音色不可用")
 
         if emotion is None:
@@ -109,13 +113,20 @@ class PagesAPIMixin:
         else:
             raise VoicePreviewError("INVALID_CONTEXT", "试听参数无效")
 
-        backend = str(getattr(self.plugin_config, "tts_backend", "mimo") or "mimo")
         if backend == "mimo" and not str(
             getattr(self.plugin_config, "api_key", "") or ""
         ).strip():
             raise VoicePreviewError(
                 "PROVIDER_UNAVAILABLE",
                 "TTS 服务未配置或不可用",
+                status=503,
+            )
+        if backend == "fishaudio" and not str(
+            getattr(self.plugin_config, "fishaudio_api_key", "") or ""
+        ).strip():
+            raise VoicePreviewError(
+                "PROVIDER_UNAVAILABLE",
+                "FishAudio API Key 未配置",
                 status=503,
             )
 
@@ -125,7 +136,10 @@ class PagesAPIMixin:
         try:
             outputs = await self.synthesize_text(
                 cleaned_text,
-                voice_id=voice.id,
+                voice_id=voice.id if voice is not None else None,
+                voice_name=(
+                    voice.name if voice is not None else voice_selector.strip()
+                ) or None,
                 emotion=resolved_emotion,
                 context=command_context,
                 split=False,
@@ -248,6 +262,7 @@ class PagesAPIMixin:
         public_config = dict(self.config)
         public_config["api_key"] = ""
         public_config["api_server_token"] = ""
+        public_config["fishaudio_api_key"] = ""
         return {
             "success": True,
             "config": public_config,
@@ -258,6 +273,7 @@ class PagesAPIMixin:
             "readiness": {
                 "api_key": bool(self.plugin_config.api_key),
                 "api_server_token": bool(self.plugin_config.api_server_token),
+                "fishaudio_api_key": bool(self.plugin_config.fishaudio_api_key),
                 "voices": bool(enabled_voices),
                 "ai_director": bool(
                     self.plugin_config.ai_style_director_enabled
@@ -281,7 +297,7 @@ class PagesAPIMixin:
             return jsonify({"success": False, "error": "Invalid JSON payload"}), 400
         data = dict(data)
         # 设置页不会回显密钥；空值表示保留原密钥，而不是覆盖为空。
-        for secret_key in ("api_key", "api_server_token"):
+        for secret_key in ("api_key", "api_server_token", "fishaudio_api_key"):
             if not str(data.get(secret_key) or "").strip():
                 data.pop(secret_key, None)
         persisted = self._update_runtime_config(data)
@@ -551,15 +567,22 @@ class PagesAPIMixin:
                 return self._pages_error("MiMo API Key 未配置，请先保存配置。", 400)
             if not self.voice_store.list_voices(include_disabled=False):
                 return self._pages_error("暂无可用音色，请先上传参考音频。", 400)
+        if backend == "fishaudio" and not self.plugin_config.fishaudio_api_key:
+            return self._pages_error("FishAudio API Key 未配置，请先保存配置。", 400)
         started = asyncio.get_running_loop().time()
         try:
             outputs = await self.synthesize_text(
                 text,
                 voice_id=(voice_selector or None) if backend == "mimo" else None,
+                voice_name=(voice_selector or None) if backend == "fishaudio" else None,
                 split=False,
             )
         except Exception as exc:
-            backend_label = "MiMo" if backend == "mimo" else "AstrBot TTS"
+            backend_label = {
+                "mimo": "MiMo",
+                "astrbot": "AstrBot TTS",
+                "fishaudio": "FishAudio",
+            }.get(backend, backend)
             return self._pages_error(
                 f"{backend_label} 连接测试失败：{exc}", 502, str(exc)
             )
@@ -572,11 +595,11 @@ class PagesAPIMixin:
         if self.plugin_config.api_server_enabled:
             api_status = await self._diagnose_api_server(text, voice_selector)
 
-        message = (
-            "连接测试成功，MiMo 已返回音频。"
-            if backend == "mimo"
-            else "连接测试成功，AstrBot TTS 提供商已返回音频。"
-        )
+        message = {
+            "mimo": "连接测试成功，MiMo 已返回音频。",
+            "astrbot": "连接测试成功，AstrBot TTS 提供商已返回音频。",
+            "fishaudio": "连接测试成功，FishAudio 已返回音频。",
+        }.get(backend, "连接测试成功，已返回音频。")
         if api_status:
             if api_status["ok"]:
                 message += f" 外部 API 诊断通过（{api_status['elapsed_ms']}ms）。"

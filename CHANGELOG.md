@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+### 修复
+
+- **AI 导演模板花括号**：修复自定义模板含 JSON 花括号时 `str.format` 静默失败、`{max_chars}` 原样发给 LLM 的问题（移植上游 f16419b4），改为字面替换。
+- **假确认杜绝**：`Record` 发送失败且文件回退关闭时显式抛错，不再静默跳过导致工具返回"已发送"但用户一条语音都没收到（移植上游 5d624b17）；`audio_transport=base64` 下 Record 构建失败同样向上抛。
+
+### 新增
+
+- **音频传输方式**（移植上游 0.7.x 传输层）：新增 `audio_transport` 配置——`path`（默认，本地路径）、`base64`（Record 内嵌 `base64://`，跨机/容器部署不再要求共享文件系统，带单段大小上限 `base64_max_mb`）、`shared_path`（WSL/Linux 生成后复制到共享目录，Windows 映射路径直接走 OneBot API 发送，配 `shared_path_linux` / `shared_path_windows`）。
+- **shared_path 平台门禁**：仅 aiocqhttp 平台可用；其他平台（如 QQ 官方接口）提前报错并提示改用 base64 或 path。
+- **FishAudio Drama 3 支持**：`fishaudio_model` 新增 `drama-3`（自建 fish-speech 服务器新模型），启用方括号表演指令与成对局部语气标签（`<soft>`、`<emphasis>` 等）的提示词注入，语义移植自临的上游 `astrbot_host/fish_audio.py`。
+- **FishAudio 控制词语法提示**：fishaudio 后端时，主 LLM 的朗读判断提示与 `voice_hub_speak` 工具说明会带上当前模型对应的控制词语法（S2 方括号 / S1 圆括号 / Drama 3 表演指令），让模型能直接写出细粒度情绪控制词。
+### 新增
+
+- **FishAudio 第三后端**：语音后端新增 `fishaudio` 选项，与 MiMo / AstrBot 并列切换；统一朗读、概率/LLM 自动语音、`voice_hub_speak` 工具和外部 `/v1/audio/speech` 接口均会使用此后端。接口口径与 AstrBot 官方 `fishaudio_tts_api` Provider 一致（`POST /tts` + msgpack，`model` 走 HTTP 请求头），支持官方 `api.fish.audio` / `api.fish-audio.cn` 与自建 fish-speech 兼容服务器（自建地址不发送 model 请求头）。
+- **FishAudio 音色来源**：参考模型 ID（32 位十六进制，从 fish.audio/discovery 获取）、角色名回退（仅官方接口按标题查询）、上传参考音频内联克隆（`references` 字段，音色库现有音色可直接试听）三者并存，优先级为显式音色 > 参考模型 ID > 角色名回退 > 接口默认音色。
+- **FishAudio 表现力控制**：从凝心溯溪“临”的 TTS 强化模块移植情绪控制层——S2/S2.1 使用方括号自然语言控制、S1 使用官方圆括号固定标签，别名（中日英）自动规范化，自动模式不添加喘息/喘气/呻吟等强呼吸效果、普通语气词不当作叹气、每句最多 3 个控制词且不连续堆叠；`balanced / expressive / manual` 三档策略，声的 `emotion` 参数（happy/sad/angry）会映射为对应控制词。
+- 配置新增 `fishaudio_api_key`（秘密）、`fishaudio_api_base`、`fishaudio_reference_id`、`fishaudio_character`、`fishaudio_model`、`fishaudio_emotion_mode`、`fishaudio_timeout_seconds`（均仅 FishAudio 后端生效）；Pages 设置页新增 FishAudio 卡片，连接测试与试听支持 FishAudio 后端，API Key 只写不回显。
+
 ## 0.14.0 - 2026-10-10
 
 ### 优化

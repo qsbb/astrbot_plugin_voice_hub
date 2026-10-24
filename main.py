@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import functools
 import json
 import pathlib
@@ -9,6 +10,7 @@ import re
 import shutil
 import time
 import wave
+from pathlib import PureWindowsPath
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +40,12 @@ from .core.audio_codec import (
 from .core.api_server import MimoTTSApiServer
 from .core.config import build_plugin_config, normalize_config
 from .core.emotion import SUPPORTED_EMOTIONS, EmotionRouter, normalize_emotion
+from .core.fishaudio_client import FishAudioClient, FishAudioError, is_valid_reference_id
+from .core.fishaudio_expression import (
+    apply_emotion_control,
+    expression_direction,
+    normalize_cues,
+)
 from .core.mimo_official_client import MimoOfficialClient, MimoTTSConfig
 from .core.model_router import resolve_model_route as resolve_routed_model_route
 from .core.model_router import resolve_provider_id as resolve_routed_provider_id
@@ -76,7 +84,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 
 @register(
@@ -466,7 +474,16 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         output_dir = pathlib.Path(self.data_dir) / "outputs"
         if not output_dir.is_dir():
             return
-        files = [path for path in output_dir.glob("mimo_tts_*") if path.is_file()]
+        files = [
+            path
+            for path in output_dir.glob("mimo_tts_*")
+            if path.is_file()
+        ]
+        files.extend(
+            path
+            for path in output_dir.glob("fishaudio_tts_*")
+            if path.is_file()
+        )
         now = time.time()
         retention_days = self.plugin_config.output_retention_days
         if retention_days > 0:
@@ -557,11 +574,26 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not cleaned:
             raise RuntimeError("请输入要合成的文本")
 
-        # 双后端分发：astrbot 模式下走 AstrBot 内置 TTS，跳过 MiMo 链路
+        # 多后端分发：astrbot/fishaudio 模式跳过 MiMo 音色克隆链路
         if self.plugin_config.tts_backend == "astrbot":
             return await self._synthesize_with_astrbot_tts(cleaned, split=split)
 
         resolved_emotion = self._resolve_emotion(cleaned, emotion)
+
+        if self.plugin_config.tts_backend == "fishaudio":
+            # fishaudio 分支不查本地音色库：voice_id/name 由 _synthesize_with_fishaudio
+            # 自行解释（FishAudio 参考模型 ID 或本地参考音频）。
+            selector = voice_id or voice_name
+            reference_voice = (
+                self.voice_store.find_voice(selector) if selector else None
+            )
+            return await self._synthesize_with_fishaudio(
+                cleaned,
+                split=split,
+                reference_voice=reference_voice,
+                emotion=resolved_emotion,
+            )
+
         selector = voice_id or voice_name
         if not selector:
             # 核的 tts.voice 只对 MiMo 克隆音色链路有意义，作为默认音色名使用；
@@ -594,6 +626,153 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             )
             for segment in segments
         ]
+
+    def _fishaudio_model_for_request(self) -> str:
+        """auto 时官方接口按文档补 s2.1-pro-free；自建兼容接口不发送 model 头。"""
+        model = self.plugin_config.fishaudio_model
+        if model != "auto":
+            return model
+        api_base = self.plugin_config.fishaudio_api_base.lower()
+        if "api.fish.audio" in api_base or "api.fish-audio.cn" in api_base:
+            return "s2.1-pro-free"
+        return ""
+
+    def _fishaudio_client(self) -> FishAudioClient:
+        config = self.plugin_config
+        return FishAudioClient(
+            api_key=config.fishaudio_api_key,
+            api_base=config.fishaudio_api_base,
+            model=self._fishaudio_model_for_request(),
+            reference_id=config.fishaudio_reference_id,
+            character=config.fishaudio_character,
+            timeout=float(config.fishaudio_timeout_seconds),
+        )
+
+    def _fishaudio_expression_note(self) -> str:
+        """fishaudio 后端时返回给主模型的控制词语法说明；其他后端返回空串。"""
+        config = self.plugin_config
+        if config.tts_backend != "fishaudio":
+            return ""
+        return expression_direction(
+            model=config.fishaudio_model,
+            mode=config.fishaudio_emotion_mode,
+        )
+
+    def _fishaudio_readiness(self) -> str:
+        """返回空串表示可用，否则返回可读原因。"""
+        config = self.plugin_config
+        if not str(config.fishaudio_api_key or "").strip():
+            return "尚未配置 FishAudio API Key"
+        if str(config.fishaudio_reference_id or "").strip() and not is_valid_reference_id(
+            config.fishaudio_reference_id
+        ):
+            return "FishAudio 参考模型 ID 格式无效（需 32 位十六进制）"
+        return ""
+
+    def _fishaudio_prepared_text(self, text: str, *, emotion: str) -> str:
+        """清洗 + Fish 情绪控制；语义与临的 TTS 强化模块保持一致。"""
+        config = self.plugin_config
+        s1 = config.fishaudio_model == "s1"  # drama-3 沿用方括号自然语言指令
+        spoken = normalize_cues(
+            str(text or ""),
+            s1=s1,
+            mode=config.fishaudio_emotion_mode,
+        ).strip()
+        if not spoken:
+            return ""
+        spoken, applied = apply_emotion_control(
+            spoken,
+            s1=s1,
+            mode=config.fishaudio_emotion_mode,
+            source_text=text,
+            emotion=emotion,
+        )
+        if applied:
+            self.logger.info(
+                "[voice-hub] FishAudio 情绪控制: model=%s mode=%s cues=%s",
+                self._fishaudio_model_for_request() or ("s1" if s1 else "s2-compatible"),
+                config.fishaudio_emotion_mode,
+                "".join(f"({cue})" if s1 else f"[{cue}]" for cue in applied),
+            )
+        return spoken
+
+    async def _synthesize_with_fishaudio(
+        self,
+        text: str,
+        *,
+        split: bool = True,
+        reference_voice: Any = None,
+        emotion: str | None = None,
+    ) -> list[pathlib.Path]:
+        """通过 Fish Audio 官方/兼容接口合成语音。
+
+        音色优先级：显式音色（reference_id 音色或上传的参考音频）>
+        配置的 fishaudio_reference_id > 角色名回退 > 接口默认音色。
+        """
+        readiness_error = self._fishaudio_readiness()
+        if readiness_error:
+            raise RuntimeError(f"FishAudio 后端不可用：{readiness_error}")
+
+        client = self._fishaudio_client()
+        # 显式指定音色时：voice_id/name 命中 32 位参考模型 ID 则直接用作
+        # reference_id；否则当作本地参考音频做内联克隆（references 字段）。
+        reference_audio: tuple[bytes, str] | None = None
+        override_reference_id = ""
+        if reference_voice is not None:
+            voice_id = str(getattr(reference_voice, "id", "") or "").strip()
+            voice_name = str(getattr(reference_voice, "name", "") or "").strip()
+            transcript = str(getattr(reference_voice, "description", "") or "").strip()
+            selector = voice_name or voice_id
+            if is_valid_reference_id(selector):
+                override_reference_id = selector
+            else:
+                audio_path = str(getattr(reference_voice, "audio_path", "") or "").strip()
+                if audio_path:
+                    audio_bytes = await asyncio.to_thread(
+                        pathlib.Path(audio_path).read_bytes
+                    )
+                    reference_audio = (audio_bytes, transcript or voice_name)
+
+        segments = (
+            self._split_for_tts(text, force_structure=True)
+            if split
+            else [clean_tts_text(text)]
+        )
+        results: list[pathlib.Path] = []
+        output_dir = pathlib.Path(self.data_dir) / "outputs"
+        for segment in segments:
+            spoken = self._fishaudio_prepared_text(
+                segment,
+                emotion=emotion or "neutral",
+            )
+            if not spoken:
+                continue
+            if override_reference_id:
+                original_reference_id = client.reference_id
+                client.reference_id = override_reference_id
+                try:
+                    output_path = client.output_path_for(output_dir)
+                    async with self._tts_sem:
+                        result = await client.synthesize_to_file(
+                            spoken,
+                            output_path=output_path,
+                            reference_audio=reference_audio,
+                        )
+                finally:
+                    client.reference_id = original_reference_id
+            else:
+                output_path = client.output_path_for(output_dir)
+                async with self._tts_sem:
+                    result = await client.synthesize_to_file(
+                        spoken,
+                        output_path=output_path,
+                        reference_audio=reference_audio,
+                    )
+            results.append(result)
+        if not results:
+            raise RuntimeError("FishAudio 合成结果为空")
+        await asyncio.to_thread(self._cleanup_outputs)
+        return results
 
     async def _synthesize_with_astrbot_tts(
         self,
@@ -834,7 +1013,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             merged = await asyncio.to_thread(merge_wav_files, outputs, merged_path)
             return str(merged)
         except AudioMergeError:
-            if self.plugin_config.tts_backend != "astrbot":
+            # mimo 输出可能是 mp3，无法合并时保持原样抛错；
+            # astrbot/fishaudio 后端输出 wav，回退为整体单段重合成。
+            if self.plugin_config.tts_backend == "mimo":
                 raise
         fallback = await self.synthesize_text(text, split=False, **synthesis_options)
         if len(fallback) != 1:
@@ -1114,7 +1295,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             style=str(style or "").strip(),
         )
         if not prepared:
-            yield "empty text"
+            yield "empty text: nothing to say"
             return
 
         request_context = ensure_context(event, PHASE_LLM_REQUEST)
@@ -1290,7 +1471,12 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     newlines and blank lines unchanged.
                 segments(array): Optional ordered objects with `text` and optional `emotion`,
                     `voice`, and `style` overrides.
-                emotion(string): Default emotion, one of happy, sad, angry, neutral.
+                emotion(string): Default emotion, one of happy, sad, angry, neutral. When the
+                    FishAudio backend is active you may instead write Fish control words inline
+                    (e.g. [开心], [轻笑], [whispering] for S2/S2.1; official English parentheses
+                    like (joyful) for S1; free-form brackets plus paired <soft>/<emphasis> tags
+                    for drama-3). Keep each cue right before the phrase it applies to and never
+                    stack multiple cues at the sentence start.
                 voice(string): Default voice name or voice id.
                 style(string): Default temporary delivery instruction.
 
@@ -2017,9 +2203,179 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             preserve_structure=True,
         )
 
-    def _audio_component(self, audio_path: pathlib.Path):
+    # ------------------------------------------------- 音频传输（上游 0.7.x 移植）
+
+    def _audio_source(self, audio_path: pathlib.Path) -> str:
+        """按 audio_transport 把本地文件转成 Record 可用的来源。
+
+        path=原始路径；base64=base64:// 内嵌；shared_path 在 stage 后也是路径。
+        """
+        transport = self.plugin_config.audio_transport
+        if transport == "path":
+            return str(audio_path)
+        if transport == "shared_path":
+            return str(self._stage_shared_audio(audio_path))
+        size = audio_path.stat().st_size
+        max_bytes = max(1, int(self.plugin_config.base64_max_mb)) * 1024 * 1024
+        if size > max_bytes:
+            raise RuntimeError(
+                f"音频 {audio_path.name} 大小 {size / 1024 / 1024:.1f} MB，"
+                f"超过 Base64 上限 {self.plugin_config.base64_max_mb} MB。"
+            )
+        payload = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+        return f"base64://{payload}"
+
+    def _stage_shared_audio(self, audio_path: pathlib.Path) -> PureWindowsPath:
+        """复制音频到 Linux 共享目录，返回 NapCat 侧可见的 Windows 路径。"""
+        linux_root = pathlib.Path(self.plugin_config.shared_path_linux).expanduser()
+        windows_root = self.plugin_config.shared_path_windows
+        if not str(linux_root) or not windows_root:
+            raise RuntimeError("shared_path 模式需要同时配置 Linux 和 Windows 共享目录。")
+        try:
+            linux_root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(f"无法创建 Linux 共享目录：{linux_root} ({exc})") from exc
+        source = pathlib.Path(audio_path).resolve()
+        try:
+            relative = source.relative_to(linux_root.resolve())
+        except ValueError:
+            staged = linux_root / f"voice_hub_transport_{time.time_ns()}_{source.name}"
+            try:
+                shutil.copyfile(source, staged)
+            except OSError as exc:
+                raise RuntimeError(
+                    f"无法将音频复制到 Linux 共享目录：{linux_root} ({exc})"
+                ) from exc
+            relative = staged.resolve().relative_to(linux_root.resolve())
+        return PureWindowsPath(windows_root) / PureWindowsPath(relative.as_posix())
+
+    @staticmethod
+    def _parse_aiocqhttp_session(session: str) -> tuple[bool, int]:
+        """解析 AstrBot aiocqhttp UMO 为（是否群聊, 数字 ID）。"""
+        parts = str(session or "").split(":", 2)
+        if len(parts) != 3 or not parts[0].strip():
+            raise RuntimeError("shared_path 无法解析目标会话。")
+        message_type = parts[1]
+        if message_type not in {"GroupMessage", "FriendMessage"}:
+            raise RuntimeError(f"shared_path 不支持会话类型：{message_type}")
+        raw_id = parts[2].strip()
+        if not raw_id.isdigit():
+            raise RuntimeError(f"shared_path 目标 ID 无效：{raw_id}")
+        return message_type == "GroupMessage", int(raw_id)
+
+    def _find_aiocqhttp_client(self, session: str) -> Any:
+        """找后台会话对应的 aiocqhttp bot 客户端。"""
+        manager = getattr(self.context, "platform_manager", None)
+        platforms = []
+        get_insts = getattr(manager, "get_insts", None)
+        if callable(get_insts):
+            try:
+                platforms = list(get_insts() or [])
+            except Exception:
+                platforms = []
+        if not platforms:
+            platforms = list(getattr(manager, "platform_insts", []) or [])
+        platform_id = str(session or "").split(":", 1)[0]
+        for platform in platforms:
+            try:
+                meta = platform.meta()
+                identifiers = {
+                    str(getattr(meta, "id", "") or ""),
+                    str(getattr(meta, "name", "") or ""),
+                }
+                if platform_id not in identifiers:
+                    continue
+            except Exception:
+                continue
+            get_client = getattr(platform, "get_client", None)
+            client = get_client() if callable(get_client) else getattr(platform, "bot", None)
+            if client is not None:
+                return client
+        raise RuntimeError(f"找不到 aiocqhttp 平台客户端：{platform_id or session}")
+
+    @staticmethod
+    async def _call_onebot_message(
+        bot: Any,
+        *,
+        is_group: bool,
+        target_id: int,
+        source: str,
+        self_id: Any = None,
+    ) -> None:
+        """直接通过 OneBot API 发送 record，绕过 AstrBot 的路径转换。"""
+        action = "send_group_msg" if is_group else "send_private_msg"
+        params: dict[str, Any] = {
+            "group_id" if is_group else "user_id": target_id,
+            "message": [{"type": "record", "data": {"file": source}}],
+        }
+        if self_id not in (None, ""):
+            params["self_id"] = self_id
+        method = getattr(bot, action, None)
+        if callable(method):
+            await method(**params)
+            return
+        call_action = getattr(bot, "call_action", None)
+        if callable(call_action):
+            await call_action(action, **params)
+            return
+        raise RuntimeError("aiocqhttp 客户端不支持 OneBot 消息发送接口。")
+
+    async def _send_shared_path_audio(
+        self,
+        *,
+        source: str,
+        event: Any = None,
+        session: str = "",
+    ) -> None:
+        """把共享 Windows 路径直接通过 OneBot 客户端发送。"""
+        if event is not None:
+            bot = getattr(event, "bot", None)
+            if bot is None:
+                raise RuntimeError("当前事件没有可用的 aiocqhttp 底层客户端。")
+            get_group_id = getattr(event, "get_group_id", None)
+            group_id = str(get_group_id() or "") if callable(get_group_id) else ""
+            get_sender_id = getattr(event, "get_sender_id", None)
+            sender_id = str(get_sender_id() or "") if callable(get_sender_id) else ""
+            raw_message = getattr(getattr(event, "message_obj", None), "raw_message", None)
+            self_id = raw_message.get("self_id") if isinstance(raw_message, dict) else None
+            if group_id.isdigit():
+                await self._call_onebot_message(
+                    bot, is_group=True, target_id=int(group_id), source=source, self_id=self_id
+                )
+                return
+            if sender_id.isdigit():
+                await self._call_onebot_message(
+                    bot, is_group=False, target_id=int(sender_id), source=source, self_id=self_id
+                )
+                return
+            raise RuntimeError("当前事件缺少有效的群号或用户号。")
+
+        is_group, target_id = self._parse_aiocqhttp_session(session)
+        bot = self._find_aiocqhttp_client(session)
+        await self._call_onebot_message(bot, is_group=is_group, target_id=target_id, source=source)
+
+    def _ensure_shared_path_platform(self, umo: str) -> None:
+        """shared_path 仅 aiocqhttp 可消费；其他平台提前报错并给出替代方案。"""
+        platform_id = str(umo or "").split(":", 1)[0].strip()
+        if platform_id and platform_id != "aiocqhttp":
+            raise RuntimeError(
+                f"shared_path 模式仅支持 aiocqhttp 平台，当前平台为 {platform_id}；"
+                "请改用 audio_transport=base64 或 path。"
+            )
+
+    def _audio_component(self, audio_path: pathlib.Path, umo: str = ""):
+        if self.plugin_config.audio_transport == "shared_path":
+            self._ensure_shared_path_platform(umo)
         if Record is not None:
-            return Record(file=str(audio_path))
+            try:
+                return Record(file=self._audio_source(audio_path))
+            except Exception as exc:
+                if self.plugin_config.audio_transport == "base64":
+                    # base64 是明确选择的传输方式，构建失败要暴露而不是悄悄回退
+                    raise
+                self.logger.warning(
+                    "[voice-hub] failed to build Record payload, fallback to file: %s", exc
+                )
         if self.plugin_config.file_fallback_enabled:
             return File(name=audio_path.name, file=str(audio_path))
         return None
@@ -2063,6 +2419,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         回退到 system_prompt 拼接。
         """
         prompt = self._TTS_JUDGE_PROMPT
+        expression_note = self._fishaudio_expression_note()
+        if expression_note:
+            # fishaudio 后端：告诉主模型控制词语法，让它能直接写出细粒度情绪
+            prompt = f"{prompt}\n\n{expression_note}"
         injected = False
         extra = getattr(request, "extra_user_content_parts", None)
         if extra is not None and TextPart is not None:
@@ -2118,18 +2478,29 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
     async def _send_audio_result(
         self, event: AstrMessageEvent, audio_path: pathlib.Path
     ) -> None:
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        if self.plugin_config.audio_transport == "shared_path":
+            self._ensure_shared_path_platform(umo)
+            source = self._audio_source(audio_path)
+            await self._send_shared_path_audio(source=source, event=event)
+            return
         if Record is not None:
             try:
-                await event.send(event.chain_result([Record(file=str(audio_path))]))
+                await event.send(event.chain_result([Record(file=self._audio_source(audio_path))]))
                 return
             except Exception as exc:
+                if self.plugin_config.audio_transport == "base64":
+                    raise
                 self.logger.warning(
                     "[voice-hub] Record send failed, fallback to file: %s", exc
                 )
-        if self.plugin_config.file_fallback_enabled:
-            await event.send(
-                event.chain_result([File(name=audio_path.name, file=str(audio_path))])
-            )
+        if not self.plugin_config.file_fallback_enabled:
+            # 上游 5d624b17：回退关闭时不能静默跳过，否则调用方会拿到
+            # "已发送"的假确认，用户实际一条语音都没收到。
+            raise RuntimeError("语音未能发送，且 file_fallback_enabled 已禁用文件回退。")
+        await event.send(
+            event.chain_result([File(name=audio_path.name, file=str(audio_path))])
+        )
 
     # 言在 priority=600 先发布交付计划，本插件在 400 消费；没有言时独立降级。
     @filter.on_decorating_result(priority=400)
@@ -2204,9 +2575,10 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     plugin._remove_cancelled_outputs(outputs)
                     return
 
+            umo = str(getattr(event, "unified_msg_origin", "") or "")
             audio_components = [
                 component
-                for component in (plugin._audio_component(output) for output in outputs)
+                for component in (plugin._audio_component(output, umo) for output in outputs)
                 if component is not None
             ]
             if not audio_components:

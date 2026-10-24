@@ -4,7 +4,35 @@
       "tts_backend": {
         "labels": [
           "MiMo",
-          "AstrBot"
+          "AstrBot",
+          "FishAudio"
+        ]
+      },
+      "audio_transport": {
+        "label": "Audio transport",
+        "labels": [
+          "Local path",
+          "Base64 inline (cross-machine)",
+          "Shared directory path"
+        ]
+      },
+      "fishaudio_model": {
+        "label": "FishAudio model (FishAudio backend only)",
+        "labels": [
+          "Auto",
+          "S2.1 Pro Free",
+          "S2.1 Pro",
+          "S2 Pro",
+          "S1 (legacy)",
+          "Drama 3 (self-hosted)"
+        ]
+      },
+      "fishaudio_emotion_mode": {
+        "label": "FishAudio emotion control (FishAudio backend only)",
+        "labels": [
+          "Balanced (recommended)",
+          "Expressive",
+          "Manual"
         ]
       },
       "output_format": {

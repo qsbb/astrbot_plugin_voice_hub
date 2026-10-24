@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>声｜统一语音中心</title>
-  <link rel="stylesheet" href="./style.css?v=0.14.0-1" />
-  <link rel="stylesheet" href="./series-ui.css?v=0.14.0-1" />
+  <link rel="stylesheet" href="./style.css?v=0.15.1-1" />
+  <link rel="stylesheet" href="./series-ui.css?v=0.15.1-1" />
   </head>
 <body data-series-ui="1">
   <p data-toast-fallback role="alert" hidden style="margin:12px; padding:10px 12px; border:1px solid rgba(209,75,90,.35); border-radius:10px; color:#a33; background:#fff0f2;"></p>
@@ -35,6 +35,7 @@
         <legend class="sr-only">选择统一语音服务实际使用的合成后端</legend>
         <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="mimo" /><span><strong>MiMo 语音合成</strong><small>使用授权参考音频克隆音色；选中后展开 Key、模型、导演、情绪与音色库。</small></span></label>
         <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="astrbot" /><span><strong>AstrBot 内置语音合成</strong><small>复用 AstrBot 已配置的 TTS 提供商，不显示 MiMo 专属设置。</small></span></label>
+        <label class="trigger-mode-option"><input type="radio" name="tts-backend" value="fishaudio" /><span><strong>FishAudio 语音合成</strong><small>调用 Fish Audio 官方/兼容接口；音色用参考模型 ID 或上传的参考音频。</small></span></label>
       </fieldset>
       <div class="backend-runbar-status">
         <strong id="backend-run-summary">MiMo 语音合成（克隆音色）</strong>
@@ -271,6 +272,64 @@
         </label>
         <p class="field-hint wide">直接使用 AstrBot 已配置的 TTS 提供商合成语音，无需上传参考音频；MiMo 的音色克隆、情绪路由和 AI 导演不生效。</p>
       </article>
+
+      <article class="studio-card backend-card api-card span-12" data-backend-scope="fishaudio" hidden>
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">FishAudio 后端</span>
+            <h2>FishAudio 设置</h2>
+          </div>
+          <a class="ghost-link compact-link" href="https://fish.audio/zh-CN/discovery" rel="noreferrer">音色广场</a>
+        </div>
+        <div class="form-grid two-col">
+          <label>访问密钥（API Key）<input id="fishaudio-api-key" type="password" autocomplete="off" placeholder="填入 FishAudio API Key" /></label>
+          <label>接口地址（Base URL）<input id="fishaudio-api-base" type="text" /></label>
+          <label>参考模型 ID<input id="fishaudio-reference-id" type="text" placeholder="32 位十六进制，可留空" /></label>
+          <label>角色名回退<input id="fishaudio-character" type="text" placeholder="参考模型 ID 为空时按名称查询" /></label>
+          <label>模型
+            <select id="fishaudio-model">
+              <option value="auto">自动识别</option>
+              <option value="s2.1-pro-free">S2.1 Pro Free</option>
+              <option value="s2.1-pro">S2.1 Pro</option>
+              <option value="s2-pro">S2 Pro</option>
+              <option value="s1">S1 旧版</option>
+              <option value="drama-3">Drama 3（自建）</option>
+            </select>
+          </label>
+          <label>情绪控制
+            <select id="fishaudio-emotion-mode">
+              <option value="balanced">自然平衡（推荐）</option>
+              <option value="expressive">更有表现力</option>
+              <option value="manual">手动控制</option>
+            </select>
+          </label>
+          <label>请求超时（秒）<input id="fishaudio-timeout-seconds" type="number" min="5" max="600" /></label>
+        </div>
+        <p class="field-hint wide">音色优先级：试听/工具显式选择的音色（参考模型 ID 或上传的参考音频）&gt; 参考模型 ID &gt; 角色名回退 &gt; 接口默认音色。S2/S2.1 使用方括号自然语言情绪控制，S1 使用圆括号固定标签；喘息/呻吟等强呼吸效果不会自动添加。</p>
+      </article>
+    </section>
+
+    <section data-voice-panel="interface" id="voice-transport" class="studio-card transport-card" data-backend-scope="shared">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">传输方式</span>
+          <h2>音频传输</h2>
+        </div>
+        <span class="soft-pill">跨机部署</span>
+      </div>
+      <div class="form-grid two-col">
+        <label>传输方式
+          <select id="audio-transport">
+            <option value="path">本地路径（共享文件系统）</option>
+            <option value="base64">Base64 内嵌（跨机推荐）</option>
+            <option value="shared_path">共享目录（WSL/Linux + Windows）</option>
+          </select>
+        </label>
+        <label>Base64 单段上限（MB）<input id="base64-max-mb" type="number" min="1" max="500" /></label>
+        <label>共享目录（Linux/WSL 侧）<input id="shared-path-linux" type="text" /></label>
+        <label>共享目录（Windows 侧映射）<input id="shared-path-windows" type="text" /></label>
+      </div>
+      <p class="field-hint wide">path 要求 NapCat 能直接读到 AstrBot 生成的音频文件；base64 把音频内嵌进 OneBot record 消息，跨机/容器部署首选；shared_path 复制到 Linux 共享目录后把 Windows 映射路径直接通过 OneBot API 发送，仅支持 aiocqhttp 平台（QQ 官方接口请用 base64）。</p>
     </section>
 
     <section data-voice-panel="interface" id="voice-access" class="studio-card access-card" data-backend-scope="shared">
@@ -427,7 +486,7 @@
     <button type="button" id="mobile-test-connection" class="secondary">诊断当前后端</button>
   </div>
   <script src="/api/plugin/page/bridge-sdk.js"></script>
-  <script src="./series-ui.js?v=0.14.0-1"></script>
-  <script src="./app.js?v=0.14.0-1"></script>
+  <script src="./series-ui.js?v=0.15.1-1"></script>
+  <script src="./app.js?v=0.15.1-1"></script>
 </body>
 </html>

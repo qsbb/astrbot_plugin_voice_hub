@@ -2,9 +2,17 @@
   "tts_backend": {
     "type": "string",
     "description": "语音合成后端",
-    "options": ["mimo", "astrbot"],
-    "labels": ["MiMo", "AstrBot"],
-    "hint": "统一朗读、自动语音和外部接口均使用此后端。mimo=MiMo 音色克隆；astrbot=调用 AstrBot 已配置的 TTS 提供商。",
+    "options": [
+      "mimo",
+      "astrbot",
+      "fishaudio"
+    ],
+    "labels": [
+      "MiMo",
+      "AstrBot",
+      "FishAudio"
+    ],
+    "hint": "统一朗读、自动语音和外部接口均使用此后端。mimo=MiMo 音色克隆；astrbot=调用 AstrBot 已配置的 TTS 提供商；fishaudio=调用 Fish Audio 官方/兼容接口（音色用参考模型 ID 或参考音频）。",
     "default": "mimo"
   },
   "astrbot_tts_provider_id": {
@@ -12,6 +20,109 @@
     "description": "AstrBot TTS 提供商 ID（仅 AstrBot 后端）",
     "hint": "tts_backend 为 astrbot 时生效。留空使用 AstrBot 默认 TTS 提供商；填写特定提供商 ID 可指定使用。",
     "default": ""
+  },
+  "fishaudio_api_key": {
+    "type": "string",
+    "description": "FishAudio API Key（仅 FishAudio 后端）",
+    "hint": "仅 tts_backend=fishaudio 时使用；可在 fish.audio/app/api-keys 获取，也可以在插件 Pages 页面填写。",
+    "default": "",
+    "secret": true
+  },
+  "fishaudio_api_base": {
+    "type": "string",
+    "description": "FishAudio API Base URL（仅 FishAudio 后端）",
+    "hint": "仅 tts_backend=fishaudio 时生效。官方接口为 https://api.fish-audio.cn/v1 或 https://api.fish.audio/v1；自建 fish-speech 服务器填其 /v1 地址（不发送 model 请求头）。",
+    "default": "https://api.fish-audio.cn/v1"
+  },
+  "fishaudio_reference_id": {
+    "type": "string",
+    "description": "FishAudio 参考模型 ID（仅 FishAudio 后端）",
+    "hint": "32 位十六进制字符串，可从 https://fish.audio/zh-CN/discovery 获取；留空且填写角色名时按角色名在官方接口查询，两者都为空则使用接口默认音色。上传参考音频的音色优先于此 ID。",
+    "default": ""
+  },
+  "fishaudio_character": {
+    "type": "string",
+    "description": "FishAudio 角色名回退（仅 FishAudio 后端）",
+    "hint": "参考模型 ID 为空时用于在官方接口按标题搜索音色；自建接口不支持该查询。",
+    "default": ""
+  },
+  "fishaudio_model": {
+    "type": "string",
+    "description": "FishAudio 模型（仅 FishAudio 后端）",
+    "options": [
+      "auto",
+      "s2.1-pro-free",
+      "s2.1-pro",
+      "s2-pro",
+      "s1",
+      "drama-3"
+    ],
+    "labels": [
+      "自动识别",
+      "S2.1 Pro Free",
+      "S2.1 Pro",
+      "S2 Pro",
+      "S1 旧版",
+      "Drama 3（自建）"
+    ],
+    "hint": "auto 读取后端配置；官方接口未声明模型时按文档使用 s2.1-pro-free。S2/S2.1 使用方括号自然语言情绪控制，S1 旧版使用圆括号固定标签，drama-3 为自建 fish-speech 服务器的新模型（方括号表演指令 + 成对局部语气标签），自建兼容接口不会被强制覆盖。",
+    "default": "auto"
+  },
+  "fishaudio_emotion_mode": {
+    "type": "string",
+    "description": "FishAudio 情绪控制（仅 FishAudio 后端）",
+    "options": [
+      "balanced",
+      "expressive",
+      "manual"
+    ],
+    "labels": [
+      "自然平衡（推荐）",
+      "更有表现力",
+      "手动控制"
+    ],
+    "hint": "自然平衡通常只使用 1 个贴合语义的控制；更有表现力最多组合 3 个；手动控制不自动补标并保留已有合法控制词。喘息、喘气和呻吟等强呼吸效果不会自动添加。",
+    "default": "balanced"
+  },
+  "fishaudio_timeout_seconds": {
+    "type": "int",
+    "description": "FishAudio 请求超时秒数（仅 FishAudio 后端）",
+    "hint": "单次合成请求的超时上限（5-600 秒），长文本建议保持默认。",
+    "default": 120
+  },
+  "audio_transport": {
+    "type": "string",
+    "description": "音频传输方式",
+    "options": [
+      "path",
+      "base64",
+      "shared_path"
+    ],
+    "labels": [
+      "本地路径",
+      "Base64 内嵌（推荐跨机）",
+      "共享目录路径"
+    ],
+    "hint": "path=把 AstrBot 本地路径交给 NapCat（要求两者共享文件系统）；base64=Record 内嵌 base64://，跨机/容器部署用，不受文件系统限制；shared_path=WSL/Linux 生成后复制到共享目录并把 Windows 映射路径直接走 OneBot API 发送（仅 aiocqhttp）。",
+    "default": "path"
+  },
+  "shared_path_linux": {
+    "type": "string",
+    "description": "共享目录（Linux/WSL 侧）",
+    "hint": "audio_transport=shared_path 时使用：AstrBot 可写的 Linux 侧目录，音频会先复制到这里。",
+    "default": "/mnt/c/Users/Public/mimo_tts_audio"
+  },
+  "shared_path_windows": {
+    "type": "string",
+    "description": "共享目录（Windows 侧映射）",
+    "hint": "audio_transport=shared_path 时使用：NapCat 所在 Windows 侧对应的映射路径，会直接通过 OneBot API 发送。",
+    "default": "C:\\\\Users\\\\Public\\\\mimo_tts_audio"
+  },
+  "base64_max_mb": {
+    "type": "int",
+    "description": "Base64 单段上限（MB）",
+    "hint": "audio_transport=base64 时单个音频段的最大体积（1-500 MB），超限会停止交付并报错。",
+    "default": 50
   },
   "api_key": {
     "type": "string",
@@ -33,8 +144,12 @@
   "output_format": {
     "type": "string",
     "description": "MiMo 输出格式（仅 MiMo 后端）",
-    "options": ["wav"],
-    "labels": ["WAV"],
+    "options": [
+      "wav"
+    ],
+    "labels": [
+      "WAV"
+    ],
     "default": "wav"
   },
   "default_context": {
@@ -97,8 +212,14 @@
   "ai_style_director_mode": {
     "type": "string",
     "description": "AI 导演风格模式",
-    "options": ["direct", "hybrid"],
-    "labels": ["仅 AI 指令", "混合风格"],
+    "options": [
+      "direct",
+      "hybrid"
+    ],
+    "labels": [
+      "仅 AI 指令",
+      "混合风格"
+    ],
     "hint": "direct=仅使用 AI 生成的风格指令；hybrid=保留默认/情绪/音色/临时风格并追加 AI 指令。两者都不会污染最终回复文本。",
     "default": "direct"
   },
@@ -177,8 +298,16 @@
   "reply_mode": {
     "type": "string",
     "description": "回复模式",
-    "options": ["audio_only", "text_and_audio", "text_only"],
-    "labels": ["仅语音", "文字和语音", "仅文字"],
+    "options": [
+      "audio_only",
+      "text_and_audio",
+      "text_only"
+    ],
+    "labels": [
+      "仅语音",
+      "文字和语音",
+      "仅文字"
+    ],
     "default": "audio_only"
   },
   "auto_tts_enabled": {
@@ -190,8 +319,14 @@
   "tts_trigger_mode": {
     "type": "string",
     "description": "TTS 触发方式",
-    "options": ["probability", "llm_decides"],
-    "labels": ["按概率", "由 LLM 决定"],
+    "options": [
+      "probability",
+      "llm_decides"
+    ],
+    "labels": [
+      "按概率",
+      "由 LLM 决定"
+    ],
     "hint": "probability=过滤 voice_hub_speak 工具并按概率自动语音化；llm_decides=只向 LLM 提供唯一的 voice_hub_speak 工具，不执行概率自动 TTS。旧配置未填写时按 probability 处理。",
     "default": "probability"
   },

@@ -2,7 +2,7 @@
 
 ![声](assets/readme-hero.svg)
 
-> 凝心溯溪系列语音模块：集中管理朗读触发、结构化分段、发送节奏、取消语义、输出清理和 TTS 后端；MiMo 音色克隆与 AstrBot 内置 TTS 作为可切换的后端能力按需展开。
+> 凝心溯溪系列语音模块：集中管理朗读触发、结构化分段、发送节奏、取消语义、输出清理和 TTS 后端；MiMo 音色克隆、AstrBot 内置 TTS 与 FishAudio 官方/兼容接口作为可切换的后端能力按需展开。
 
 > **凝心溯溪系列** 当前完整插件清单为知、言、序、情、境、声、核、临：各插件职责独立、互不冲突，可按需组合使用，覆盖知识学习、对话调节、身份管理、关系状态、环境感知、语音、更新管理与具身桥接。
 
@@ -13,7 +13,7 @@
 | [序](https://github.com/qsbb/astrbot_plugin_identity_guardian) | 身份管理 | 关系感知、权限边界、群组行动 |
 | [情](https://github.com/qsbb/astrbot_plugin_relationship) | 关系状态 | 情绪、好感、信任、熟悉度状态记录与只读建议 |
 | [境](https://github.com/qsbb/astrbot_plugin_environment_awareness) | 环境感知 | 时间、天气、空气质量、预警与环境关心候选 |
-| [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 双 TTS 后端、多音色管理、AI 导演（本插件） |
+| [声](https://github.com/qsbb/astrbot_plugin_voice_hub) | 语音合成 | 三 TTS 后端（MiMo / AstrBot / FishAudio）、多音色管理、AI 导演（本插件） |
 | [核](https://github.com/qsbb/astrbot_plugin_update_manager) | 更新管理 | 安全检查、计划、串行更新与回滚 |
 | [临](https://github.com/qsbb/astrbot_plugin_embodiment_bridge) | 具身桥接 | Quest 客户端桥接、实时对话与空间感知 |
 
@@ -26,8 +26,9 @@
 
 在原项目基础上，当前版本主要新增：
 
-- **双 TTS 后端切换**：支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换，无需上传音频即可使用 AstrBot 已配置的 TTS。
+- **多 TTS 后端切换**：支持在 MiMo 音色克隆、AstrBot 内置 TTS 提供商与 FishAudio 接口（官方/自建兼容服务器）之间切换。FishAudio 音色支持参考模型 ID、角色名回退和上传参考音频内联克隆，并内置从凝心溯溪“临”移植的表现力控制（S2 方括号 / S1 圆括号情绪控制词，三档策略）。
 - **统一语音中心界面**：通用朗读、触发、分段、延迟、取消和清理设置始终可见；MiMo Key、模型、导演、情绪、迁移、音色与试听仅在 MiMo 后端下显示。
+- **跨机音频传输**：`audio_transport` 支持本地路径、`base64://` 内嵌 Record（跨机/容器部署）与 WSL/Linux + Windows NapCat 共享目录模式（直接走 OneBot API，仅 aiocqhttp 平台）。
 - **OpenAI 兼容外部 API**：开启后插件启动带 Bearer 认证、模型校验、频率限制和输入长度限制的 `POST /v1/audio/speech` 服务；默认仅监听 `127.0.0.1`。Pages 的连接诊断会使用当前配置中的 Token 自调用此接口；未配置 Token 时会直接提示服务未启动，外部客户端仍必须携带同一 Token。
 - **一键迁移旧插件配置**：Pages 面板提供按钮，自动读取旧插件 `astrbot_plugin_mimo_tts_clone` 的配置和音色数据并合并到本插件。
 - 保留原版概率语音的权限检查、概率抽取、文本清洗、音色与情绪路由、分段合成及回复链处理。
@@ -48,7 +49,8 @@
 
 | 模块 | 能力 |
 | --- | --- |
-| 双 TTS 后端切换 | 支持在 MiMo 音色克隆和 AstrBot 内置 TTS 提供商之间切换，可在 Pages 面板选择 |
+| 多 TTS 后端切换 | 支持在 MiMo 音色克隆、AstrBot 内置 TTS 提供商与 FishAudio 接口之间切换，可在 Pages 面板选择 |
+| 音频传输方式 | `path`（本地路径）/ `base64`（跨机内嵌，带单段上限）/ `shared_path`（WSL/Linux + Windows NapCat 共享目录，直接走 OneBot API，仅 aiocqhttp） |
 | 官方 API 接入 | 支持 MiMo v2.5 voiceclone，OpenAI-compatible 调用方式 |
 | 音色库 | 上传 `mp3` / `wav` 授权样本，本地保存音色元数据 |
 | 多音色路由 | 支持全局、群、用户、情绪四类默认音色 |
@@ -393,7 +395,7 @@ node --check pages/settings/app.js
 ## 致谢
 
 - 特别感谢 [Justice-ocr](https://github.com/Justice-ocr) 开源原项目 [astrbot_plugin_mimo_tts_clone](https://github.com/Justice-ocr/astrbot_plugin_mimo_tts_clone)。本项目基于其代码和设计继续开发，原项目提供了 MiMo voiceclone 接入、概率语音、音色管理、情绪路由、AI 风格导演、Pages 管理及插件复用能力等核心基础。
-- 本项目在原项目基础上新增了双 TTS 后端切换（MiMo + AstrBot 内置 TTS）、OpenAI 兼容外部 API 等功能，并更名为 `astrbot_plugin_voice_hub`。
+- 本项目在原项目基础上新增了多 TTS 后端切换（MiMo + AstrBot 内置 TTS + FishAudio）、OpenAI 兼容外部 API 等功能，并更名为 `astrbot_plugin_voice_hub`；FishAudio 表现力控制层移植自凝心溯溪“临”（astrbot_plugin_private_companion）的 TTS 强化模块。
 - 感谢 [MiMo Speech Synthesis v2.5](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/multimodal-understanding/speech-synthesis-v2.5) 提供语音合成与 voiceclone 服务及官方文档。
 - 感谢 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 提供插件系统、LLM Tool、事件钩子与 Pages 能力。
 - Pages 前端视觉参考了 [Firefly](https://github.com/CuteLeaf/Firefly) 的清新玻璃卡片、柔和主题色与轻动效设计思路；未直接引入其 Astro/Tailwind/Svelte 技术栈。

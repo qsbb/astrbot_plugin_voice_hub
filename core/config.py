@@ -48,8 +48,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "api_server_token": "",
     "api_server_rate_limit_per_minute": 30,
     "api_server_max_input_chars": 500,
-    "tts_backend": "mimo",  # "mimo" 或 "astrbot"
+    "tts_backend": "mimo",  # "mimo" / "astrbot" / "fishaudio"
     "astrbot_tts_provider_id": "",  # 空=用 AstrBot 默认 TTS 提供商
+    # FishAudio 后端（官方 api.fish.audio / api.fish-audio.cn 或自建兼容接口）
+    "fishaudio_api_key": "",
+    "fishaudio_api_base": "https://api.fish-audio.cn/v1",
+    "fishaudio_reference_id": "",  # 32 位十六进制参考模型 ID；空=可按角色名查询
+    "fishaudio_character": "",  # reference_id 为空时的角色名回退（仅官方接口）
+    "fishaudio_model": "auto",  # auto / s2.1-pro-free / s2.1-pro / s2-pro / s1
+    "fishaudio_emotion_mode": "balanced",  # balanced / expressive / manual
+    "fishaudio_timeout_seconds": 120,
+    # 音频传输方式：path=本地路径（要求 NapCat 能读到 AstrBot 文件系统）
+    # base64=Record 内嵌 base64://（跨机部署默认）；shared_path=WSL/Linux+Windows 共享目录
+    "audio_transport": "path",
+    "shared_path_linux": "/mnt/c/Users/Public/mimo_tts_audio",
+    "shared_path_windows": "C:\\Users\\Public\\mimo_tts_audio",
+    "base64_max_mb": 50,
     # LLM 情绪化朗读判断：probability 模式下让主 LLM 在回复开头输出朗读意愿标记
     "llm_tts_judge_enabled": False,
 }
@@ -101,6 +115,17 @@ class PluginConfig:
     api_server_max_input_chars: int
     tts_backend: str
     astrbot_tts_provider_id: str
+    fishaudio_api_key: str
+    fishaudio_api_base: str
+    fishaudio_reference_id: str
+    fishaudio_character: str
+    fishaudio_model: str
+    fishaudio_emotion_mode: str
+    fishaudio_timeout_seconds: float
+    audio_transport: str
+    shared_path_linux: str
+    shared_path_windows: str
+    base64_max_mb: int
     llm_tts_judge_enabled: bool
 
     @property
@@ -229,12 +254,43 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         cfg.get("api_server_max_input_chars"), 500, 1, 10000
     )
     backend = str(cfg.get("tts_backend") or "mimo").strip().lower()
-    if backend not in {"mimo", "astrbot"}:
+    if backend not in {"mimo", "astrbot", "fishaudio"}:
         backend = "mimo"
     cfg["tts_backend"] = backend
     cfg["astrbot_tts_provider_id"] = str(
         cfg.get("astrbot_tts_provider_id") or ""
     ).strip()
+    cfg["fishaudio_api_key"] = str(cfg.get("fishaudio_api_key") or "").strip()
+    cfg["fishaudio_api_base"] = (
+        str(cfg.get("fishaudio_api_base") or "https://api.fish-audio.cn/v1").strip().rstrip("/")
+        or "https://api.fish-audio.cn/v1"
+    )
+    cfg["fishaudio_reference_id"] = str(cfg.get("fishaudio_reference_id") or "").strip()
+    cfg["fishaudio_character"] = str(cfg.get("fishaudio_character") or "").strip()
+    fishaudio_model = str(cfg.get("fishaudio_model") or "auto").strip().lower()
+    if fishaudio_model not in {"auto", "s2.1-pro-free", "s2.1-pro", "s2-pro", "s1", "drama-3"}:
+        fishaudio_model = "auto"
+    cfg["fishaudio_model"] = fishaudio_model
+    fishaudio_mode = str(cfg.get("fishaudio_emotion_mode") or "balanced").strip().lower()
+    if fishaudio_mode not in {"balanced", "expressive", "manual"}:
+        fishaudio_mode = "balanced"
+    cfg["fishaudio_emotion_mode"] = fishaudio_mode
+    try:
+        cfg["fishaudio_timeout_seconds"] = max(
+            5.0, min(600.0, float(cfg.get("fishaudio_timeout_seconds") or 120))
+        )
+    except (TypeError, ValueError):
+        cfg["fishaudio_timeout_seconds"] = 120.0
+    transport = str(cfg.get("audio_transport") or "path").strip().lower()
+    if transport not in {"path", "base64", "shared_path"}:
+        transport = "path"
+    cfg["audio_transport"] = transport
+    cfg["shared_path_linux"] = str(cfg.get("shared_path_linux") or "").strip()
+    cfg["shared_path_windows"] = str(cfg.get("shared_path_windows") or "").strip()
+    try:
+        cfg["base64_max_mb"] = max(1, min(500, int(cfg.get("base64_max_mb") or 50)))
+    except (TypeError, ValueError):
+        cfg["base64_max_mb"] = 50
     cfg["llm_tts_judge_enabled"] = _bool_value(cfg.get("llm_tts_judge_enabled", False))
     return cfg
 

@@ -256,8 +256,10 @@ class PagesUITests(unittest.TestCase):
         css = (PAGES_DIR / "style.css").read_text(encoding="utf-8")
 
         self.assertIn('data-backend-scope="shared"', html)
-        # MiMo 专属块：MiMo 设置 / AI 风格导演（含情绪路由）/ 音色库 / 试听
-        self.assertEqual(html.count('data-backend-scope="mimo"'), 4)
+        # MiMo 专属块：MiMo 设置 / AI 风格导演（含情绪路由）/ 音色库
+        self.assertEqual(html.count('data-backend-scope="mimo"'), 3)
+        # 试听工作台为 MiMo + FishAudio 共享
+        self.assertIn('data-backend-scope="mimo fishaudio"', html)
         self.assertIn('data-backend-scope="astrbot"', html)
         self.assertIn('id="backend-selection"', html)
         self.assertIn("voice-core-grid", html)
@@ -545,3 +547,29 @@ def test_settings_page_uses_incremented_asset_cache_busters():
     html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
     for asset in ("style.css", "series-ui.css", "series-ui.js", "app.js"):
         assert f"{asset}?v=0.15.1-1" in html
+
+
+class FishAudioPreviewUITests:
+    """fishaudio 后端下试听工作台可见，音色下拉注入参考模型 ID / 角色名。"""
+
+    def test_preview_card_is_visible_for_fishaudio_backend(self):
+        html = (PAGES_DIR / "index.html").read_text(encoding="utf-8")
+        assert 'data-backend-scope="mimo fishaudio"' in html
+
+    def test_preview_dropdown_injects_fishaudio_voice_sources(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        assert "backend === 'fishaudio'" in js
+        assert "参考模型 ID：" in js
+        assert "角色名回退：" in js
+        assert "参考音频：" in js
+
+    def test_preview_guard_allows_configured_reference_id(self):
+        js = (PAGES_DIR / "app.js").read_text(encoding="utf-8")
+        assert "需要先在 FishAudio 设置里填写参考模型 ID 或角色名。" in js
+        assert "fishaudio_reference_id" in js
+
+    def test_core_panel_test_connection_supports_fishaudio(self):
+        webui = Path(__file__).resolve().parents[1] / "series_webui.py"
+        text = webui.read_text(encoding="utf-8")
+        assert 'backend == "fishaudio"' in text
+        assert "FishAudio API Key 未配置" in text

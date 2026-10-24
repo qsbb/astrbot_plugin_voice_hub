@@ -352,7 +352,11 @@ function renderReadiness() {
   const enabledVoices = state.voices.filter(voice => voice.enabled !== false).length;
   const hasPreviewText = Boolean($('preview-text').value.trim());
   const hasPreviewVoice = Boolean($('preview-voice').value);
-  const previewReady = Boolean(enabledVoices && hasPreviewText && hasPreviewVoice);
+  const previewReady = backend === 'fishaudio'
+    ? Boolean(hasPreviewText && hasPreviewVoice &&
+        ((state.config.fishaudio_reference_id || '').trim() ||
+         (state.config.fishaudio_character || '').trim() || enabledVoices))
+    : Boolean(enabledVoices && hasPreviewText && hasPreviewVoice);
   const items = backend === 'astrbot' ? [
     {
       title: '当前后端',
@@ -423,6 +427,18 @@ function updateAccessCounts() {
 }
 
 function previewDisabledReason() {
+  const backend = currentTtsBackend();
+  if (backend === 'fishaudio') {
+    // fishaudio：参考模型 ID / 角色名 / 上传参考音频三者任一即可试听
+    const hasConfigured = (state.config.fishaudio_reference_id || '').trim() ||
+      (state.config.fishaudio_character || '').trim();
+    if (!hasConfigured && !state.voices.some(voice => voice.enabled !== false)) {
+      return '需要先在 FishAudio 设置里填写参考模型 ID 或角色名。';
+    }
+    if (!$('preview-voice').value) return '请选择一个试听音色。';
+    if (!$('preview-text').value.trim()) return '请输入试听文本。';
+    return '准备中，请稍候。';
+  }
   if (!state.voices.some(voice => voice.enabled !== false)) return '需要先上传并启用音色。';
   if (!$('preview-voice').value) return '请选择一个试听音色。';
   if (!$('preview-text').value.trim()) return '请输入试听文本。';
@@ -736,11 +752,45 @@ function renderEmotionDefaults() {
 }
 
 function renderVoices() {
+  const backend = currentTtsBackend();
   $('voice-count').textContent = `${state.voices.length} 个音色`;
   const list = $('voice-list');
   const select = $('preview-voice');
   list.innerHTML = '';
   select.innerHTML = '';
+
+  // fishaudio 后端：音色来源是参考模型 ID / 角色名回退，不依赖本地音色库
+  if (backend === 'fishaudio') {
+    const refId = (state.config.fishaudio_reference_id || '').trim();
+    const character = (state.config.fishaudio_character || '').trim();
+    if (refId) {
+      const option = document.createElement('option');
+      option.value = refId;
+      option.textContent = `参考模型 ID：${refId.slice(0, 12)}…`;
+      select.appendChild(option);
+    }
+    if (character) {
+      const option = document.createElement('option');
+      option.value = character;
+      option.textContent = `角色名回退：${character}`;
+      select.appendChild(option);
+    }
+    if (!select.options.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '未配置参考音色（请在 FishAudio 设置里填写）';
+      select.appendChild(option);
+    }
+    // 本地音色库仍可作为上传参考音频来源
+    state.voices.filter(voice => voice.enabled !== false).forEach(voice => {
+      const option = document.createElement('option');
+      option.value = voice.name;
+      option.textContent = `参考音频：${voice.name}`;
+      select.appendChild(option);
+    });
+    renderEmotionDefaults();
+    return;
+  }
 
   if (!state.voices.length) {
     list.innerHTML = '<div class="empty-state">暂无音色。上传已授权的 mp3 / wav 样本后，MiMo 会按该样本进行 voiceclone。</div>';

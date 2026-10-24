@@ -1418,11 +1418,16 @@ class SeriesWebUIPanels:
                 if not enabled:
                     return _failure("VOICE_NOT_AVAILABLE", "暂无可用音色")
                 voice_id = str(enabled[0].id)
+        if backend == "fishaudio" and not str(
+            getattr(self.plugin.plugin_config, "fishaudio_api_key", "") or ""
+        ).strip():
+            return _failure("PROVIDER_UNAVAILABLE", "FishAudio API Key 未配置")
         started = asyncio.get_running_loop().time()
         try:
             outputs = await self.plugin.synthesize_text(
                 text,
                 voice_id=voice_id if backend == "mimo" else None,
+                voice_name=voice_id if backend == "fishaudio" else None,
                 split=False,
             )
         except Exception as exc:

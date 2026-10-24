@@ -17,6 +17,7 @@
 - **FishAudio 音色来源**：参考模型 ID（32 位十六进制，从 fish.audio/discovery 获取）、角色名回退（仅官方接口按标题查询）、上传参考音频内联克隆（`references` 字段，音色库现有音色可直接试听）三者并存，优先级为显式音色 > 参考模型 ID > 角色名回退 > 接口默认音色。
 - **FishAudio 表现力控制**：从凝心溯溪“临”的 TTS 强化模块移植情绪控制层——S2/S2.1 使用方括号自然语言控制、S1 使用官方圆括号固定标签，别名（中日英）自动规范化，自动模式不添加喘息/喘气/呻吟等强呼吸效果、普通语气词不当作叹气、每句最多 3 个控制词且不连续堆叠；`balanced / expressive / manual` 三档策略，声的 `emotion` 参数（happy/sad/angry）会映射为对应控制词。
 - 配置新增 `fishaudio_api_key`（秘密）、`fishaudio_api_base`、`fishaudio_reference_id`、`fishaudio_character`、`fishaudio_model`、`fishaudio_emotion_mode`、`fishaudio_timeout_seconds`（均仅 FishAudio 后端生效）；Pages 设置页新增 FishAudio 卡片，连接测试与试听支持 FishAudio 后端，API Key 只写不回显。
+- **试听工作台在 FishAudio 后端可见**（此前误标为 MiMo 专属会整个消失）：音色下拉注入"参考模型 ID / 角色名回退 / 上传参考音频"三类来源，核接管面板的诊断也适配 FishAudio 后端。
 
 ## 0.14.0 - 2026-10-10
 

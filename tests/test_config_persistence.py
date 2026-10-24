@@ -1254,7 +1254,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (1 segment); do not resend it via other tools"
+                    "audio already sent to user (1 segment); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
                 ],
             )
 
@@ -1306,7 +1306,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (2 segments); do not resend it via other tools"
+                    "audio already sent to user (2 segments); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
                 ],
             )
 
@@ -1549,7 +1549,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(len(sent), 2)
             self.assertEqual(
                 result[0],
-                "audio already sent to user (2 segments); do not resend it via other tools",
+                "audio already sent to user (2 segments); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it",
             )
             self.assertEqual(
                 [
@@ -1787,7 +1787,7 @@ class ConfigPersistenceTests(unittest.TestCase):
                 invoke(
                     [
                         "audio already sent to user (2 segments); "
-                        "do not resend it via other tools"
+                        "do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
                     ]
                 ),
                 (True, [True]),
@@ -2707,7 +2707,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (1 segment); do not resend it via other tools"
+                    "audio already sent to user (1 segment); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
                 ],
             )
 
@@ -3212,3 +3212,90 @@ class ConfigPersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VoiceFollowupReportSuppressionTests(unittest.TestCase):
+    """语音已直接发送后，模型补发的"我把语音发过去啦"应被丢弃。"""
+
+    def setUp(self):
+        _install_astrbot_stubs()
+        self.module = importlib.import_module("astrbot_plugin_voice_hub.main")
+        self.module.logger = _Logger()
+        from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+        star_handlers_registry.handlers = []
+        self.tmp = tempfile.TemporaryDirectory()
+        _StarTools.data_dir = self.tmp.name
+        self.plugin = self.module.MimoTTSClonePlugin(
+            _Context(), {"api_key": "mimo-secret"}
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _event(self, handled=True):
+        extras = {}
+        cleared = []
+        event = types.SimpleNamespace(
+            unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+            get_sender_id=lambda: "user-a",
+            set_extra=lambda key, value: extras.__setitem__(key, value),
+            get_extra=lambda key: extras.get(key),
+            clear_result=lambda: cleared.append(True),
+        )
+        event._cleared = cleared
+        if handled:
+            self.plugin._mark_tts_handled(event)
+        return event
+
+    def _result(self, text):
+        # 类名必须精确是 "Plain"，_is_plain_component 按类名识别
+        component = type("Plain", (), {"__init__": lambda self, t: setattr(self, "text", t)})(
+            text
+        )
+        return types.SimpleNamespace(chain=[component])
+
+    def _assert_suppressed(self, text):
+        event = self._event()
+        result = self._result(text)
+        self.assertTrue(
+            self.plugin._clear_voice_followup_report(event, result), text
+        )
+        self.assertTrue(event._cleared, text)
+
+    def _assert_kept(self, text):
+        event = self._event()
+        result = self._result(text)
+        self.assertFalse(
+            self.plugin._clear_voice_followup_report(event, result), text
+        )
+        self.assertTrue(result.chain, text)
+
+    def test_pure_voice_report_is_suppressed(self):
+        for text in (
+            "语音发过去啦，凌溪早呀～",
+            "语音发过去啦",
+            "我把语音发给你了。",
+            "语音已经发送，记得听哦",
+            "已经发过去了",
+            "语音发你啦，听听看",
+        ):
+            self._assert_suppressed(text)
+
+    def test_report_with_real_content_is_kept(self):
+        for text in (
+            "语音发过去啦，今天降温记得加衣服。",
+            "这条语音里说的那件事，你考虑一下。",
+            "刚才那段语音里我提到了明天的安排。",
+        ):
+            self._assert_kept(text)
+
+    def test_non_voice_text_is_kept(self):
+        for text in ("早上好呀", "我发你一个链接", "文件发过去了"):
+            self._assert_kept(text)
+
+    def test_requires_tts_handled_marker(self):
+        event = self._event(handled=False)
+        result = self._result("语音发过去啦")
+        self.assertFalse(self.plugin._clear_voice_followup_report(event, result))
+        self.assertTrue(result.chain)

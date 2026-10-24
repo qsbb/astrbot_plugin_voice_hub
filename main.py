@@ -84,7 +84,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 
 
 @register(
@@ -116,10 +116,46 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         r"^\s*<?\s*audio\s+already\s+sent"
         r"(?:\s+to\s+(?:the\s+)?user)?"
         r"(?:\s*\(\s*\d+\s+segments?\s*\))?"
-        r"(?:\s*;\s*do\s+not\s+resend\s+it\s+via\s+other\s+tools)?"
+        r"(?:\s*;\s*do\s+not\s+resend\s+it\s+via\s+other\s+tools"
+        r"(?:\s*,\s*and\s+do\s+not\s+add\s+a\s+follow-up\s+message\s+reporting\s+that\s+the\s+voice\s+was\s+sent"
+        r"\s*[—-]\s*the\s+user\s+already\s+heard\s+it)?)?"
         r"\s*>?\s*[.!\u3002\uFF01]?\s*$",
         re.IGNORECASE,
     )
+    # 语音已经直接发给用户后，模型常补一条"我把语音发过去啦"的文字汇报。
+    # 这条文字对用户没有信息量（语音本身就听得到），还会让同一条消息出现两次。
+    # 判定分两步：先要求整句只由"语音/发送/寒暄"这些成分构成，再限制长度，
+    # 避免把夹带实质内容的回复（"语音发你啦，今天降温记得加衣服"）误删。
+    _VOICE_FOLLOWUP_NOUNS = ("语音", "声音", "录音", "音频")
+    _VOICE_FOLLOWUP_VERBS = (
+        "发过去",
+        "发出去",
+        "发给你",
+        "发你",
+        "发送",
+        "送达",
+        "发啦",
+        "发来了",
+        "发过去啦",
+        "发过去了",
+        "送过去",
+        "发了",
+        "发了条",
+    )
+    _VOICE_FOLLOWUP_TAILS = (
+        "听听看",
+        "听听",
+        "听一下",
+        "听一听",
+        "记得听",
+        "查收",
+        "收听",
+        "收一下",
+        "看看",
+    )
+    # 结尾允许的寒暄词（"凌溪早呀""在吗"这类，不含实质信息）
+    _VOICE_FOLLOWUP_GREETING_CHARS = 6
+    _VOICE_FOLLOWUP_MAX_CHARS = 30
     _TTS_JUDGE_PROMPT = (
         "【语音朗读意愿判断】\n"
         "请在回复最开头输出一个朗读意愿标记，紧跟实际回复内容。"
@@ -1384,7 +1420,9 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 yield (
                     f"audio already sent to user ({sent} segment"
                     + ("s" if sent != 1 else "")
-                    + "); do not resend it via other tools"
+                    + "); do not resend it via other tools, and do not add a "
+                    "follow-up message reporting that the voice was sent — "
+                    "the user already heard it"
                 )
         finally:
             self._finish_tool_delivery_request(event, interrupt_tokens)
@@ -1555,6 +1593,133 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             candidate = candidate[1:-1].strip()
         texts = [candidate]
         if not self._TTS_COMPLETION_PLACEHOLDER_RE.fullmatch("\n".join(texts)):
+            return False
+
+        clear_result = getattr(event, "clear_result", None)
+        if callable(clear_result):
+            clear_result()
+        else:
+            chain.clear()
+        return True
+
+    @classmethod
+    def _looks_like_voice_report(cls, text: str) -> bool:
+        """判断一句话是否只是"语音已经发出去了"的纯汇报。
+
+        做法：去掉标点语气词后，按固定顺序剥离「主语 → 把字 → 语音名词 →
+        发送动词 → 听的动作 → 语气助词」。能整句剥干净说明只是汇报；
+        剩下实义字符就说明夹带了内容，保留原回复。
+        """
+        cleaned = re.sub(r"[\s\W_]+", "", str(text or ""))
+        if not cleaned:
+            return False
+
+        # 结尾的听的动作（"记得听哦""听听看"）先剥，避免干扰后续判断
+        for tail in cls._VOICE_FOLLOWUP_TAILS:
+            cleaned = cleaned.replace(tail, "")
+
+        for prefix in (
+            "我把这",
+            "我把",
+            "我已经",
+            "我刚刚",
+            "我",
+            "已经",
+            "刚刚",
+            "刚才",
+            "把",
+            "将",
+        ):
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+                break
+
+        matched_noun = None
+        for noun in cls._VOICE_FOLLOWUP_NOUNS:
+            if cleaned.startswith(noun):
+                matched_noun = noun
+                cleaned = cleaned[len(noun):]
+                break
+        if matched_noun is None:
+            # 口语里常省略名词（"已经发过去了"）。必须整句只剩发送动作与
+            # 语气助词才按汇报处理——出现"文件""链接"等其他宾语时保留原回复。
+            for prefix in ("已经", "刚刚", "刚才", "这就", "马上"):
+                if cleaned.startswith(prefix):
+                    cleaned = cleaned[len(prefix):]
+                    break
+            for verb in ("发过去了", "发过去啦", "发出去", "过去了", "发出去了"):
+                if cleaned.startswith(verb):
+                    cleaned = cleaned[len(verb):]
+                    break
+            else:
+                return False
+            for particle in ("了", "啦", "咯", "哦", "呀", "呢", "哈", "吧", "啊", "嘛", "～"):
+                cleaned = cleaned.replace(particle, "")
+            return cleaned == ""
+
+        for particle in ("已经", "刚刚", "刚才", "都", "也"):
+            if cleaned.startswith(particle):
+                cleaned = cleaned[len(particle):]
+                break
+
+        for verb in cls._VOICE_FOLLOWUP_VERBS:
+            if cleaned.startswith(verb):
+                cleaned = cleaned[len(verb):]
+                break
+        else:
+            return False
+
+        for particle in (
+            "给你了",
+            "你啦",
+            "过去啦",
+            "过去了",
+            "出去",
+            "过来",
+            "给你",
+            "你",
+            "了",
+            "啦",
+            "咯",
+            "哦",
+            "呀",
+            "呢",
+            "哈",
+            "吧",
+            "啊",
+            "嘛",
+            "～",
+        ):
+            cleaned = cleaned.replace(particle, "")
+
+        # 剩下只允许极短寒暄（无实义），否则视为夹带内容
+        return len(cleaned) <= cls._VOICE_FOLLOWUP_GREETING_CHARS
+
+    def _clear_voice_followup_report(self, event: AstrMessageEvent, result: Any) -> bool:
+        """语音已直接发送后，丢弃模型补发的那句"我把语音发过去啦"。
+
+        只在整条结果都只是"语音已发送"的纯汇报时生效；一旦夹带实际内容
+        （关心、解释、追问等）就原样保留，避免误删有效信息。
+        """
+        if not self._is_tts_handled(event):
+            return False
+        chain = getattr(result, "chain", None)
+        if not isinstance(chain, list) or not chain:
+            return False
+
+        texts: list[str] = []
+        for component in chain:
+            if not self._is_plain_component(component):
+                return False
+            text = str(getattr(component, "text", "") or "").strip()
+            if text:
+                texts.append(text)
+        if not texts:
+            return False
+        candidate = " ".join(texts).strip()
+        if not candidate or len(candidate) > self._VOICE_FOLLOWUP_MAX_CHARS:
+            return False
+        if not self._looks_like_voice_report(candidate):
             return False
 
         clear_result = getattr(event, "clear_result", None)
@@ -2536,6 +2701,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             if plugin._clear_internal_tts_completion(event, result):
                 plugin.logger.info(
                     "[voice-hub] suppressed internal tts completion placeholder"
+                )
+                return
+            if plugin._clear_voice_followup_report(event, result):
+                plugin.logger.info(
+                    "[voice-hub] suppressed redundant voice follow-up report"
                 )
                 return
             is_stopped = getattr(event, "is_stopped", None)

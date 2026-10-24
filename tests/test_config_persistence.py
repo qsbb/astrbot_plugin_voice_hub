@@ -1254,7 +1254,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (1 segment); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
+                    "audio delivered to user (1 segment). The voice message itself is the reply: it already carries your words to the user. Do not resend it via other tools. Unless there is new information that the audio could not carry (a link, a name that must be read, or a delivery problem), end your turn here without a text recap of having sent audio."
                 ],
             )
 
@@ -1306,7 +1306,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (2 segments); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
+                    "audio delivered to user (2 segments). The voice message itself is the reply: it already carries your words to the user. Do not resend it via other tools. Unless there is new information that the audio could not carry (a link, a name that must be read, or a delivery problem), end your turn here without a text recap of having sent audio."
                 ],
             )
 
@@ -1549,7 +1549,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(len(sent), 2)
             self.assertEqual(
                 result[0],
-                "audio already sent to user (2 segments); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it",
+                "audio delivered to user (2 segments). The voice message itself is the reply: it already carries your words to the user. Do not resend it via other tools. Unless there is new information that the audio could not carry (a link, a name that must be read, or a delivery problem), end your turn here without a text recap of having sent audio.",
             )
             self.assertEqual(
                 [
@@ -1786,8 +1786,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 invoke(
                     [
-                        "audio already sent to user (2 segments); "
-                        "do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
+                        "audio delivered to user (2 segments). The voice message itself is the reply: it already carries your words to the user. Do not resend it via other tools. Unless there is new information that the audio could not carry (a link, a name that must be read, or a delivery problem), end your turn here without a text recap of having sent audio."
                     ]
                 ),
                 (True, [True]),
@@ -2210,7 +2209,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertIn("这个网址", captured["text"])
             self.assertNotIn("https://example.com", captured["text"])
             self.assertIn("这个网页", captured["text"])
-            self.assertIn("audio already sent", result[0])
+            self.assertIn("audio delivered to user", result[0])
 
     def test_voice_hub_speak_keeps_url_when_replace_url_off(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2246,7 +2245,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             result = asyncio.run(invoke())
 
             self.assertNotIn("这个网址", captured["text"])
-            self.assertIn("audio already sent", result[0])
+            self.assertIn("audio delivered to user", result[0])
 
     def test_ai_style_director_adds_hidden_mimo_context(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2707,7 +2706,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             self.assertEqual(
                 result,
                 [
-                    "audio already sent to user (1 segment); do not resend it via other tools, and do not add a follow-up message reporting that the voice was sent — the user already heard it"
+                    "audio delivered to user (1 segment). The voice message itself is the reply: it already carries your words to the user. Do not resend it via other tools. Unless there is new information that the audio could not carry (a link, a name that must be read, or a delivery problem), end your turn here without a text recap of having sent audio."
                 ],
             )
 
@@ -3214,8 +3213,24 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class VoiceFollowupReportSuppressionTests(unittest.TestCase):
-    """语音已直接发送后，模型补发的"我把语音发过去啦"应被丢弃。"""
+class VoiceFollowupReportPreservationTests(unittest.TestCase):
+    """回归基线：这些消息必须原样保留，不得被任何文本过滤丢弃。
+
+    上一版曾用正则/关键词判断"是否只是语音汇报"并丢弃，实测误删了
+    「语音发过去啦，明天取消」「…别点链接」「…了吗？」等有效消息。
+    因此这里锁定：声不得基于文本相似性删除模型输出。
+    """
+
+    MUST_KEEP = (
+        "语音发过去啦，明天取消",
+        "语音发过去啦，别点链接",
+        "语音发过去了吗？",
+        "语音发过去啦，今天降温记得加衣服。",
+        "语音发过去啦，凌溪早呀～",
+        "我已经把语音发给你啦",
+        "文件发过去了",
+        "早上好呀",
+    )
 
     def setUp(self):
         _install_astrbot_stubs()
@@ -3233,69 +3248,44 @@ class VoiceFollowupReportSuppressionTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _event(self, handled=True):
-        extras = {}
-        cleared = []
-        event = types.SimpleNamespace(
-            unified_msg_origin="aiocqhttp:FriendMessage:user-a",
-            get_sender_id=lambda: "user-a",
-            set_extra=lambda key, value: extras.__setitem__(key, value),
-            get_extra=lambda key: extras.get(key),
-            clear_result=lambda: cleared.append(True),
-        )
-        event._cleared = cleared
-        if handled:
-            self.plugin._mark_tts_handled(event)
-        return event
+    def test_no_text_based_output_filter_exists(self):
+        """声不得再有基于文本判断丢弃模型输出的方法/常量。"""
+        for name in (
+            "_clear_voice_followup_report",
+            "_looks_like_voice_report",
+            "_VOICE_FOLLOWUP_REPORT_RE",
+            "_VOICE_FOLLOWUP_MAX_CHARS",
+        ):
+            self.assertFalse(hasattr(self.plugin, name), name)
 
-    def _result(self, text):
-        # 类名必须精确是 "Plain"，_is_plain_component 按类名识别
-        component = type("Plain", (), {"__init__": lambda self, t: setattr(self, "text", t)})(
-            text
-        )
-        return types.SimpleNamespace(chain=[component])
+    def test_completion_placeholder_filter_only_claims_own_protocol_text(self):
+        """占位符清理只能认领自家协议产出的固定串，不能扩散到普通句子。"""
+        pattern = self.plugin._TTS_COMPLETION_PLACEHOLDER_RE
+        # 自家协议串：可以清理
+        self.assertTrue(pattern.fullmatch("audio already sent to user (1 segment)"))
+        # 模型自然语言：一律不得匹配
+        for text in self.MUST_KEEP:
+            self.assertFalse(pattern.fullmatch(text), text)
 
-    def _assert_suppressed(self, text):
-        event = self._event()
-        result = self._result(text)
-        self.assertTrue(
-            self.plugin._clear_voice_followup_report(event, result), text
-        )
-        self.assertTrue(event._cleared, text)
+    def test_completion_placeholder_accepts_legacy_and_new_protocol_forms(self):
+        """升级前后两版协议串都应被认领（自家产出，可安全清理）。"""
+        pattern = self.plugin._TTS_COMPLETION_PLACEHOLDER_RE
+        for text in (
+            "audio already sent to user (1 segment)",
+            "audio already sent to user (2 segments); do not resend it via other tools",
+            "<audio already sent>",
+        ):
+            self.assertTrue(pattern.fullmatch(text), text)
 
-    def _assert_kept(self, text):
-        event = self._event()
-        result = self._result(text)
-        self.assertFalse(
-            self.plugin._clear_voice_followup_report(event, result), text
-        )
-        self.assertTrue(result.chain, text)
-
-    def test_pure_voice_report_is_suppressed(self):
+    def test_completion_placeholder_never_claims_natural_language(self):
+        """自然语言一律不得被占位符清理认领（这是"不按文本丢弃输出"的底线）。"""
+        pattern = self.plugin._TTS_COMPLETION_PLACEHOLDER_RE
         for text in (
             "语音发过去啦，凌溪早呀～",
-            "语音发过去啦",
-            "我把语音发给你了。",
-            "语音已经发送，记得听哦",
-            "已经发过去了",
-            "语音发你啦，听听看",
+            "语音发过去啦，明天取消",
+            "语音发过去了吗？",
+            "我已经把语音发给你啦",
+            "音频已发",
+            "voice sent",
         ):
-            self._assert_suppressed(text)
-
-    def test_report_with_real_content_is_kept(self):
-        for text in (
-            "语音发过去啦，今天降温记得加衣服。",
-            "这条语音里说的那件事，你考虑一下。",
-            "刚才那段语音里我提到了明天的安排。",
-        ):
-            self._assert_kept(text)
-
-    def test_non_voice_text_is_kept(self):
-        for text in ("早上好呀", "我发你一个链接", "文件发过去了"):
-            self._assert_kept(text)
-
-    def test_requires_tts_handled_marker(self):
-        event = self._event(handled=False)
-        result = self._result("语音发过去啦")
-        self.assertFalse(self.plugin._clear_voice_followup_report(event, result))
-        self.assertTrue(result.chain)
+            self.assertFalse(pattern.fullmatch(text), text)

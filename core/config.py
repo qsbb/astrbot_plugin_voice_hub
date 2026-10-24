@@ -58,6 +58,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fishaudio_model": "auto",  # auto / s2.1-pro-free / s2.1-pro / s2-pro / s1
     "fishaudio_emotion_mode": "balanced",  # balanced / expressive / manual
     "fishaudio_timeout_seconds": 120,
+    "fishaudio_proxy": "",  # NAS 直连被劫持/拦截时填 http://127.0.0.1:7897 之类
     # 音频传输方式：path=本地路径（要求 NapCat 能读到 AstrBot 文件系统）
     # base64=Record 内嵌 base64://（跨机部署默认）；shared_path=WSL/Linux+Windows 共享目录
     "audio_transport": "path",
@@ -122,6 +123,7 @@ class PluginConfig:
     fishaudio_model: str
     fishaudio_emotion_mode: str
     fishaudio_timeout_seconds: float
+    fishaudio_proxy: str
     audio_transport: str
     shared_path_linux: str
     shared_path_windows: str
@@ -281,6 +283,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         )
     except (TypeError, ValueError):
         cfg["fishaudio_timeout_seconds"] = 120.0
+    cfg["fishaudio_proxy"] = str(cfg.get("fishaudio_proxy") or "").strip()
     transport = str(cfg.get("audio_transport") or "path").strip().lower()
     if transport not in {"path", "base64", "shared_path"}:
         transport = "path"

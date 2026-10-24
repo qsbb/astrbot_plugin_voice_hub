@@ -198,10 +198,22 @@ class FishAudioClient:
                                 handle.write(chunk)
                         return out
                     error_bytes = await response.aread()
-                    detail = sanitize_error_text(
-                        error_bytes.decode("utf-8", errors="replace"),
-                        limit=240,
-                    )
+                    text_head = error_bytes.decode("utf-8", errors="replace")
+                    # 200 + HTML 网页 = 请求根本没到 Fish Audio API：
+                    # 典型是 DNS 污染/运营商劫持把域名指到别的网站，或 Cloudflare
+                    # 质询页。此时不应把网页源码当"错误响应"展示。
+                    lowered_head = text_head[:512].lstrip().lower()
+                    if response.status_code == 200 and (
+                        lowered_head.startswith("<!doctype html")
+                        or lowered_head.startswith("<html")
+                    ):
+                        raise FishAudioError(
+                            "Fish Audio API 返回的是 HTML 网页而不是音频——请求被"
+                            "DNS 污染/运营商劫持或网关拦截，没有到达 Fish Audio 服务器。"
+                            "请在 FishAudio 设置里配置可用的代理地址后重试。",
+                            status_code=int(response.status_code),
+                        )
+                    detail = sanitize_error_text(text_head, limit=240)
                     raise FishAudioError(
                         f"Fish Audio API 请求失败: 状态码 {response.status_code}, 响应内容: {detail}",
                         status_code=int(response.status_code),

@@ -90,6 +90,12 @@
     "hint": "单次合成请求的超时上限（5-600 秒），长文本建议保持默认。",
     "default": 120
   },
+  "fishaudio_proxy": {
+    "type": "string",
+    "description": "FishAudio 代理地址（仅 FishAudio 后端）",
+    "hint": "仅 tts_backend=fishaudio 时生效。NAS 直连 api.fish.audio 被 DNS 污染/运营商劫持或Cloudflare 拦截（表现为连接测试报『返回的是 HTML 网页而不是音频』）时，填写本机可用的HTTP 代理，例如 http://127.0.0.1:7897。留空直连。",
+    "default": ""
+  },
   "audio_transport": {
     "type": "string",
     "description": "音频传输方式",

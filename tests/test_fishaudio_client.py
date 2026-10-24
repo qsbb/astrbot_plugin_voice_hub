@@ -223,5 +223,77 @@ class FishAudioExpressionTests(unittest.TestCase):
         )
 
 
+class HijackedResponseTests(unittest.TestCase):
+    """上游场景：NAS 直连被 DNS 污染/劫持时 200 返回 HTML 网页而不是音频。"""
+
+    def test_html_response_raises_guidance_error(self):
+        import asyncio
+        import sys
+        import types
+        from astrbot_plugin_voice_hub.core import fishaudio_client as fc
+
+        class _FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/html"}
+
+            def __init__(self):
+                self._sent = False
+
+            async def aiter_bytes(self):
+                self._sent = True
+                yield b"<!doctype html><html lang=\"en\">..."
+
+            async def aread(self):
+                return b"<!doctype html><html lang=\"en\">..."
+
+        class _FakeStreamCtx:
+            async def __aenter__(self):
+                return _FakeResponse()
+
+            async def __aexit__(self, *args):
+                return False
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            def stream(self, method, path, *, headers, content):
+                return _FakeStreamCtx()
+
+        fake_httpx = types.ModuleType("httpx")
+        fake_httpx.AsyncClient = _FakeAsyncClient
+        fake_orm = types.ModuleType("ormsgpack")
+        fake_orm.packb = lambda payload, option=None: b"msgpack-bytes"
+
+        saved = {name: sys.modules.get(name) for name in ("httpx", "ormsgpack")}
+        sys.modules["httpx"] = fake_httpx
+        sys.modules["ormsgpack"] = fake_orm
+        try:
+            client = fc.FishAudioClient(
+                api_key="k",
+                api_base="https://api.fish.audio/v1",
+                reference_id="a" * 32,
+            )
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(FishAudioError) as caught:
+                    asyncio.run(client.synthesize_to_file("text", output_path=f"{tmp}/out.wav"))
+        finally:
+            for name, module in saved.items():
+                if module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = module
+
+        self.assertIn("HTML 网页", str(caught.exception))
+        self.assertIn("代理", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -240,6 +240,7 @@ function configPayload() {
     fishaudio_model: $('fishaudio-model').value || 'auto',
     fishaudio_emotion_mode: $('fishaudio-emotion-mode').value || 'balanced',
     fishaudio_timeout_seconds: Number($('fishaudio-timeout-seconds').value || 120),
+    fishaudio_proxy: $('fishaudio-proxy').value.trim(),
     audio_transport: $('audio-transport').value || 'path',
     shared_path_linux: $('shared-path-linux').value.trim(),
     shared_path_windows: $('shared-path-windows').value.trim(),
@@ -668,6 +669,7 @@ function applyState(payload) {
     ? state.config.fishaudio_emotion_mode
     : 'balanced';
   $('fishaudio-timeout-seconds').value = state.config.fishaudio_timeout_seconds ?? 120;
+  $('fishaudio-proxy').value = state.config.fishaudio_proxy || '';
   $('audio-transport').value = ['path', 'base64', 'shared_path'].includes(state.config.audio_transport)
     ? state.config.audio_transport
     : 'path';

@@ -646,6 +646,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             reference_id=config.fishaudio_reference_id,
             character=config.fishaudio_character,
             timeout=float(config.fishaudio_timeout_seconds),
+            proxy=config.fishaudio_proxy,
         )
 
     def _fishaudio_expression_note(self) -> str:

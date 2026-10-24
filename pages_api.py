@@ -39,7 +39,7 @@ class PagesAPIMixin:
 
     @staticmethod
     def _voice_preview_runtime_error(message: str) -> VoicePreviewError:
-        """把后端异常压缩为稳定的公开错误，不把 provider 细节带到面板。"""
+        """把后端异常映射为稳定错误码；细节保留在 message 里带到面板。"""
         raw = str(message or "")
         lowered = raw.lower()
         if (
@@ -47,6 +47,7 @@ class PagesAPIMixin:
             or "provider" in lowered
             or "提供商" in raw
         ):
+            # 凭据类失败保持干净文案：上游消息可能包含密钥样文本，不透传
             return VoicePreviewError(
                 "PROVIDER_UNAVAILABLE",
                 "TTS 服务未配置或不可用",
@@ -56,9 +57,12 @@ class PagesAPIMixin:
             return VoicePreviewError(
                 "TEXT_TOO_LONG", "文本过长，请缩短试听文本"
             )
+        if "HTML 网页" in raw:
+            # 劫持/缺 /v1 场景：错误本身已是指导性文案，直接透传
+            return VoicePreviewError("PROVIDER_BAD_RESPONSE", raw, status=502)
         return VoicePreviewError(
             "PREVIEW_FAILED",
-            "试听生成失败",
+            f"试听生成失败：{raw}" if raw else "试听生成失败",
             status=502,
         )
 

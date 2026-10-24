@@ -295,5 +295,127 @@ class HijackedResponseTests(unittest.TestCase):
         self.assertIn("代理", str(caught.exception))
 
 
+class ApiBaseNormalizationTests(unittest.TestCase):
+    """Base URL 缺 /v1 时自动补全（用户常填站点根域名）。"""
+
+    def test_appends_v1_to_site_root(self):
+        self.assertEqual(
+            FishAudioClient._normalize_api_base("https://api1.syuan.org"),
+            "https://api1.syuan.org/v1",
+        )
+
+    def test_keeps_existing_v1(self):
+        self.assertEqual(
+            FishAudioClient._normalize_api_base("https://api.fish.audio/v1"),
+            "https://api.fish.audio/v1",
+        )
+        self.assertEqual(
+            FishAudioClient._normalize_api_base("https://api.fish-audio.cn/v1/"),
+            "https://api.fish-audio.cn/v1",
+        )
+
+    def test_default_when_empty(self):
+        self.assertEqual(
+            FishAudioClient._normalize_api_base(""),
+            "https://api.fish-audio.cn/v1",
+        )
+
+    def test_keeps_explicit_other_prefix(self):
+        self.assertEqual(
+            FishAudioClient._normalize_api_base("https://x.example.com/openai"),
+            "https://x.example.com/openai",
+        )
+
+    def test_end_to_end_missing_v1_reaches_web_frontend(self):
+        """复现：缺 /v1 时 POST /tts 会打到网页前端拿到 200 HTML（用户实测）。"""
+        import asyncio
+        import sys
+        import types
+        from astrbot_plugin_voice_hub.core import fishaudio_client as fc
+
+        captured = {}
+
+        class _FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/html"}
+
+            async def aiter_bytes(self):
+                yield b""
+                return
+
+            async def aread(self):
+                return b"<!doctype html>..."
+
+        class _FakeStreamCtx:
+            async def __aenter__(self):
+                return _FakeResponse()
+
+            async def __aexit__(self, *args):
+                return False
+
+        class _FakeRequest:
+            url = "https://api1.syuan.org/tts"
+
+        class _FakeResponseWithReq(_FakeResponse):
+            pass
+
+        class _FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            def stream(self, method, path, *, headers, content):
+                captured["path"] = path
+                ctx = _FakeStreamCtx()
+                ctx.response = _FakeResponse()
+                # 让代码里能读到 request.url
+                return _FakeStreamWithRequest(ctx)
+
+        class _FakeStreamWithRequest:
+            def __init__(self, ctx):
+                self._ctx = ctx
+
+            async def __aenter__(self):
+                resp = _FakeResponse()
+                resp.request = types.SimpleNamespace(url="https://api1.syuan.org/tts")
+                return resp
+
+            async def __aexit__(self, *args):
+                return False
+
+        fake_httpx = types.ModuleType("httpx")
+        fake_httpx.AsyncClient = _FakeAsyncClient
+        fake_orm = types.ModuleType("ormsgpack")
+        fake_orm.packb = lambda payload, option=None: b"msgpack"
+
+        saved = {name: sys.modules.get(name) for name in ("httpx", "ormsgpack")}
+        sys.modules["httpx"] = fake_httpx
+        sys.modules["ormsgpack"] = fake_orm
+        try:
+            client = fc.FishAudioClient(
+                api_key="k",
+                api_base="https://api1.syuan.org",  # 用户实际填写：缺 /v1
+                reference_id="a" * 32,
+            )
+            self.assertEqual(client.api_base, "https://api1.syuan.org/v1")
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(FishAudioError) as caught:
+                    asyncio.run(client.synthesize_to_file("text", output_path=f"{tmp}/out.wav"))
+        finally:
+            for name, module in saved.items():
+                if module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = module
+
+        self.assertIn("/v1", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

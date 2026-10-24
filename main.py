@@ -1337,7 +1337,18 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                         style_director_enabled=False,
                     )
                 except Exception as exc:
-                    yield f"tts failed: {exc}"
+                    backend = self.plugin_config.tts_backend
+                    self.logger.warning(
+                        "[voice-hub] tts tool synthesis failed: backend=%s error=%s",
+                        backend,
+                        exc,
+                    )
+                    diagnostic_event(
+                        "tts.tool.synthesis_failed",
+                        "统一朗读工具合成失败",
+                        details={"backend": backend, "error": str(exc)[:400]},
+                    )
+                    yield f"tts failed ({backend} backend): {exc}"
                     return
                 outputs.extend(generated)
 

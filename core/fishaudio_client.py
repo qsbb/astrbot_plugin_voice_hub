@@ -62,8 +62,11 @@ class FishAudioClient:
         proxy: str = "",
     ) -> None:
         self.api_key = str(api_key or "").strip()
-        self.api_base = str(api_base or "https://api.fish-audio.cn/v1").strip().rstrip("/")
-        self.model = str(model or "").strip()
+        self.api_base = self._normalize_api_base(api_base)
+        # 'auto' 是上层配置语义（由调用方解析成具体模型）；客户端收到时不发送，
+        # 避免把字面 'auto' 发给中转导致 model_not_found。
+        model_value = str(model or "").strip()
+        self.model = "" if model_value.lower() == "auto" else model_value
         self.reference_id = str(reference_id or "").strip()
         self.character = str(character or "").strip()
         self.output_format = output_format if output_format in {"wav", "pcm", "mp3"} else "wav"
@@ -80,6 +83,24 @@ class FishAudioClient:
         if self.model:
             headers["model"] = self.model
         return headers
+
+    @staticmethod
+    def _normalize_api_base(api_base: str) -> str:
+        """补全 /v1 路径：用户常把 Base URL 填成站点根（如 https://api1.syuan.org），
+        缺 /v1 时 POST /tts 会打到网页前端拿到 200 的 HTML 页面。官方/自建/中转
+        统一以 /v1 收口；已带 /v1 或其他 API 前缀的原样保留。"""
+        base = str(api_base or "https://api.fish-audio.cn/v1").strip().rstrip("/")
+        if not base:
+            base = "https://api.fish-audio.cn/v1"
+        if base.lower().endswith("/v1"):
+            return base
+        # 已是其他显式 API 前缀（如 /v2、/openai）时不强行改写
+        from urllib.parse import urlsplit
+        path = urlsplit(base).path.rstrip("/")
+        last_segment = path.rsplit("/", 1)[-1] if path else ""
+        if last_segment and not last_segment.isdigit() and len(last_segment) <= 8:
+            return base
+        return f"{base}/v1"
 
     @staticmethod
     def _is_official_api(api_base: str) -> bool:
@@ -142,6 +163,15 @@ class FishAudioClient:
             request["reference_id"] = reference_id
         return request
 
+    def _error_context(self, *, text: str = "") -> str:
+        """拼一段脱敏的请求上下文，帮助定位是哪一个后端/模型/音色失败。"""
+        ref_head = self.reference_id[:8] + "…" if self.reference_id else "无"
+        text_len = len(str(text or ""))
+        return (
+            f"base={self.api_base} model={self.model or '（未指定）'} "
+            f"ref={ref_head} text_len={text_len}"
+        )
+
     async def synthesize_to_file(
         self,
         text: str,
@@ -155,7 +185,9 @@ class FishAudioClient:
         （references 字段），与 reference_id 互斥时优先内联参考音频。
         """
         if not self.api_key:
-            raise FishAudioError("FishAudio API Key 未配置")
+            raise FishAudioError(
+                "FishAudio API Key 未配置（FishAudio 设置 → 访问密钥）"
+            )
         spoken = str(text or "").strip()
         if not spoken:
             raise FishAudioError("合成文本为空")
@@ -207,15 +239,27 @@ class FishAudioClient:
                         lowered_head.startswith("<!doctype html")
                         or lowered_head.startswith("<html")
                     ):
+                        from urllib.parse import urlsplit as _urlsplit
+                        request_url = str(getattr(response, "request", None) and getattr(response.request, "url", "") or "")
+                        request_path = _urlsplit(request_url).path.rstrip("/") if request_url else ""
+                        if request_path.endswith("/tts") and not request_path.endswith("/v1/tts"):
+                            raise FishAudioError(
+                                "Fish Audio API 返回的是 HTML 网页而不是音频——Base URL "
+                                f"缺少 /v1 路径（当前打到 {request_path}，这是网页前端）。"
+                                "请在 FishAudio 设置里把接口地址改为以 /v1 结尾后重试。",
+                                status_code=int(response.status_code),
+                            )
                         raise FishAudioError(
                             "Fish Audio API 返回的是 HTML 网页而不是音频——请求被"
                             "DNS 污染/运营商劫持或网关拦截，没有到达 Fish Audio 服务器。"
-                            "请在 FishAudio 设置里配置可用的代理地址后重试。",
+                            "请检查接口地址是否正确，或在 FishAudio 设置里配置可用的"
+                            f"代理地址后重试。 | {self._error_context(text=spoken)}",
                             status_code=int(response.status_code),
                         )
                     detail = sanitize_error_text(text_head, limit=240)
                     raise FishAudioError(
-                        f"Fish Audio API 请求失败: 状态码 {response.status_code}, 响应内容: {detail}",
+                        f"Fish Audio API 请求失败: 状态码 {response.status_code}, "
+                        f"响应内容: {detail} | {self._error_context(text=spoken)}",
                         status_code=int(response.status_code),
                     )
         except FishAudioError:
@@ -224,7 +268,8 @@ class FishAudioClient:
         except Exception as exc:
             out.unlink(missing_ok=True)
             raise FishAudioError(
-                f"Fish Audio API 请求异常: {sanitize_error_text(type(exc).__name__)}"
+                f"Fish Audio API 请求异常: {type(exc).__name__}: "
+                f"{sanitize_error_text(exc, limit=120)} | {self._error_context(text=spoken)}"
             ) from exc
 
     def output_path_for(self, output_dir: str | Path) -> Path:

@@ -2394,13 +2394,22 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             params["self_id"] = self_id
         method = getattr(bot, action, None)
         if callable(method):
-            await method(**params)
-            return
-        call_action = getattr(bot, "call_action", None)
-        if callable(call_action):
-            await call_action(action, **params)
-            return
-        raise RuntimeError("aiocqhttp 客户端不支持 OneBot 消息发送接口。")
+            result = await method(**params)
+        else:
+            call_action = getattr(bot, "call_action", None)
+            if not callable(call_action):
+                raise RuntimeError("aiocqhttp 客户端不支持 OneBot 消息发送接口。")
+            result = await call_action(action, **params)
+        # aiocqhttp 的 api_impl 对 status=failed 已经抛 ActionFailed，这里再兜一层：
+        # 不同 OneBot 实现/封装可能只回 dict 而不抛，不能把 failed 当成功。
+        if isinstance(result, dict):
+            status = str(result.get("status", "") or "").lower()
+            retcode = result.get("retcode")
+            if status == "failed" or (retcode not in (None, 0)):
+                raise RuntimeError(
+                    f"OneBot {action} 返回失败：status={status or '?'} "
+                    f"retcode={retcode!r} message={result.get('message') or result.get('wording') or ''}"
+                )
 
     async def _send_shared_path_audio(
         self,
@@ -2589,7 +2598,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return "平台没有可用的 OneBot 客户端"
         return ""
 
-    def _can_send_silk(self, umo: str, event: Any = None) -> bool:
+    def _can_send_silk(self, umo: str) -> bool:
         """silk 直发只对 aiocqhttp 有意义，其他平台仍走 Record 组件。"""
         return not self._silk_skip_reason(umo)
 
@@ -2615,6 +2624,11 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         session = umo or str(getattr(event, "unified_msg_origin", "") or "")
         is_group, target_id = self._parse_aiocqhttp_session(session)
         silk_bytes = await asyncio.to_thread(wav_to_silk, audio_path)
+        limit = max(1, int(self.plugin_config.base64_max_mb)) * 1024 * 1024
+        if len(silk_bytes) > limit:
+            raise RuntimeError(
+                f"silk 体积 {len(silk_bytes)} 字节超过 base64 上限 {limit} 字节"
+            )
         source = "base64://" + base64.b64encode(silk_bytes).decode("ascii")
         bot = getattr(event, "bot", None)
         if bot is None:
@@ -2642,11 +2656,6 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             repair_streamed_wav_header(audio_path)
         except Exception as exc:
             self.logger.debug("[voice-hub] wav header repair skipped: %s", exc)
-        if self.plugin_config.audio_transport == "shared_path":
-            self._ensure_shared_path_platform(umo)
-            source = self._audio_source(audio_path)
-            await self._send_shared_path_audio(source=source, event=event)
-            return
         silk_error: Exception | None = None
         if self.plugin_config.silk_direct_send:
             skip_reason = self._silk_skip_reason(umo)
@@ -2667,6 +2676,13 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     self.logger.warning(
                         "[voice-hub] silk direct send failed, falling back: %s", exc
                     )
+        if self.plugin_config.audio_transport == "shared_path":
+            # 放在 silk 之后：silk 走 base64 直传，不需要共享目录；
+            # 早期把它排在前面会直接 return，使 silk 永远轮不到。
+            self._ensure_shared_path_platform(umo)
+            source = self._audio_source(audio_path)
+            await self._send_shared_path_audio(source=source, event=event)
+            return
         record_error: Exception | None = None
         if Record is not None:
             try:

@@ -2,6 +2,11 @@
 
 ### 修复
 
+- **`shared_path` 抢占导致 silk 永远轮不到**：`audio_transport=shared_path` 的分支排在 silk 判断之前并直接 `return`，两者同时开启时 silk 一次都不会执行，NapCat 照样要跑 `ntsilk_s16le` 转换。现在 silk 优先（它走 base64 直传，本来就不需要共享目录），shared_path 退到 silk 之后作为回退。
+- **silk 直发补上体积上限**：直发路径自己构造 base64，绕过了 `base64_max_mb`。现在超过上限按失败处理并回退，避免把超大 payload 塞进 OneBot。
+- **OneBot 返回值不再默认成功**：`aiocqhttp` 的 `api_impl` 对 `status=failed` 会抛 `ActionFailed`，但不同 OneBot 实现可能只回 dict。现在对返回的 dict 检查 `status`/`retcode`，`failed` 或非 0 `retcode` 一律当失败，避免误报"已送达"。
+- **`_can_send_silk` 去掉未参与判断的 `event` 参数**：它只看 umo 与平台管理器，留个 `event` 形参会让人以为还检查了 bot。
+
 - **silk 直发一次都没执行过（`platform_meta.id` 被当成平台类型）**：0.15.5 的 `_can_send_silk` 取 umo 首段和字符串 `"aiocqhttp"` 比较，但 umo 首段是 `platform_meta.id`，也就是配置里的**实例 ID**；平台**类型**在 `platform_meta.name` 里。本机实例 ID 是 `default`，所以条件恒为假，silk 分支被整段跳过，且没有任何日志。
   容器内用 AstrBot 真实类复现：
   ```
@@ -28,7 +33,8 @@
 
 - **语音发送失败但原因丢失**：`_send_audio_result` 把 `Record` 阶段的异常吞成一条 warning，再抛一句不含原因的 `RuntimeError`。更糟的是本插件的 logger 被 `isolate_logger()` 关闭了 propagate 且没接主日志，`docker logs` 里一条 voice-hub 日志都没有——于是现场只剩「语音未能发送，且 file_fallback_enabled 已禁用文件回退」，真实原因永久丢失。现在 `RuntimeError` 会带上 `Record` 的原始异常类型与文本，并用 `raise ... from` 挂上 cause。
 - **插件日志接入 AstrBot 主日志**：新增 `AstrBotLogBridge`，在保留诊断缓冲的同时把日志转发给 AstrBot logger，`docker logs` 从此能看到 voice-hub 的输出。
-- **WAV 长度字段回填（真实事故根因）**：FishAudio 流式输出不回填长度，产物头里 `data size=0xFFFFFF00`、`RIFF size=0xFFFFFF24`，解析出来时长是 48695 秒（约 13.5 小时）。多段语音因此只在第一段之后失败，用户只听到前半句。新增 `repair_streamed_wav_header()`：在 FishAudio 写完文件后、以及发送前各回填一次，只改两个长度字段，不动 PCM 与 fmt。实测同一个真实损坏文件：修复前解析 48695.8 秒 → 修复后 5.67 秒，文件字节数不变。
+- **WAV 长度字段回填（不是 NapCat 那条失败的原因，但是 qq_official 的真实隐患）**：FishAudio 流式输出不回填长度，产物头里 `data size=0xFFFFFF00`、`RIFF size=0xFFFFFF24`，解析出来时长是 48695 秒（约 13.5 小时）。多段语音因此只在第一段之后失败，用户只听到前半句。新增 `repair_streamed_wav_header()`：在 FishAudio 写完文件后、以及发送前各回填一次，只改两个长度字段，不动 PCM 与 fmt。实测同一个真实损坏文件：修复前解析 48695.8 秒 → 修复后 5.67 秒，文件字节数不变。
+  上游有同源问题与同思路修复：AstrBotDevs/AstrBot#10706（DashScope TTS 头为占位值，`qq_official` 转 SILK 时抛 MemoryError、整条消息静默丢失）/#10708（遍历 RIFF chunk 按实际字节数重写 RIFF size 与 data size，**尚未合并**）。本实现与之思路一致，且只按文件实际大小回填、不依赖占位值具体取值，实测对 FishAudio 的 `0xFFFFFF24` 与 DashScope 的 `0x7FFFFFFE` 都有效。
 - **部分发送失败时如实报告进度**：原来第 2 段失败会直接抛异常，但第 1 段其实已经播出，模型可能整段重发导致重复。现在失败会返回「已送达 N 段 / 共 M 段，第 N+1 段失败」并要求不要重发已播部分；首段就失败时明确说明「没有任何音频送达」，不再给假确认。
 
 - **撤销按文本丢弃消息的做法**：上一版为消除"语音后补发文字汇报"，在 `on_decorating_result` 用正则/关键词判断并丢弃整条结果。实测会误删有效消息——「语音发过去啦，明天取消」「…别点链接」「…了吗？」都被误判，而「我已经把语音发给你啦」反而漏拦。现已整体移除该过滤器与相关常量，并把上述案例固化为「必须保留」回归测试。

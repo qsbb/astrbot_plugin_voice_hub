@@ -220,6 +220,32 @@ class RepairStreamedWavHeaderTests(unittest.TestCase):
         raw[40:44] = (0xFFFFFF00).to_bytes(4, "little")
         path.write_bytes(bytes(raw))
 
+    def test_repairs_dashscope_placeholders_too(self):
+        """上游 AstrBotDevs/AstrBot#10706 报的占位值是 0x7FFFFFFE / 0x7FFFFFDB。
+
+        qq_official 转 SILK 时按头长度分配内存会抛 MemoryError，整条消息静默
+        丢失。回填逻辑只认「实际字节数」，与占位值具体是多少无关，这里锁定
+        它对 DashScope 的取值同样有效。
+        """
+        import tempfile
+        import wave
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "dashscope_tts.wav"
+            self._write_wav(path, frames=2400)
+            raw = bytearray(path.read_bytes())
+            raw[4:8] = (0x7FFFFFFE).to_bytes(4, "little")
+            raw[40:44] = (0x7FFFFFDB).to_bytes(4, "little")
+            path.write_bytes(bytes(raw))
+
+            self.assertTrue(repair_streamed_wav_header(path))
+            with wave.open(str(path), "rb") as handle:
+                self.assertEqual(handle.getnframes(), 2400)
+            self.assertEqual(
+                int.from_bytes(path.read_bytes()[40:44], "little"),
+                path.stat().st_size - 44,
+            )
+
     def test_repairs_placeholder_length_fields(self):
         import tempfile
         import wave as wave_module

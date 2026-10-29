@@ -3537,6 +3537,99 @@ class SilkDirectSendTests(unittest.TestCase):
 
         self.assertEqual(len(sent), 1)
 
+    def test_silk_wins_over_shared_path(self):
+        """silk 走 base64 直传，不需要共享目录。
+
+        早期版本把 shared_path 分支排在 silk 之前并直接 return，导致同时
+        开启时 silk 永远轮不到，NapCat 照样要跑 ntsilk 转换。
+        """
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        self.plugin.plugin_config.audio_transport = "shared_path"
+        sent = []
+
+        async def fake_onebot(bot, *, is_group, target_id, source, self_id=None):
+            sent.append(source)
+
+        async def forbidden_shared(*args, **kwargs):
+            raise AssertionError("shared_path 不该抢先发送")
+
+        event, _ = self._event()
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", return_value=b"\x02#!SILK_V3payload"
+        ), mock.patch.object(
+            self.plugin, "_send_shared_path_audio", forbidden_shared
+        ), mock.patch.object(self.plugin, "_call_onebot_message", fake_onebot):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0].startswith("base64://"))
+
+    def test_oversized_silk_falls_back(self):
+        """silk 体积必须受 base64_max_mb 约束。"""
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        self.plugin.plugin_config.base64_max_mb = 1
+        big = b"\x02#!SILK_V3" + b"x" * (2 * 1024 * 1024)
+        sent = []
+
+        class FakeRecord:
+            def __init__(self, file=""):
+                self.file = file
+
+        event, _ = self._event()
+
+        async def fake_send(chain):
+            sent.append(chain)
+
+        event.send = fake_send
+
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", return_value=big
+        ), mock.patch.object(self.module, "Record", FakeRecord):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        # 超限 -> silk 失败 -> 回退 Record
+        self.assertEqual(len(sent), 1)
+        self.assertIsInstance(sent[0][0], FakeRecord)
+
+    def test_onebot_failed_result_raises(self):
+        """不同 OneBot 实现可能只回 dict 不抛异常，failed 不能当成功。"""
+
+        class FailedBot:
+            async def call_action(self, action, **params):
+                return {"status": "failed", "retcode": 1200, "message": "boom"}
+
+        with self.assertRaises(RuntimeError) as ctx:
+            asyncio.run(
+                self.plugin._call_onebot_message(
+                    FailedBot(), is_group=False, target_id=1, source="base64://x"
+                )
+            )
+        self.assertIn("1200", str(ctx.exception))
+        self.assertIn("boom", str(ctx.exception))
+
+    def test_onebot_ok_result_accepted(self):
+        class OkBot:
+            def __init__(self):
+                self.called = []
+
+            async def send_private_msg(self, **params):
+                self.called.append(params)
+                return {"status": "ok", "retcode": 0, "data": {"message_id": 7}}
+
+        bot = OkBot()
+        asyncio.run(
+            self.plugin._call_onebot_message(
+                bot, is_group=False, target_id=1, source="base64://x"
+            )
+        )
+        self.assertEqual(bot.called[0]["user_id"], 1)
+
     def test_can_send_silk_depends_on_platform_and_libs(self):
         with mock.patch.object(self.module, "silk_available", return_value=True):
             self.assertTrue(self.plugin._can_send_silk("default:GroupMessage:1"))

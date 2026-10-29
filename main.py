@@ -86,7 +86,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.15.5"
+__version__ = "0.15.6"
 
 
 @register(
@@ -2531,17 +2531,28 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return decision
         return None
 
-    def _can_send_silk(self, umo: str, event: Any) -> bool:
-        """silK 直发只对 aiocqhttp 有意义，其他平台仍走 Record 组件。"""
+    def _silk_skip_reason(self, umo: str) -> str:
+        """说明为什么不能走 silk 直发；空字符串表示可以走。"""
         platform_id = str(umo or "").split(":", 1)[0].strip()
         if platform_id and platform_id != "aiocqhttp":
-            return False
-        if getattr(event, "bot", None) is None:
-            return False
-        return silk_available()
+            return f"平台 {platform_id} 不是 aiocqhttp"
+        if not silk_available():
+            return "缺少 pysilk 或 ffmpeg"
+        try:
+            self._parse_aiocqhttp_session(umo)
+        except Exception as exc:
+            return f"会话无法解析（{exc}）"
+        return ""
+
+    def _can_send_silk(self, umo: str, event: Any = None) -> bool:
+        """silk 直发只对 aiocqhttp 有意义，其他平台仍走 Record 组件。"""
+        return not self._silk_skip_reason(umo)
 
     async def _send_silk_audio(
-        self, event: AstrMessageEvent, audio_path: pathlib.Path
+        self,
+        event: AstrMessageEvent,
+        audio_path: pathlib.Path,
+        umo: str = "",
     ) -> None:
         """自行编码 silk 后直接走 OneBot API 发送。
 
@@ -2551,10 +2562,27 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
         注意走的是底层 OneBot 接口，绕开了 AstrBot 的 Record 组件——因为
         ``Record.convert_to_base64()`` 会把 silk 又转回 wav。
+
+        目标会话一律从 umo 解析、客户端优先取 ``event.bot``，取不到再从
+        platform_manager 里找。早期版本只认 ``event.bot``，一旦它为 None
+        就静默退回 Record，等于修复完全没生效，所以这里不再依赖它。
         """
+        session = umo or str(getattr(event, "unified_msg_origin", "") or "")
+        is_group, target_id = self._parse_aiocqhttp_session(session)
         silk_bytes = await asyncio.to_thread(wav_to_silk, audio_path)
         source = "base64://" + base64.b64encode(silk_bytes).decode("ascii")
-        await self._send_shared_path_audio(source=source, event=event)
+        bot = getattr(event, "bot", None)
+        if bot is None:
+            bot = self._find_aiocqhttp_client(session)
+        raw_message = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        self_id = raw_message.get("self_id") if isinstance(raw_message, dict) else None
+        await self._call_onebot_message(
+            bot,
+            is_group=is_group,
+            target_id=target_id,
+            source=source,
+            self_id=self_id,
+        )
         self.logger.info(
             "[voice-hub] sent %s as silk (%d bytes)", audio_path.name, len(silk_bytes)
         )
@@ -2575,15 +2603,25 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             await self._send_shared_path_audio(source=source, event=event)
             return
         silk_error: Exception | None = None
-        if self.plugin_config.silk_direct_send and self._can_send_silk(umo, event):
-            try:
-                await self._send_silk_audio(event, audio_path)
-                return
-            except Exception as exc:
-                silk_error = exc
-                self.logger.warning(
-                    "[voice-hub] silk direct send failed, falling back: %s", exc
-                )
+        if self.plugin_config.silk_direct_send:
+            skip_reason = self._silk_skip_reason(umo)
+            if skip_reason:
+                # 静默退回是上一次修复失效的原因，这里必须留下痕迹。
+                if not getattr(self, "_silk_skip_logged", False):
+                    self._silk_skip_logged = True
+                    self.logger.warning(
+                        "[voice-hub] silk 直发不可用（%s），本次按原方式发送。",
+                        skip_reason,
+                    )
+            else:
+                try:
+                    await self._send_silk_audio(event, audio_path, umo)
+                    return
+                except Exception as exc:
+                    silk_error = exc
+                    self.logger.warning(
+                        "[voice-hub] silk direct send failed, falling back: %s", exc
+                    )
         record_error: Exception | None = None
         if Record is not None:
             try:

@@ -2,6 +2,9 @@
 
 ### 修复
 
+- **silk 直发不再依赖 `event.bot`**：0.15.5 上线后日志显示仍走 Record 失败，且没有任何 silk 相关输出——因为 `_can_send_silk` 要求 `event.bot` 不为 None，取不到就静默退回。现在目标会话一律从 umo 解析（`aiocqhttp:FriendMessage:<id>`，已实测确认就是三段），客户端优先取 `event.bot`，取不到再从 `context.platform_manager.get_insts()` 里找 `get_client()`，两处都验过在 4.29.1 上可用。
+- **跳过 silk 时记录原因**：静默降级正是上一版修复看起来"没生效"的原因。现在第一次跳过会打一条 warning 说明具体原因（平台不是 aiocqhttp / 缺少 pysilk 或 ffmpeg / 会话无法解析），不再无声退回。
+
 - **语音发不出去（真实根因：NapCat 的 ffmpeg 缺 ntsilk 格式）**：NapCat 收到 WAV 语音会先判断要不要转成 silk，需要转换时它执行
   `ffmpeg -f ntsilk_s16le`，而 Ubuntu 22.04 自带的 ffmpeg 4.4.2 没有这个 muxer，命令必然失败：
   `Requested output format 'ntsilk_s16le' is not a suitable output format`。容器内用标准正常 WAV 复现，`EXIT=1`，与输入无关。

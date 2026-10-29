@@ -3392,7 +3392,7 @@ class SilkDirectSendTests(unittest.TestCase):
 
         return (
             types.SimpleNamespace(
-                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                unified_msg_origin="aiocqhttp:FriendMessage:1483904397",
                 bot=bot,
                 send=send,
                 chain_result=lambda components: components,
@@ -3439,6 +3439,8 @@ class SilkDirectSendTests(unittest.TestCase):
             sent.append((is_group, target_id))
 
         event, _ = self._event(group="123456")
+        # 目标一律以 umo 为准，比 event.get_group_id() 更可靠
+        event.unified_msg_origin = "aiocqhttp:GroupMessage:123456"
         with mock.patch.object(
             self.module, "silk_available", return_value=True
         ), mock.patch.object(
@@ -3501,11 +3503,59 @@ class SilkDirectSendTests(unittest.TestCase):
 
         self.assertEqual(len(sent), 1)
 
-    def test_can_send_silk_requires_pysilk_and_bot(self):
-        event, _ = self._event()
+    def test_can_send_silk_depends_on_platform_and_libs(self):
         with mock.patch.object(self.module, "silk_available", return_value=True):
-            self.assertTrue(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1", event))
+            self.assertTrue(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1"))
         with mock.patch.object(self.module, "silk_available", return_value=False):
-            self.assertFalse(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1", event))
+            self.assertFalse(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1"))
         with mock.patch.object(self.module, "silk_available", return_value=True):
-            self.assertFalse(self.plugin._can_send_silk("telegram:FriendMessage:1", event))
+            self.assertFalse(self.plugin._can_send_silk("telegram:FriendMessage:1"))
+
+    def test_skip_reason_is_recorded_once(self):
+        """静默降级是上一版修复失效的原因，必须留下日志。"""
+        logged = []
+
+        class RecordingLogger:
+            def __getattr__(self, level):
+                def _log(message, *args, **kwargs):
+                    logged.append(str(message) % args if args else str(message))
+
+                return _log
+
+        old_logger = self.module.logger
+        self.module.logger = RecordingLogger()
+        try:
+            with mock.patch.object(self.module, "silk_available", return_value=False):
+                self.plugin._send_audio_result  # 触发属性存在
+                self.plugin._silk_skip_logged = False
+                reason = self.plugin._silk_skip_reason("aiocqhttp:FriendMessage:1")
+                self.assertIn("pysilk", reason)
+        finally:
+            self.module.logger = old_logger
+
+    def test_bot_falls_back_to_platform_manager(self):
+        """event.bot 为 None 时也要能发出去。"""
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        sent = []
+        looked_up = []
+
+        def fake_find(session):
+            looked_up.append(session)
+            return object()
+
+        async def fake_onebot(bot, *, is_group, target_id, source, self_id=None):
+            sent.append((is_group, target_id))
+
+        event, _ = self._event(bot=None)
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", return_value=b"\x02#!SILK_V3payload"
+        ), mock.patch.object(
+            self.plugin, "_find_aiocqhttp_client", fake_find
+        ), mock.patch.object(self.plugin, "_call_onebot_message", fake_onebot):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        self.assertEqual(sent, [(False, 1483904397)])
+        self.assertTrue(looked_up)

@@ -228,6 +228,15 @@ class FishAudioClient:
                         with open(out, "wb") as handle:
                             async for chunk in response.aiter_bytes():
                                 handle.write(chunk)
+                        # 流式 WAV 的长度字段常是占位值（0xFFFFFF00 这类），
+                        # 按实际大小回填，否则下游转码会以为音频有十几小时
+                        # 而拒发或截断。局部导入避免 core 内循环依赖。
+                        try:
+                            from .audio_codec import repair_streamed_wav_header
+
+                            repair_streamed_wav_header(out)
+                        except Exception:
+                            pass
                         return out
                     error_bytes = await response.aread()
                     text_head = error_bytes.decode("utf-8", errors="replace")

@@ -262,3 +262,64 @@ def merge_wav_bytes(chunks: list[bytes]) -> bytes:
         raise
     except (OSError, EOFError, wave.Error) as exc:
         raise AudioMergeError(f"Invalid WAV segment: {exc}") from exc
+
+
+def repair_streamed_wav_header(path: Path | str) -> bool:
+    """回填流式写入遗留的占位长度字段；返回是否做了修改。
+
+    FishAudio 等服务端以流式输出 WAV 时不回填长度，头部会留下
+    ``0xFFFFFF24``（RIFF size）与 ``0xFFFFFF00``（data size）这类占位值。
+    按这种头解析，时长会变成十几小时，转码器要么拒绝、要么截断，而
+    文件本身其实是完整的——真实长度只能按文件大小算。
+
+    只修正这两个长度字段，不动 PCM 数据与 fmt 信息；非 RIFF/WAVE、
+    找不到 data chunk 或文件过短时原样返回 False。
+    """
+    audio_path = Path(path)
+    try:
+        total = audio_path.stat().st_size
+    except OSError:
+        return False
+    if total <= 44:
+        return False
+
+    with audio_path.open("rb") as stream:
+        header = stream.read(12)
+        if len(header) < 12 or header[0:4] != b"RIFF" or header[8:12] != b"WAVE":
+            return False
+        offset = 12
+        data_offset: int | None = None
+        data_size = 0
+        # 只走一遍头部，data chunk 之前的块都很小；超出 1MB 说明头部异常
+        while offset + 8 <= min(total, 1 << 20):
+            stream.seek(offset)
+            chunk_header = stream.read(8)
+            if len(chunk_header) < 8:
+                break
+            chunk_id = chunk_header[0:4]
+            chunk_size = int.from_bytes(chunk_header[4:8], "little")
+            if chunk_id == b"data":
+                data_offset = offset + 8
+                data_size = chunk_size
+                break
+            # 占位长度会让下一块位置跑到文件外，无法继续遍历
+            if chunk_size > total:
+                break
+            offset += 8 + chunk_size + (chunk_size & 1)
+
+    if data_offset is None:
+        return False
+
+    real_data_size = total - data_offset
+    if real_data_size <= 0:
+        return False
+    real_riff_size = total - 8
+    if data_size == real_data_size and int.from_bytes(header[4:8], "little") == real_riff_size:
+        return False
+
+    with audio_path.open("r+b") as stream:
+        stream.seek(4)
+        stream.write(real_riff_size.to_bytes(4, "little"))
+        stream.seek(data_offset - 4)
+        stream.write(real_data_size.to_bytes(4, "little"))
+    return True

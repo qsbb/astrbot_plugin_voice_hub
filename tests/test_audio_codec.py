@@ -12,6 +12,7 @@ from astrbot_plugin_voice_hub.core.audio_codec import (
     estimate_base64_chars,
     inspect_pcm16_wav,
     merge_wav_files,
+    repair_streamed_wav_header,
     sniff_audio_format,
 )
 
@@ -190,3 +191,76 @@ class AudioCodecTests(unittest.TestCase):
             truncated.write_bytes(truncated.read_bytes()[:-3])
             with self.assertRaisesRegex(PCMOutputValidationError, "truncated"):
                 inspect_pcm16_wav(truncated)
+
+
+class RepairStreamedWavHeaderTests(unittest.TestCase):
+    """FishAudio 流式输出的 WAV 头是占位值，必须按实际大小回填。
+
+    真实事故：合成产物头里 data size = 0xFFFFFF00、RIFF size = 0xFFFFFF24，
+    解析出来时长是 48695 秒（约 13.5 小时），多段语音的第二段因此在
+    发送阶段失败，用户只听得到第一段。
+    """
+
+    @staticmethod
+    def _write_wav(path: Path, *, frames: int = 800) -> None:
+        import wave as wave_module
+
+        with wave_module.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(16000)
+            handle.writeframes(b"\x00\x00" * frames)
+
+    def _poison_header(self, path: Path) -> None:
+        """把长度字段改成流式占位值（模拟服务端未回填）。"""
+        raw = bytearray(path.read_bytes())
+        raw[4:8] = (0xFFFFFF24).to_bytes(4, "little")
+        # 标准 44 字节头：data size 在偏移 40
+        assert raw[36:40] == b"data"
+        raw[40:44] = (0xFFFFFF00).to_bytes(4, "little")
+        path.write_bytes(bytes(raw))
+
+    def test_repairs_placeholder_length_fields(self):
+        import tempfile
+        import wave as wave_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "poisoned.wav"
+            self._write_wav(path)
+            self._poison_header(path)
+
+            with wave_module.open(str(path), "rb") as broken:
+                # 占位值会解析成十几小时的时长
+                self.assertGreater(broken.getnframes(), 16_000 * 3600)
+
+            self.assertTrue(repair_streamed_wav_header(path))
+
+            with wave_module.open(str(path), "rb") as fixed:
+                self.assertEqual(fixed.getnframes(), 800)
+                self.assertEqual(fixed.getframerate(), 16000)
+
+    def test_is_idempotent_and_skips_healthy_files(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "healthy.wav"
+            self._write_wav(path)
+            self.assertFalse(repair_streamed_wav_header(path))
+            size_before = path.stat().st_size
+            self.assertFalse(repair_streamed_wav_header(path))
+            self.assertEqual(path.stat().st_size, size_before)
+
+    def test_ignores_non_wav_and_tiny_files(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            not_wav = Path(tmp) / "a.bin"
+            not_wav.write_bytes(b"ID3\x03\x00" + b"\x00" * 200)
+            self.assertFalse(repair_streamed_wav_header(not_wav))
+
+            tiny = Path(tmp) / "tiny.wav"
+            tiny.write_bytes(b"RIFF")
+            self.assertFalse(repair_streamed_wav_header(tiny))
+
+            missing = Path(tmp) / "missing.wav"
+            self.assertFalse(repair_streamed_wav_header(missing))

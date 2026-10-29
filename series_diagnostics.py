@@ -159,15 +159,56 @@ logger = logging.getLogger(PLUGIN_ID)
 logger.setLevel(logging.DEBUG)
 
 
+class AstrBotLogBridge(logging.Handler):
+    """把本插件日志转发到 AstrBot 主日志。
+
+    ``isolate_logger`` 会关闭 propagate，日志只留在诊断缓冲里，
+    结果 ``docker logs`` 里一条都看不到——语音发送失败这类问题
+    就只剩宿主抛出的那句笼统错误，真正原因永久丢失。
+    """
+
+    def __init__(self, level: int = logging.INFO) -> None:
+        super().__init__(level=level)
+        try:
+            from astrbot.api import logger as target
+        except Exception:  # pragma: no cover - 仅测试环境缺 AstrBot
+            target = None
+        self._target = target
+
+    def emit(self, record: logging.LogRecord) -> None:
+        target = self._target
+        if target is None:
+            return
+        try:
+            message = self.format(record)
+            if record.levelno >= logging.ERROR:
+                target.error(message)
+            elif record.levelno >= logging.WARNING:
+                target.warning(message)
+            elif record.levelno >= logging.INFO:
+                target.info(message)
+            else:
+                target.debug(message)
+        except Exception:  # pragma: no cover - 日志失败不得影响主流程
+            pass
+
+
+_bridge = AstrBotLogBridge()
+
+
 def isolate_logger() -> None:
     logger.propagate = False
     for handler in list(logger.handlers):
-        if not isinstance(handler, (logging.NullHandler, DiagnosticBuffer)):
+        if not isinstance(
+            handler, (logging.NullHandler, DiagnosticBuffer, AstrBotLogBridge)
+        ):
             logger.removeHandler(handler)
     if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
         logger.addHandler(logging.NullHandler())
     if _buffer not in logger.handlers:
         logger.addHandler(_buffer)
+    if _bridge not in logger.handlers:
+        logger.addHandler(_bridge)
 
 
 isolate_logger()

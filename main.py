@@ -32,6 +32,7 @@ except Exception:  # pragma: no cover
 from .core.audio_codec import (
     AudioMergeError,
     PCMOutputValidationError,
+    repair_streamed_wav_header,
     encode_voice_file_data_url,
     estimate_base64_chars,
     inspect_pcm16_wav,
@@ -84,7 +85,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.15.3"
+__version__ = "0.15.4"
 
 
 @register(
@@ -1364,6 +1365,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 return
 
             sent = 0
+            send_failure: Exception | None = None
             for segment_index, output in enumerate(outputs):
                 if not await self._wait_for_segment_delay(
                     segment_index,
@@ -1373,10 +1375,39 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                     self._remove_cancelled_outputs(outputs[sent:])
                     yield self._voice_cancelled_status()
                     return
-                await self._send_audio_result(event, output)
+                try:
+                    await self._send_audio_result(event, output)
+                except Exception as exc:
+                    # 已发出的段不能因为后面的失败被整体重发：把实际进度
+                    # 报给模型，由它决定只补剩余内容。
+                    send_failure = exc
+                    self.logger.warning(
+                        "[voice-hub] segment %d/%d send failed: %s",
+                        segment_index + 1,
+                        len(outputs),
+                        exc,
+                    )
+                    break
                 sent += 1
                 if sent == 1:
                     self._mark_tts_handled(event)
+
+            if send_failure is not None:
+                self._remove_cancelled_outputs(outputs[sent + 1 :])
+                if sent:
+                    yield (
+                        f"audio partially delivered: {sent} of {len(outputs)} "
+                        f"segment(s) already reached the user; segment {sent + 1} "
+                        f"failed ({type(send_failure).__name__}: {send_failure}). "
+                        "Do not resend the segment(s) that already played. Tell the "
+                        "user plainly that the rest could not be delivered, then stop."
+                    )
+                else:
+                    yield (
+                        f"tts send failed ({type(send_failure).__name__}: "
+                        f"{send_failure}). No audio reached the user."
+                    )
+                return
             if hasattr(event, "clear_result"):
                 event.clear_result()
             diagnostic_event(
@@ -2503,16 +2534,26 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         self, event: AstrMessageEvent, audio_path: pathlib.Path
     ) -> None:
         umo = str(getattr(event, "unified_msg_origin", "") or "")
+        # 发送前统一回填 WAV 长度字段：流式合成留下的占位值会让接收端
+        # 以为音频有十几小时，转码阶段就可能整条拒发。
+        try:
+            repair_streamed_wav_header(audio_path)
+        except Exception as exc:
+            self.logger.debug("[voice-hub] wav header repair skipped: %s", exc)
         if self.plugin_config.audio_transport == "shared_path":
             self._ensure_shared_path_platform(umo)
             source = self._audio_source(audio_path)
             await self._send_shared_path_audio(source=source, event=event)
             return
+        record_error: Exception | None = None
         if Record is not None:
             try:
-                await event.send(event.chain_result([Record(file=self._audio_source(audio_path))]))
+                await event.send(
+                    event.chain_result([Record(file=self._audio_source(audio_path))])
+                )
                 return
             except Exception as exc:
+                record_error = exc
                 if self.plugin_config.audio_transport == "base64":
                     raise
                 self.logger.warning(
@@ -2521,7 +2562,17 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         if not self.plugin_config.file_fallback_enabled:
             # 上游 5d624b17：回退关闭时不能静默跳过，否则调用方会拿到
             # "已发送"的假确认，用户实际一条语音都没收到。
-            raise RuntimeError("语音未能发送，且 file_fallback_enabled 已禁用文件回退。")
+            # 必须带上 Record 阶段的原始异常，否则真实失败原因永久丢失，
+            # 只剩一句"未能发送"无从排查。
+            detail = (
+                f" Record 阶段错误：{type(record_error).__name__}: {record_error}"
+                if record_error is not None
+                else " Record 组件不可用。"
+            )
+            raise RuntimeError(
+                f"语音未能发送（文件 {audio_path.name}），"
+                f"且 file_fallback_enabled 已禁用文件回退。{detail}"
+            ) from record_error
         await event.send(
             event.chain_result([File(name=audio_path.name, file=str(audio_path))])
         )

@@ -1334,9 +1334,14 @@ class ConfigPersistenceTests(unittest.TestCase):
             async def invoke():
                 return [item async for item in plugin.voice_hub_speak(event, "测试")]
 
-            with self.assertRaisesRegex(RuntimeError, "send failed"):
-                asyncio.run(invoke())
+            result = asyncio.run(invoke())
 
+            # 不再抛异常（避免宿主打 traceback 噪音），但必须如实说明
+            # 一条都没发出去，不能给"已发送"的假确认。
+            self.assertFalse(any("audio delivered" in str(item) for item in result))
+            combined = " ".join(str(item) for item in result)
+            self.assertIn("send failed", combined)
+            self.assertIn("No audio reached the user", combined)
             self.assertNotIn(plugin.TTS_HANDLED_EVENT_KEY, extras)
 
     def test_voice_hub_speak_does_not_mark_event_when_no_audio_is_generated(self):
@@ -1391,9 +1396,12 @@ class ConfigPersistenceTests(unittest.TestCase):
             async def invoke():
                 return [item async for item in plugin.voice_hub_speak(event, "长文本")]
 
-            with self.assertRaisesRegex(RuntimeError, "send failed"):
-                asyncio.run(invoke())
+            result = asyncio.run(invoke())
 
+            combined = " ".join(str(item) for item in result)
+            self.assertIn("partially delivered", combined)
+            self.assertIn("1 of 2", combined)
+            self.assertIn("Do not resend", combined)
             self.assertTrue(extras[plugin.TTS_HANDLED_EVENT_KEY])
             self.assertEqual(len(sent), 2)
 
@@ -3289,3 +3297,63 @@ class VoiceFollowupReportPreservationTests(unittest.TestCase):
             "voice sent",
         ):
             self.assertFalse(pattern.fullmatch(text), text)
+
+
+class SendFailureDiagnosticsTests(unittest.TestCase):
+    """发送失败必须带出原始异常，否则真实原因永久丢失。
+
+    事故现场：日志里只有一句「语音未能发送，且 file_fallback_enabled 已禁用
+    文件回退」，Record 阶段的真实异常被 warning 吞掉，而这个插件的 logger
+    又没接到 AstrBot 主日志，导致 docker logs 里一条都看不到。
+    """
+
+    def setUp(self):
+        _install_astrbot_stubs()
+        self.module = importlib.import_module("astrbot_plugin_voice_hub.main")
+        self.module.logger = _Logger()
+        from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+        star_handlers_registry.handlers = []
+        self.tmp = tempfile.TemporaryDirectory()
+        _StarTools.data_dir = self.tmp.name
+        self.plugin = self.module.MimoTTSClonePlugin(
+            _Context(), {"file_fallback_enabled": False}
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_runtime_error_carries_record_stage_exception(self):
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFFxxxxWAVE")
+
+        class Boom(Exception):
+            pass
+
+        class FakeRecord:
+            def __init__(self, file=""):
+                self.file = file
+
+        async def failing_send(chain):
+            raise Boom("platform rejected record payload")
+
+        event = types.SimpleNamespace(
+            unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+            send=failing_send,
+            chain_result=lambda components: components,
+        )
+
+        original = self.module.Record
+        self.module.Record = FakeRecord
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(self.plugin._send_audio_result(event, audio))
+        finally:
+            self.module.Record = original
+
+        message = str(ctx.exception)
+        self.assertIn("Boom", message)
+        self.assertIn("platform rejected record payload", message)
+        self.assertIn(audio.name, message)
+        # 原始异常要挂在 cause 上，便于上层追溯
+        self.assertIsInstance(ctx.exception.__cause__, Boom)

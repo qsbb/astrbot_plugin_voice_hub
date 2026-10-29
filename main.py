@@ -2319,35 +2319,61 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             raise RuntimeError(f"shared_path 目标 ID 无效：{raw_id}")
         return message_type == "GroupMessage", int(raw_id)
 
-    def _find_aiocqhttp_client(self, session: str) -> Any:
-        """找后台会话对应的 aiocqhttp bot 客户端。"""
+    def _platform_instances(self) -> list[Any]:
+        """当前加载的全部平台实例。"""
         manager = getattr(self.context, "platform_manager", None)
-        platforms = []
         get_insts = getattr(manager, "get_insts", None)
         if callable(get_insts):
             try:
-                platforms = list(get_insts() or [])
+                instances = list(get_insts() or [])
             except Exception:
-                platforms = []
-        if not platforms:
-            platforms = list(getattr(manager, "platform_insts", []) or [])
-        platform_id = str(session or "").split(":", 1)[0]
-        for platform in platforms:
+                instances = []
+            if instances:
+                return instances
+        return list(getattr(manager, "platform_insts", []) or [])
+
+    def _platform_for_umo(self, umo: str) -> Any:
+        """按 umo 首段定位平台实例。
+
+        umo 的第一段是 ``platform_meta.id``，也就是配置里的实例 ID（本机是
+        ``default``），**不是**平台类型。类型在 ``platform_meta.name`` 里
+        （``aiocqhttp``）。早期代码拿 umo 首段直接和 ``"aiocqhttp"`` 比较，
+        条件永远不成立，导致 silk 直发一次都没跑过。
+        """
+        key = str(umo or "").split(":", 1)[0].strip()
+        if not key:
+            return None
+        for platform in self._platform_instances():
             try:
                 meta = platform.meta()
-                identifiers = {
-                    str(getattr(meta, "id", "") or ""),
-                    str(getattr(meta, "name", "") or ""),
-                }
-                if platform_id not in identifiers:
-                    continue
             except Exception:
                 continue
-            get_client = getattr(platform, "get_client", None)
-            client = get_client() if callable(get_client) else getattr(platform, "bot", None)
-            if client is not None:
-                return client
-        raise RuntimeError(f"找不到 aiocqhttp 平台客户端：{platform_id or session}")
+            if str(getattr(meta, "id", "") or "") == key:
+                return platform
+        return None
+
+    @staticmethod
+    def _platform_type(platform: Any) -> str:
+        """平台类型（aiocqhttp / qq_official / ...），取自 meta.name。"""
+        if platform is None:
+            return ""
+        try:
+            meta = platform.meta()
+        except Exception:
+            return ""
+        return str(getattr(meta, "name", "") or "")
+
+    def _find_aiocqhttp_client(self, session: str) -> Any:
+        """找后台会话对应的 aiocqhttp bot 客户端。"""
+        platform = self._platform_for_umo(session)
+        if platform is None:
+            platform_id = str(session or "").split(":", 1)[0]
+            raise RuntimeError(f"platform_manager 里找不到平台实例：{platform_id or session}")
+        get_client = getattr(platform, "get_client", None)
+        client = get_client() if callable(get_client) else getattr(platform, "bot", None)
+        if client is None:
+            raise RuntimeError(f"平台没有可用的 OneBot 客户端：{session}")
+        return client
 
     @staticmethod
     async def _call_onebot_message(
@@ -2412,10 +2438,20 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
     def _ensure_shared_path_platform(self, umo: str) -> None:
         """shared_path 仅 aiocqhttp 可消费；其他平台提前报错并给出替代方案。"""
-        platform_id = str(umo or "").split(":", 1)[0].strip()
-        if platform_id and platform_id != "aiocqhttp":
+        session = str(umo or "")
+        if not session:
+            return
+        platform = self._platform_for_umo(session)
+        if platform is None:
+            # 定位不到平台时不能放行：否则会在发送阶段才炸，原因更远。
             raise RuntimeError(
-                f"shared_path 模式仅支持 aiocqhttp 平台，当前平台为 {platform_id}；"
+                f"shared_path 模式仅支持 aiocqhttp 平台，但定位不到 umo {session} "
+                "对应的平台实例；请改用 audio_transport=base64 或 path。"
+            )
+        platform_type = self._platform_type(platform)
+        if platform_type != "aiocqhttp":
+            raise RuntimeError(
+                f"shared_path 模式仅支持 aiocqhttp 平台，当前平台类型为 {platform_type}；"
                 "请改用 audio_transport=base64 或 path。"
             )
 
@@ -2533,15 +2569,24 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
 
     def _silk_skip_reason(self, umo: str) -> str:
         """说明为什么不能走 silk 直发；空字符串表示可以走。"""
-        platform_id = str(umo or "").split(":", 1)[0].strip()
-        if platform_id and platform_id != "aiocqhttp":
-            return f"平台 {platform_id} 不是 aiocqhttp"
-        if not silk_available():
-            return "缺少 pysilk 或 ffmpeg"
+        session = str(umo or "")
+        if not session:
+            return "事件缺少统一消息来源"
         try:
-            self._parse_aiocqhttp_session(umo)
+            self._parse_aiocqhttp_session(session)
         except Exception as exc:
             return f"会话无法解析（{exc}）"
+        if not silk_available():
+            return "缺少 pysilk 或 ffmpeg"
+        platform = self._platform_for_umo(session)
+        if platform is None:
+            return "platform_manager 里找不到该会话对应的平台"
+        platform_type = self._platform_type(platform)
+        if platform_type != "aiocqhttp":
+            return f"平台类型 {platform_type or '未知'} 不是 aiocqhttp"
+        get_client = getattr(platform, "get_client", None)
+        if not callable(get_client) and getattr(platform, "bot", None) is None:
+            return "平台没有可用的 OneBot 客户端"
         return ""
 
     def _can_send_silk(self, umo: str, event: Any = None) -> bool:

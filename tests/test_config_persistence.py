@@ -110,6 +110,34 @@ class _TTSProvider:
         return f"/tmp/{self.provider_config['id']}.wav"
 
 
+class _FakePlatformMeta:
+    """照抄 AstrBot 的语义：name 是平台类型，id 是配置里的实例 ID。"""
+
+    def __init__(self, name, platform_id):
+        self.name = name
+        self.id = platform_id
+
+
+class _FakePlatform:
+    def __init__(self, name="aiocqhttp", platform_id="default", client=None):
+        self._meta = _FakePlatformMeta(name, platform_id)
+        self._client = client if client is not None else object()
+
+    def meta(self):
+        return self._meta
+
+    def get_client(self):
+        return self._client
+
+
+class _FakePlatformManager:
+    def __init__(self, platforms):
+        self.platform_insts = list(platforms)
+
+    def get_insts(self):
+        return self.platform_insts
+
+
 class _Context:
     def __init__(self):
         self.routes = []
@@ -119,6 +147,12 @@ class _Context:
         self.star_instances = {}
         self.tts_providers = []
         self.providers = [_Provider(owner=self)]
+        self.platform_manager = _FakePlatformManager(
+            [
+                _FakePlatform(name="aiocqhttp", platform_id="default"),
+                _FakePlatform(name="qq_official", platform_id="心夏"),
+            ]
+        )
         self.provider_manager = types.SimpleNamespace(
             curr_provider_inst=self.providers[0],
             provider_insts=self.providers,
@@ -3392,7 +3426,7 @@ class SilkDirectSendTests(unittest.TestCase):
 
         return (
             types.SimpleNamespace(
-                unified_msg_origin="aiocqhttp:FriendMessage:1483904397",
+                unified_msg_origin="default:FriendMessage:1483904397",
                 bot=bot,
                 send=send,
                 chain_result=lambda components: components,
@@ -3440,7 +3474,7 @@ class SilkDirectSendTests(unittest.TestCase):
 
         event, _ = self._event(group="123456")
         # 目标一律以 umo 为准，比 event.get_group_id() 更可靠
-        event.unified_msg_origin = "aiocqhttp:GroupMessage:123456"
+        event.unified_msg_origin = "default:GroupMessage:123456"
         with mock.patch.object(
             self.module, "silk_available", return_value=True
         ), mock.patch.object(
@@ -3505,11 +3539,35 @@ class SilkDirectSendTests(unittest.TestCase):
 
     def test_can_send_silk_depends_on_platform_and_libs(self):
         with mock.patch.object(self.module, "silk_available", return_value=True):
-            self.assertTrue(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1"))
+            self.assertTrue(self.plugin._can_send_silk("default:GroupMessage:1"))
         with mock.patch.object(self.module, "silk_available", return_value=False):
-            self.assertFalse(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1"))
+            self.assertFalse(self.plugin._can_send_silk("default:GroupMessage:1"))
         with mock.patch.object(self.module, "silk_available", return_value=True):
             self.assertFalse(self.plugin._can_send_silk("telegram:FriendMessage:1"))
+
+    def test_silk_works_when_platform_id_differs_from_type(self):
+        """本机 aiocqhttp 实例的 ID 是 default，不是 aiocqhttp。
+
+        umo 首段来自 platform_meta.id（实例 ID），平台类型在 meta.name。
+        早期代码拿 umo 首段直接和 "aiocqhttp" 比较，条件恒为假，silk 直发
+        一次都没执行过，而且因为静默降级看不出来。这个用例就是那条防线。
+        """
+        with mock.patch.object(self.module, "silk_available", return_value=True):
+            self.assertEqual(self.plugin._silk_skip_reason("default:FriendMessage:1"), "")
+            self.assertEqual(
+                self.plugin._silk_skip_reason("心夏:FriendMessage:1"),
+                "平台类型 qq_official 不是 aiocqhttp",
+            )
+            self.assertIn(
+                "找不到",
+                self.plugin._silk_skip_reason("nosuchplatform:FriendMessage:1"),
+            )
+
+    def test_platform_type_comes_from_meta_name(self):
+        meta = types.SimpleNamespace(name="aiocqhttp", description="", id="default")
+        platform = types.SimpleNamespace(meta=lambda: meta)
+        self.assertEqual(self.plugin._platform_type(platform), "aiocqhttp")
+        self.assertEqual(self.plugin._platform_type(None), "")
 
     def test_skip_reason_is_recorded_once(self):
         """静默降级是上一版修复失效的原因，必须留下日志。"""
@@ -3528,7 +3586,7 @@ class SilkDirectSendTests(unittest.TestCase):
             with mock.patch.object(self.module, "silk_available", return_value=False):
                 self.plugin._send_audio_result  # 触发属性存在
                 self.plugin._silk_skip_logged = False
-                reason = self.plugin._silk_skip_reason("aiocqhttp:FriendMessage:1")
+                reason = self.plugin._silk_skip_reason("default:FriendMessage:1")
                 self.assertIn("pysilk", reason)
         finally:
             self.module.logger = old_logger

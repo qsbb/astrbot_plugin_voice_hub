@@ -338,12 +338,14 @@ class AudioTransportTests(unittest.TestCase):
             module, plugin = self._plugin(
                 {"audio_transport": "shared_path"}, Path(tmp)
             )
+            # umo 首段是 platform_meta.id（本机 aiocqhttp 实例 ID 就是 default），
+            # 平台类型在 meta.name 里，两者不能混用。
             with self.assertRaisesRegex(RuntimeError, "仅支持 aiocqhttp"):
-                plugin._ensure_shared_path_platform("qq_official:FriendMessage:123")
+                plugin._ensure_shared_path_platform("心夏:FriendMessage:123")
             with self.assertRaisesRegex(RuntimeError, "仅支持 aiocqhttp"):
                 plugin._ensure_shared_path_platform("websearch:GroupMessage:456")
-            # aiocqhttp 与空 UMO 不报错
-            plugin._ensure_shared_path_platform("aiocqhttp:GroupMessage:789")
+            # aiocqhttp 实例（ID=default）与空 UMO 不报错
+            plugin._ensure_shared_path_platform("default:GroupMessage:789")
             plugin._ensure_shared_path_platform("")
 
     def test_parse_session_variants(self):

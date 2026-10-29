@@ -2,8 +2,18 @@
 
 ### 修复
 
-- **silk 直发不再依赖 `event.bot`**：0.15.5 上线后日志显示仍走 Record 失败，且没有任何 silk 相关输出——因为 `_can_send_silk` 要求 `event.bot` 不为 None，取不到就静默退回。现在目标会话一律从 umo 解析（`aiocqhttp:FriendMessage:<id>`，已实测确认就是三段），客户端优先取 `event.bot`，取不到再从 `context.platform_manager.get_insts()` 里找 `get_client()`，两处都验过在 4.29.1 上可用。
-- **跳过 silk 时记录原因**：静默降级正是上一版修复看起来"没生效"的原因。现在第一次跳过会打一条 warning 说明具体原因（平台不是 aiocqhttp / 缺少 pysilk 或 ffmpeg / 会话无法解析），不再无声退回。
+- **silk 直发一次都没执行过（`platform_meta.id` 被当成平台类型）**：0.15.5 的 `_can_send_silk` 取 umo 首段和字符串 `"aiocqhttp"` 比较，但 umo 首段是 `platform_meta.id`，也就是配置里的**实例 ID**；平台**类型**在 `platform_meta.name` 里。本机实例 ID 是 `default`，所以条件恒为假，silk 分支被整段跳过，且没有任何日志。
+  容器内用 AstrBot 真实类复现：
+  ```
+  meta.name (类型) = aiocqhttp
+  meta.id   (实例) = default
+  umo='default:FriendMessage:1483904397'   -> found=True   type='aiocqhttp'
+  umo='aiocqhttp:FriendMessage:1483904397' -> found=False  type=''
+  ```
+  （0.15.5 曾把这归因为 `event.bot is None`，那是错的：`create_event` 里明确 `bot=self.bot`。）
+  现在改为：按 umo 首段在 `platform_manager` 里定位平台实例，再用 `meta.name` 判断类型；客户端优先 `event.bot`，取不到用 `get_client()`。`_ensure_shared_path_platform` 有同样的错误比较，一并修正，并在定位不到平台时明确报错而不是放行。
+- **跳过 silk 时记录原因**：静默降级正是这个问题藏了两轮的原因。现在第一次跳过会打一条 warning 说明具体原因（平台类型不是 aiocqhttp / 缺少 pysilk 或 ffmpeg / 会话无法解析 / 找不到平台实例），不再无声退回。
+- **测试与实现不能共享同一个错误前提**：测试里原本也用 `aiocqhttp:...` 拼 umo，等于替错误实现背书。现全部改用真实形状 `default:...`，并新增锚点用例：实例 ID 与平台类型不同时仍必须走 silk。
 
 - **语音发不出去（真实根因：NapCat 的 ffmpeg 缺 ntsilk 格式）**：NapCat 收到 WAV 语音会先判断要不要转成 silk，需要转换时它执行
   `ffmpeg -f ntsilk_s16le`，而 Ubuntu 22.04 自带的 ffmpeg 4.4.2 没有这个 muxer，命令必然失败：

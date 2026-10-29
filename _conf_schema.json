@@ -392,6 +392,12 @@
     "description": "语音消息发送失败或当前版本缺少语音组件时，允许回退为文件发送",
     "default": true
   },
+  "silk_direct_send": {
+    "type": "bool",
+    "description": "自行编码 silk 后直发（推荐开启）",
+    "hint": "NapCat 把 WAV 转成语音时要调用 ffmpeg 的 ntsilk_s16le 格式，而多数系统自带的 ffmpeg 没有这个格式，会导致语音一条都发不出去（日志里是 Requested output format 'ntsilk_s16le' is not a suitable output format）。开启后插件自己把音频编码成 silk 再发，NapCat 看到已经是 silk 就直接发送，不再尝试转换。需要运行环境里有 pysilk 与 ffmpeg；缺少时自动按原方式发送。",
+    "default": true
+  },
   "replace_url_in_tts": {
     "type": "bool",
     "description": "朗读时把网址替换为占位词",

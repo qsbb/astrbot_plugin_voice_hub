@@ -2,6 +2,17 @@
 
 ### 修复
 
+- **语音发不出去（真实根因：NapCat 的 ffmpeg 缺 ntsilk 格式）**：NapCat 收到 WAV 语音会先判断要不要转成 silk，需要转换时它执行
+  `ffmpeg -f ntsilk_s16le`，而 Ubuntu 22.04 自带的 ffmpeg 4.4.2 没有这个 muxer，命令必然失败：
+  `Requested output format 'ntsilk_s16le' is not a suitable output format`。容器内用标准正常 WAV 复现，`EXIT=1`，与输入无关。
+  时间线也吻合：NapCat 的 `napcat.mjs` 在 2026-10-28 00:14:51 被自动更新，最后一次转换成功是 10-25 22:44，首次失败是 10-28 13:53。
+  现在插件自己把音频编码成 silk（新增 `core/silk_codec.py`：ffmpeg 重采样到 24 kHz + `pysilk` 编腾讯 silk），
+  产出头为 `\x02#!SILK_V3`，NapCat 的 `isSilk` 命中就跳过转换、直接走它本来正常的发送路径。
+  实测同一份真实音频：wav 499756 B → silk 15678 B，解码回环 5.66 s（时长正确、语速正常）。
+  新增配置项 `silk_direct_send`（默认开启）；缺少 pysilk 或 ffmpeg 时自动按原方式发送。
+- **silk 必须重采样到 24 kHz**：silk 只接受 8/12/16/24 kHz，直接喂 44.1 kHz 报 `ENC_INPUT_INVALID_NO_OF_SAMPLES`；
+  把 44.1 kHz 数据谎报成 24 kHz 虽能编码成功，播放却慢 1.84 倍。因此固定用 ffmpeg 重采样后再编码，并把"头不对"也当成失败（否则 NapCat 会再转一次，等于没修）。
+
 - **语音发送失败但原因丢失**：`_send_audio_result` 把 `Record` 阶段的异常吞成一条 warning，再抛一句不含原因的 `RuntimeError`。更糟的是本插件的 logger 被 `isolate_logger()` 关闭了 propagate 且没接主日志，`docker logs` 里一条 voice-hub 日志都没有——于是现场只剩「语音未能发送，且 file_fallback_enabled 已禁用文件回退」，真实原因永久丢失。现在 `RuntimeError` 会带上 `Record` 的原始异常类型与文本，并用 `raise ... from` 挂上 cause。
 - **插件日志接入 AstrBot 主日志**：新增 `AstrBotLogBridge`，在保留诊断缓冲的同时把日志转发给 AstrBot logger，`docker logs` 从此能看到 voice-hub 的输出。
 - **WAV 长度字段回填（真实事故根因）**：FishAudio 流式输出不回填长度，产物头里 `data size=0xFFFFFF00`、`RIFF size=0xFFFFFF24`，解析出来时长是 48695 秒（约 13.5 小时）。多段语音因此只在第一段之后失败，用户只听到前半句。新增 `repair_streamed_wav_header()`：在 FishAudio 写完文件后、以及发送前各回填一次，只改两个长度字段，不动 PCM 与 fmt。实测同一个真实损坏文件：修复前解析 48695.8 秒 → 修复后 5.67 秒，文件字节数不变。

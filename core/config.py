@@ -23,6 +23,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "auto_tts_private_whitelist": [],
     "auto_tts_private_blacklist": [],
     "file_fallback_enabled": True,
+    "silk_direct_send": True,
     "output_retention_days": 7,
     "output_max_files": 100,
     "emotion_routing_enabled": True,
@@ -89,6 +90,7 @@ class PluginConfig:
     auto_tts_private_whitelist: list[str]
     auto_tts_private_blacklist: list[str]
     file_fallback_enabled: bool
+    silk_direct_send: bool
     output_retention_days: int
     output_max_files: int
     emotion_routing_enabled: bool
@@ -188,6 +190,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         if raw_has_file_fallback
         else legacy_file_fallback
     )
+    cfg["silk_direct_send"] = _bool_value(cfg.get("silk_direct_send", True))
     cfg["output_retention_days"] = _int_at_least(cfg.get("output_retention_days"), 7, 0)
     cfg["output_max_files"] = _int_at_least(cfg.get("output_max_files"), 100, 0)
     cfg["emotion_routing_enabled"] = _bool_value(

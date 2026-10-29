@@ -11,6 +11,7 @@ import types
 import unittest
 import wave
 from unittest.mock import AsyncMock, patch
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -3357,3 +3358,154 @@ class SendFailureDiagnosticsTests(unittest.TestCase):
         self.assertIn(audio.name, message)
         # 原始异常要挂在 cause 上，便于上层追溯
         self.assertIsInstance(ctx.exception.__cause__, Boom)
+
+
+class SilkDirectSendTests(unittest.TestCase):
+    """NapCat 的 wav->silk 转换依赖 ffmpeg 的 ntsilk muxer，常见 ffmpeg 没有。
+
+    事故现场（10-28 起）：
+        ffmpeg -f ntsilk_s16le ...
+        Requested output format 'ntsilk_s16le' is not a suitable output format
+
+    对策是插件自己产出 silk，NapCat 看到 #!SILK 就不再转换。
+    """
+
+    def setUp(self):
+        _install_astrbot_stubs()
+        self.module = importlib.import_module("astrbot_plugin_voice_hub.main")
+        self.module.logger = _Logger()
+        from astrbot.core.star.star_handlers_registry import star_handlers_registry
+
+        star_handlers_registry.handlers = []
+        self.tmp = tempfile.TemporaryDirectory()
+        _StarTools.data_dir = self.tmp.name
+        self.plugin = self.module.MimoTTSClonePlugin(_Context(), {})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _event(self, *, group="", sender="1483904397", bot=object()):
+        calls = []
+
+        async def send(chain):
+            calls.append(("send", chain))
+
+        return (
+            types.SimpleNamespace(
+                unified_msg_origin="aiocqhttp:FriendMessage:user-a",
+                bot=bot,
+                send=send,
+                chain_result=lambda components: components,
+                get_group_id=lambda: group,
+                get_sender_id=lambda: sender,
+                message_obj=types.SimpleNamespace(raw_message={"self_id": 999}),
+            ),
+            calls,
+        )
+
+    def test_silk_path_bypasses_record_component(self):
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        sent = []
+
+        async def fake_onebot(bot, *, is_group, target_id, source, self_id=None):
+            sent.append((is_group, target_id, source))
+
+        event, calls = self._event()
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", return_value=b"\x02#!SILK_V3payload"
+        ), mock.patch.object(
+            self.plugin, "_call_onebot_message", fake_onebot
+        ), mock.patch.object(
+            self.module, "Record", side_effect=AssertionError("Record 不该被调用")
+        ):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        self.assertEqual(len(sent), 1)
+        is_group, target_id, source = sent[0]
+        self.assertFalse(is_group)
+        self.assertEqual(target_id, 1483904397)
+        self.assertTrue(source.startswith("base64://"))
+        self.assertEqual(calls, [])
+
+    def test_group_target_uses_group_id(self):
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        sent = []
+
+        async def fake_onebot(bot, *, is_group, target_id, source, self_id=None):
+            sent.append((is_group, target_id))
+
+        event, _ = self._event(group="123456")
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", return_value=b"\x02#!SILK_V3payload"
+        ), mock.patch.object(self.plugin, "_call_onebot_message", fake_onebot):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        self.assertEqual(sent, [(True, 123456)])
+
+    def test_silk_failure_falls_back_to_record(self):
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        sent = []
+
+        async def fake_send(chain):
+            sent.append(chain)
+
+        event, _ = self._event()
+        event.send = fake_send
+
+        class FakeRecord:
+            def __init__(self, file=""):
+                self.file = file
+
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", side_effect=RuntimeError("no pysilk")
+        ), mock.patch.object(self.module, "Record", FakeRecord):
+            asyncio.run(self.plugin._send_audio_result(event, audio))
+
+        self.assertEqual(len(sent), 1)
+        self.assertIsInstance(sent[0][0], FakeRecord)
+
+    def test_non_aiocqhttp_platform_skips_silk(self):
+        audio = Path(self.tmp.name) / "voice.wav"
+        audio.write_bytes(b"RIFF0000WAVE")
+        sent = []
+
+        class FakeRecord:
+            def __init__(self, file=""):
+                self.file = file
+
+        event, _ = self._event()
+        event.unified_msg_origin = "telegram:FriendMessage:123456789"
+
+        async def fake_send(chain):
+            sent.append(chain)
+
+        event.send = fake_send
+
+        with mock.patch.object(
+            self.module, "silk_available", return_value=True
+        ), mock.patch.object(
+            self.module, "wav_to_silk", side_effect=AssertionError("不该编码")
+        ), mock.patch.object(self.module, "Record", FakeRecord):
+            asyncio.run(
+                self.plugin._send_audio_result(event, audio)
+            )
+
+        self.assertEqual(len(sent), 1)
+
+    def test_can_send_silk_requires_pysilk_and_bot(self):
+        event, _ = self._event()
+        with mock.patch.object(self.module, "silk_available", return_value=True):
+            self.assertTrue(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1", event))
+        with mock.patch.object(self.module, "silk_available", return_value=False):
+            self.assertFalse(self.plugin._can_send_silk("aiocqhttp:GroupMessage:1", event))
+        with mock.patch.object(self.module, "silk_available", return_value=True):
+            self.assertFalse(self.plugin._can_send_silk("telegram:FriendMessage:1", event))

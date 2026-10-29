@@ -29,6 +29,7 @@ try:  # TextPart 用于不破坏 prompt 缓存的动态上下文注入
 except Exception:  # pragma: no cover
     TextPart = None
 
+from .core.silk_codec import silk_available, wav_to_silk
 from .core.audio_codec import (
     AudioMergeError,
     PCMOutputValidationError,
@@ -85,7 +86,7 @@ from .series_diagnostics import (
     logger,
 )
 
-__version__ = "0.15.4"
+__version__ = "0.15.5"
 
 
 @register(
@@ -2382,7 +2383,7 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
         event: Any = None,
         session: str = "",
     ) -> None:
-        """把共享 Windows 路径直接通过 OneBot 客户端发送。"""
+        """通过 OneBot 客户端发送任意 audio source（共享路径、base64:// 等）。"""
         if event is not None:
             bot = getattr(event, "bot", None)
             if bot is None:
@@ -2530,6 +2531,34 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             return decision
         return None
 
+    def _can_send_silk(self, umo: str, event: Any) -> bool:
+        """silK 直发只对 aiocqhttp 有意义，其他平台仍走 Record 组件。"""
+        platform_id = str(umo or "").split(":", 1)[0].strip()
+        if platform_id and platform_id != "aiocqhttp":
+            return False
+        if getattr(event, "bot", None) is None:
+            return False
+        return silk_available()
+
+    async def _send_silk_audio(
+        self, event: AstrMessageEvent, audio_path: pathlib.Path
+    ) -> None:
+        """自行编码 silk 后直接走 OneBot API 发送。
+
+        NapCat 的 wav->silk 转换依赖 ``ffmpeg -f ntsilk_s16le``，而常见
+        Ubuntu ffmpeg 没有这个 muxer，转换必然失败。这里改成插件自己
+        产出 silk，NapCat 看到 ``#!SILK`` 就直接发，不再尝试转换。
+
+        注意走的是底层 OneBot 接口，绕开了 AstrBot 的 Record 组件——因为
+        ``Record.convert_to_base64()`` 会把 silk 又转回 wav。
+        """
+        silk_bytes = await asyncio.to_thread(wav_to_silk, audio_path)
+        source = "base64://" + base64.b64encode(silk_bytes).decode("ascii")
+        await self._send_shared_path_audio(source=source, event=event)
+        self.logger.info(
+            "[voice-hub] sent %s as silk (%d bytes)", audio_path.name, len(silk_bytes)
+        )
+
     async def _send_audio_result(
         self, event: AstrMessageEvent, audio_path: pathlib.Path
     ) -> None:
@@ -2545,6 +2574,16 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
             source = self._audio_source(audio_path)
             await self._send_shared_path_audio(source=source, event=event)
             return
+        silk_error: Exception | None = None
+        if self.plugin_config.silk_direct_send and self._can_send_silk(umo, event):
+            try:
+                await self._send_silk_audio(event, audio_path)
+                return
+            except Exception as exc:
+                silk_error = exc
+                self.logger.warning(
+                    "[voice-hub] silk direct send failed, falling back: %s", exc
+                )
         record_error: Exception | None = None
         if Record is not None:
             try:
@@ -2569,6 +2608,8 @@ class MimoTTSClonePlugin(PagesAPIMixin, Star):
                 if record_error is not None
                 else " Record 组件不可用。"
             )
+            if silk_error is not None:
+                detail += f" silk 直发错误：{type(silk_error).__name__}: {silk_error}"
             raise RuntimeError(
                 f"语音未能发送（文件 {audio_path.name}），"
                 f"且 file_fallback_enabled 已禁用文件回退。{detail}"
